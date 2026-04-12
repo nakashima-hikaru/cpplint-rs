@@ -55,7 +55,17 @@ if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
     meson setup build --native-file=presets/release.ini
     meson compile -C build
 
-    cp build/cpplint "$BENCH_DIR/cpplint-cpp"
+    # Find the binary dynamically as it might be in a subdirectory like build/src/cpplint
+    CPP_BIN=$(find build -type f -name "cpplint" -executable | head -n 1)
+
+    if [ -z "$CPP_BIN" ]; then
+        echo "Error: Could not find cpplint executable in build directory"
+        find build -maxdepth 3
+        exit 1
+    fi
+
+    echo "Found cpplint-cpp binary at: $CPP_BIN"
+    cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp"
     cd "$BASE_DIR"
 fi
 CPPLINT_CPP="$BENCH_DIR/cpplint-cpp"
