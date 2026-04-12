@@ -24,10 +24,10 @@ _Measured on 2,604 files in the QuantLib codebase._
 | `cpplint-rs` | 1.509 ± 0.045 | 1.393 | 1.548 | 1.00 |
 
 #### Windows (GitHub Actions)
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 6.8 ± 1.0 | 5.9 | 11.3 | 1.00 |
-| `cpplint-rs` | 6.8 ± 0.9 | 6.1 | 13.0 | 1.01 ± 0.20 |
+| `cpplint-cpp` | 4.834 ± 0.065 | 4.796 | 5.011 | 2.37 ± 0.11 |
+| `cpplint-rs` | 2.037 ± 0.092 | 1.867 | 2.119 | 1.00 |
 
 ### GoogleTest Benchmark
 _Measured on the GoogleTest codebase._
@@ -47,8 +47,8 @@ _Measured on the GoogleTest codebase._
 #### Windows (GitHub Actions)
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 7.9 ± 0.4 | 7.2 | 9.7 | 1.00 |
-| `cpplint-rs` | 8.3 ± 0.5 | 7.5 | 11.2 | 1.06 ± 0.08 |
+| `cpplint-cpp` | 410.2 ± 6.2 | 403.7 | 418.9 | 2.19 ± 0.05 |
+| `cpplint-rs` | 187.5 ± 2.6 | 182.3 | 192.1 | 1.00 |
 
 ## ✨ Highlights
 
