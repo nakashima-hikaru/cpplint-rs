@@ -32,7 +32,6 @@ jobs:
 
             - name: Run Benchmarks
               run: ./scripts/benchmark.sh
-              working-directory: cpplint-rs
 
             - name: Upload Benchmark Results
               uses: actions/upload-artifact@v4
