@@ -78,10 +78,17 @@ if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
     fi
 
     echo "Found cpplint-cpp binary at: $CPP_BIN"
-    cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp"
+    if [[ "$CPP_BIN" == *.exe ]]; then
+        cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp.exe"
+    else
+        cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp"
+    fi
     cd "$BASE_DIR"
 fi
 CPPLINT_CPP="$BENCH_DIR/cpplint-cpp"
+if [ -f "${CPPLINT_CPP}.exe" ]; then
+    CPPLINT_CPP="${CPPLINT_CPP}.exe"
+fi
 
 # Benchmarking function
 run_bench() {
@@ -96,10 +103,15 @@ run_bench() {
         return
     fi
 
-    # If running under MSYS/Cygwin, convert target_path to Windows format
+    # If running under MSYS/Cygwin, convert target_path and binaries to Windows format
     local run_path="$target_path"
+    local cpp_bin="$CPPLINT_CPP"
+    local rs_bin="$CPPLINT_RS"
+
     if command -v cygpath &> /dev/null; then
-        run_path=$(cygpath -w "$target_path")
+        run_path=$(cygpath -m "$target_path")
+        cpp_bin=$(cygpath -m "$CPPLINT_CPP")
+        rs_bin=$(cygpath -m "$CPPLINT_RS")
     fi
 
     # We use --ignore-failure because linters will likely find issues in these repos
@@ -107,8 +119,8 @@ run_bench() {
     hyperfine --warmup 3 \
         --ignore-failure \
         --export-markdown "$BENCH_DIR/results_${target_name}.md" \
-        -n "cpplint-cpp" "$CPPLINT_CPP --recursive \"$run_path\"" \
-        -n "cpplint-rs" "$CPPLINT_RS --recursive \"$run_path\""
+        -n "cpplint-cpp" "\"$cpp_bin\" --recursive \"$run_path\"" \
+        -n "cpplint-rs" "\"$rs_bin\" --recursive \"$run_path\""
 
     echo ""
     cat "$BENCH_DIR/results_${target_name}.md"
