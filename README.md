@@ -1,6 +1,6 @@
 # cpplint-rs
 
-A high-performance Rust reimplementation of the Google C++ style checker (`cpplint.py`).
+A high-performance Rust reimplementation of [cpplint 2.0](https://github.com/cpplint/cpplint/tree/2.0.0)
 
 `cpplint-rs` aims to provide **100% functional parity** with the original Google linter while offering significantly faster execution, better accuracy in complex C++ scenarios, and modern CLI features.
 
@@ -8,12 +8,12 @@ A high-performance Rust reimplementation of the Google C++ style checker (`cppli
 
 `cpplint-rs` is designed for speed. By leveraging Rust's zero-cost abstractions, multi-threading, and efficient pattern matching, it outperforms even the C++ implementation.
 
-| Benchmark (QuantLib) | cpplint-cpp (C++ rewrite) | cpplint-rs (Rust) | Speedup |
-| :--- | :--- | :--- | :--- |
-| **Total Time** | 5.97 s | **0.92 s** | **~6.5x faster** |
-| **Time per File** | 2.39 ms | **0.35 ms** | **~6.8x faster** |
+| Benchmark (QuantLib) | cpplint-cpp (C++ rewrite) | cpplint-rs (Rust) | Speedup          |
+| :------------------- | :------------------------ | :---------------- | :--------------- |
+| **Total Time**       | 5.97 s                    | **0.92 s**        | **~6.5x faster** |
+| **Time per File**    | 2.39 ms                   | **0.35 ms**       | **~6.8x faster** |
 
-*Measured on 2,604 files in the QuantLib codebase.*
+_Measured on 2,604 files in the QuantLib codebase._
 
 ## ✨ Highlights
 
