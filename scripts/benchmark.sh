@@ -44,17 +44,18 @@ if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
 
     cd "$BENCH_DIR/cpplint-cpp-src"
 
-    # Verify CMakeLists.txt exists
-    if [ ! -f "CMakeLists.txt" ]; then
-        echo "Error: CMakeLists.txt not found in cpplint-cpp-src"
-        ls -R
+    # Verify meson.build exists
+    if [ ! -f "meson.build" ]; then
+        echo "Error: meson.build not found in cpplint-cpp-src"
         exit 1
     fi
 
-    mkdir -p build && cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
-    cp cpplint "$BENCH_DIR/cpplint-cpp"
+    # Build using meson
+    rm -rf build
+    meson setup build --native-file=presets/release.ini
+    meson compile -C build
+
+    cp build/cpplint "$BENCH_DIR/cpplint-cpp"
     cd "$BASE_DIR"
 fi
 CPPLINT_CPP="$BENCH_DIR/cpplint-cpp"
