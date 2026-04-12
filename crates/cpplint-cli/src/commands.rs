@@ -1,5 +1,5 @@
 use crate::options::{CheckArgs, RuleArgs};
-use cpplint_core::registry::{rule_registry, RuleFamily, RuleSelection};
+use cpplint_core::registry::{RuleFamily, RuleSelection, rule_registry};
 use cpplint_core::runner::run_lint;
 use std::process::ExitCode;
 

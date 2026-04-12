@@ -2,7 +2,7 @@ mod commands;
 mod options;
 
 use commands::{run_check_command, run_rule_command};
-use options::{parse_cli, ParsedCommand};
+use options::{ParsedCommand, parse_cli};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {

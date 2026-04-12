@@ -3,7 +3,7 @@ use crate::cleanse::CleansedLines;
 use crate::errors::Result;
 use crate::facts::FileFacts;
 use crate::options::Options;
-use crate::registry::{rule_registry, RuleRegistry};
+use crate::registry::{RuleRegistry, rule_registry};
 use crate::source::{DecodedSource, SourceFile};
 use crate::state::CppLintState;
 use crate::string_utils;
@@ -349,7 +349,10 @@ fn relative_from_repository(file: &Path, repository: &Path) -> PathBuf {
     }
 
     if !repository.as_os_str().is_empty()
-        && let (Ok(file_abs), Ok(repo_abs)) = (std::fs::canonicalize(file), std::fs::canonicalize(repository))
+        && let (Ok(file_abs), Ok(repo_abs)) = (
+            std::fs::canonicalize(file),
+            std::fs::canonicalize(repository),
+        )
         && let Ok(relative) = file_abs.strip_prefix(repo_abs)
     {
         return relative.to_path_buf();
@@ -393,7 +396,8 @@ fn relative_from_subdir(file: &Path, subdir: &Path) -> PathBuf {
         return relative.to_path_buf();
     }
 
-    if let (Ok(file_abs), Ok(subdir_abs)) = (std::fs::canonicalize(file), std::fs::canonicalize(subdir))
+    if let (Ok(file_abs), Ok(subdir_abs)) =
+        (std::fs::canonicalize(file), std::fs::canonicalize(subdir))
         && let Ok(relative) = file_abs.strip_prefix(subdir_abs)
     {
         return relative.to_path_buf();

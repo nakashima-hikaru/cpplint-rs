@@ -42,7 +42,6 @@ pub fn regex_search(pattern: &str, s: &str) -> bool {
     false
 }
 
-
 /// Matches a pattern against a substring defined by a range.
 #[cfg(test)]
 pub fn regex_match_with_range(pattern: &str, s: &str, start: usize, len: usize) -> bool {
@@ -97,7 +96,6 @@ mod tests {
             );
         }
     }
-
 
     #[test]
     fn test_regex_match_with_range() {

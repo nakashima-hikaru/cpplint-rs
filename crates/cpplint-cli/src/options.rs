@@ -1,5 +1,5 @@
 use clap::{Args, Parser, ValueEnum};
-use cpplint_core::options::{IncludeOrder, Options, DEFAULT_LINE_LENGTH};
+use cpplint_core::options::{DEFAULT_LINE_LENGTH, IncludeOrder, Options};
 use cpplint_core::runner::RunnerConfig;
 use cpplint_core::state::{CountingStyle, OutputFormat};
 use std::ffi::OsString;

@@ -315,7 +315,6 @@ fn cleanse_comments_line(line: &str, mut in_block_comment: bool) -> (String, boo
     (result.trim_end().to_string(), is_comment, in_block_comment)
 }
 
-
 pub fn is_cpp_string(line: &str) -> bool {
     let mut escaped = false;
     let mut in_string = false;

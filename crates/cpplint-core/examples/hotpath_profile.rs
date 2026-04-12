@@ -1,4 +1,4 @@
-use cpplint_core::runner::{run_lint, RunnerConfig};
+use cpplint_core::runner::{RunnerConfig, run_lint};
 use cpplint_core::state::OutputFormat;
 use ignore::WalkBuilder;
 use std::ffi::OsStr;

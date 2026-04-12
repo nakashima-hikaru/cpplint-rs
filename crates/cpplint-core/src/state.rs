@@ -563,10 +563,12 @@ mod tests {
             .last_include_list_mut()
             .push(("foo/z.h".to_string(), 7));
         include_state.reset_section("else");
-        assert!(include_state
-            .include_lists()
-            .last()
-            .is_some_and(|section| section.is_empty()));
+        assert!(
+            include_state
+                .include_lists()
+                .last()
+                .is_some_and(|section| section.is_empty())
+        );
     }
 
     #[test]

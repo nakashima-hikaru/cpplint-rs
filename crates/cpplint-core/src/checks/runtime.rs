@@ -468,12 +468,11 @@ fn parse_constructor_signature<'a>(line: &'a str, class_name: &str) -> Option<(b
             remainder = rest.trim_start();
             continue;
         }
-        if !is_explicit
-            && let Some(rest) = remainder.strip_prefix("explicit ") {
-                is_explicit = true;
-                remainder = rest.trim_start();
-                continue;
-            }
+        if !is_explicit && let Some(rest) = remainder.strip_prefix("explicit ") {
+            is_explicit = true;
+            remainder = rest.trim_start();
+            continue;
+        }
         if remainder == previous {
             break;
         }
@@ -1112,10 +1111,12 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
                 short_idx = Some(start);
             }
         } else if needle == "long"
-            && long_idx.is_none() && find_word_at(line, start, "long").is_some()
-                && !string_utils::contains_word(line, "long double") {
-                    long_idx = Some(start);
-                }
+            && long_idx.is_none()
+            && find_word_at(line, start, "long").is_some()
+            && !string_utils::contains_word(line, "long double")
+        {
+            long_idx = Some(start);
+        }
     }
 
     let ty = match (short_idx, long_idx) {

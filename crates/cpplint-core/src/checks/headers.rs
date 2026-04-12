@@ -655,58 +655,59 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
     }
 
     if let (Some((line_idx, guard)), Some(d_guard)) = (ifndef, define)
-        && guard == d_guard {
-            if guard != expected_guard {
-                linter.error(
-                    line_idx,
-                    "build/header_guard",
-                    5,
-                    &format!(
-                        "#ifndef header guard has wrong style, please use: {}",
-                        expected_guard
-                    ),
-                );
-            }
+        && guard == d_guard
+    {
+        if guard != expected_guard {
+            linter.error(
+                line_idx,
+                "build/header_guard",
+                5,
+                &format!(
+                    "#ifndef header guard has wrong style, please use: {}",
+                    expected_guard
+                ),
+            );
+        }
 
-            let endif_idx = endif.unwrap_or(raw_lines.len().saturating_sub(1));
-            let endif_line = endif_line.unwrap_or_default();
-            let expected_slash = format!("#endif  // {}", expected_guard);
-            let expected_block = format!("#endif  /* {} */", expected_guard);
-            let expected_slash_legacy = format!("#endif  // {}_", expected_guard);
-            let expected_block_legacy = format!("#endif  /* {}_ */", expected_guard);
+        let endif_idx = endif.unwrap_or(raw_lines.len().saturating_sub(1));
+        let endif_line = endif_line.unwrap_or_default();
+        let expected_slash = format!("#endif  // {}", expected_guard);
+        let expected_block = format!("#endif  /* {} */", expected_guard);
+        let expected_slash_legacy = format!("#endif  // {}_", expected_guard);
+        let expected_block_legacy = format!("#endif  /* {}_ */", expected_guard);
 
-            if endif_line == expected_slash || endif_line == expected_block {
-                return;
-            }
+        if endif_line == expected_slash || endif_line == expected_block {
+            return;
+        }
 
-            if endif_line == expected_slash_legacy {
-                linter.error(
-                    endif_idx,
-                    "build/header_guard",
-                    0,
-                    &format!(r#"#endif line should be "{}""#, expected_slash),
-                );
-                return;
-            }
-
-            if endif_line == expected_block_legacy {
-                linter.error(
-                    endif_idx,
-                    "build/header_guard",
-                    0,
-                    &format!(r#"#endif line should be "{}""#, expected_block),
-                );
-                return;
-            }
-
+        if endif_line == expected_slash_legacy {
             linter.error(
                 endif_idx,
                 "build/header_guard",
-                5,
+                0,
                 &format!(r#"#endif line should be "{}""#, expected_slash),
             );
             return;
         }
+
+        if endif_line == expected_block_legacy {
+            linter.error(
+                endif_idx,
+                "build/header_guard",
+                0,
+                &format!(r#"#endif line should be "{}""#, expected_block),
+            );
+            return;
+        }
+
+        linter.error(
+            endif_idx,
+            "build/header_guard",
+            5,
+            &format!(r#"#endif line should be "{}""#, expected_slash),
+        );
+        return;
+    }
 
     linter.error_display_line(
         0,
@@ -1272,9 +1273,11 @@ fn generate_guard(path: &Path) -> String {
 
     for component in path.components() {
         if let Some(part) = component.as_os_str().to_str()
-            && !part.is_empty() && part != "." {
-                parts.push(part);
-            }
+            && !part.is_empty()
+            && part != "."
+        {
+            parts.push(part);
+        }
     }
 
     let joined = if parts.is_empty() {

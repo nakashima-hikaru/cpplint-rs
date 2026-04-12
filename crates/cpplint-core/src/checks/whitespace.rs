@@ -202,8 +202,9 @@ static ID_COMMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^// \$Id:.*#[0-9]+ \$$"#).unwrap());
 static DOXYGEN_COPY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*/// [@\\](copydoc|copydetails|copybrief) .*$"#).unwrap());
-static QUALIFIED_BRACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\)\s*(?:const|override|final|noexcept(?:\s*\([^)]*\))?)\{"#).unwrap());
+static QUALIFIED_BRACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\)\s*(?:const|override|final|noexcept(?:\s*\([^)]*\))?)\{"#).unwrap()
+});
 
 fn should_skip_line_length(raw_line: &str) -> bool {
     raw_line.starts_with("#include")
@@ -432,16 +433,17 @@ fn check_operator_spacing(
 
     let mut masked_line: std::borrow::Cow<'_, str> = std::borrow::Cow::Borrowed(elided_line);
     if keywords.has_operator
-        && let Some(captures) = OPERATOR_METHOD_RE.captures(elided_line) {
-            let prefix = captures.get(1).map_or("", |m| m.as_str());
-            let operator = captures.get(2).map_or("", |m| m.as_str());
-            let suffix = captures.get(3).map_or("", |m| m.as_str());
-            let mut replaced = String::with_capacity(prefix.len() + operator.len() + suffix.len());
-            replaced.push_str(prefix);
-            replaced.extend(std::iter::repeat_n('_', operator.len()));
-            replaced.push_str(suffix);
-            masked_line = std::borrow::Cow::Owned(replaced);
-        }
+        && let Some(captures) = OPERATOR_METHOD_RE.captures(elided_line)
+    {
+        let prefix = captures.get(1).map_or("", |m| m.as_str());
+        let operator = captures.get(2).map_or("", |m| m.as_str());
+        let suffix = captures.get(3).map_or("", |m| m.as_str());
+        let mut replaced = String::with_capacity(prefix.len() + operator.len() + suffix.len());
+        replaced.push_str(prefix);
+        replaced.extend(std::iter::repeat_n('_', operator.len()));
+        replaced.push_str(suffix);
+        masked_line = std::borrow::Cow::Owned(replaced);
+    }
 
     let raw_trimmed = clean_lines.raw_lines[linenum].trim();
     if raw_trimmed.starts_with("/*! ")
@@ -486,32 +488,34 @@ fn check_operator_spacing(
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if line_to_check.contains('<')
-            && let Some(captures) = LESS_SPACING_RE.captures(line_to_check) {
-                let end_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
-                if crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none() {
-                    linter.error(
-                        linenum,
-                        "whitespace/operators",
-                        3,
-                        "Missing spaces around <",
-                    );
-                }
+            && let Some(captures) = LESS_SPACING_RE.captures(line_to_check)
+        {
+            let end_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
+            if crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none() {
+                linter.error(
+                    linenum,
+                    "whitespace/operators",
+                    3,
+                    "Missing spaces around <",
+                );
             }
+        }
 
         if line_to_check.contains('>')
-            && let Some(captures) = GREATER_SPACING_RE.captures(line_to_check) {
-                let start_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
-                if crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
-                    .is_none()
-                {
-                    linter.error(
-                        linenum,
-                        "whitespace/operators",
-                        3,
-                        "Missing spaces around >",
-                    );
-                }
+            && let Some(captures) = GREATER_SPACING_RE.captures(line_to_check)
+        {
+            let start_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
+            if crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
+                .is_none()
+            {
+                linter.error(
+                    linenum,
+                    "whitespace/operators",
+                    3,
+                    "Missing spaces around >",
+                );
             }
+        }
     }
 
     if let Some(captures) = LSHIFT_SPACING_RE.captures(line_to_check) {
@@ -635,17 +639,18 @@ fn check_spacing_for_function_call(
             );
         }
     } else if keywords.has_while
-        && let Some(captures) = WHILE_CALL_RE.captures(elided_line) {
-            check_spacing_for_function_call_base(
-                linter,
-                elided_line,
-                captures.get(1).map(|m| m.as_str()).unwrap_or(""),
-                raw_line,
-                linenum,
-                keywords,
-            );
-            return;
-        }
+        && let Some(captures) = WHILE_CALL_RE.captures(elided_line)
+    {
+        check_spacing_for_function_call_base(
+            linter,
+            elided_line,
+            captures.get(1).map(|m| m.as_str()).unwrap_or(""),
+            raw_line,
+            linenum,
+            keywords,
+        );
+        return;
+    }
 
     check_spacing_for_function_call_base(
         linter,
@@ -696,9 +701,10 @@ fn check_spacing_for_function_call_base(
         || keywords.has_delete
         || keywords.has_catch
         || keywords.has_sizeof)
-        && CONTROL_STRUCT_RE.is_match(fncall) {
-            return;
-        }
+        && CONTROL_STRUCT_RE.is_match(fncall)
+    {
+        return;
+    }
 
     if FUNC_REF_RE.is_match(fncall) || ARRAY_REF_RE.is_match(fncall) {
         return;
@@ -858,35 +864,36 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
     }
 
     if let Some(prevbrace) = prev_line.rfind('{')
-        && !prev_line[prevbrace..].contains('}') {
-            if prev_is_comment {
-                return;
-            }
-            let exception = if INITLIST_CONTINUATION_RE.is_match(prev_line) {
-                let mut search_position = linenum.checked_sub(2);
-                while let Some(position) = search_position {
-                    if !INITLIST_CONTINUATION_RE.is_match(&clean_lines.elided[position]) {
-                        break;
-                    }
-                    search_position = position.checked_sub(1);
-                }
-                search_position
-                    .map(|position| clean_lines.elided[position].starts_with("    :"))
-                    .unwrap_or(false)
-            } else {
-                FUNCTION_HEADER_BLANK_LINE_RE.is_match(prev_line)
-                    || INITLIST_HEADER_BLANK_LINE_RE.is_match(prev_line)
-            };
-
-            if !exception {
-                linter.error(
-                    linenum,
-                    "whitespace/blank_line",
-                    2,
-                    "Redundant blank line at the start of a code block should be deleted.",
-                );
-            }
+        && !prev_line[prevbrace..].contains('}')
+    {
+        if prev_is_comment {
+            return;
         }
+        let exception = if INITLIST_CONTINUATION_RE.is_match(prev_line) {
+            let mut search_position = linenum.checked_sub(2);
+            while let Some(position) = search_position {
+                if !INITLIST_CONTINUATION_RE.is_match(&clean_lines.elided[position]) {
+                    break;
+                }
+                search_position = position.checked_sub(1);
+            }
+            search_position
+                .map(|position| clean_lines.elided[position].starts_with("    :"))
+                .unwrap_or(false)
+        } else {
+            FUNCTION_HEADER_BLANK_LINE_RE.is_match(prev_line)
+                || INITLIST_HEADER_BLANK_LINE_RE.is_match(prev_line)
+        };
+
+        if !exception {
+            linter.error(
+                linenum,
+                "whitespace/blank_line",
+                2,
+                "Redundant blank line at the start of a code block should be deleted.",
+            );
+        }
+    }
 
     if let Some(captures) = ACCESS_SPECIFIER_RE.captures(prev_line) {
         linter.error(
@@ -902,33 +909,32 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
 
     if let Some(next_line) = clean_lines.lines_without_raw_strings.get(linenum + 1)
         && !next_line.is_empty()
-            && next_line.trim_start().starts_with('}')
-            && !next_line.contains("} else ")
-        {
-            let closes_extern_block = linter
-                .facts()
-                .matching_block_start(linenum + 1)
-                .is_some_and(|start| {
-                    let start_line = clean_lines.raw_lines[start].trim();
-                    start_line.starts_with("extern ") && start_line.ends_with('{')
-                });
-            let closes_namespace_block = linter
-                .facts()
-                .matching_block_start(linenum + 1)
-                .is_some_and(|start| {
-                    crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start)
-                        .is_some()
-                });
-            if closes_extern_block || closes_namespace_block {
-                return;
-            }
-            linter.error(
-                linenum,
-                "whitespace/blank_line",
-                3,
-                "Redundant blank line at the end of a code block should be deleted.",
-            );
+        && next_line.trim_start().starts_with('}')
+        && !next_line.contains("} else ")
+    {
+        let closes_extern_block = linter
+            .facts()
+            .matching_block_start(linenum + 1)
+            .is_some_and(|start| {
+                let start_line = clean_lines.raw_lines[start].trim();
+                start_line.starts_with("extern ") && start_line.ends_with('{')
+            });
+        let closes_namespace_block = linter
+            .facts()
+            .matching_block_start(linenum + 1)
+            .is_some_and(|start| {
+                crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start).is_some()
+            });
+        if closes_extern_block || closes_namespace_block {
+            return;
         }
+        linter.error(
+            linenum,
+            "whitespace/blank_line",
+            3,
+            "Redundant blank line at the end of a code block should be deleted.",
+        );
+    }
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -1140,7 +1146,12 @@ fn check_tabs_and_line_length(
     linenum: usize,
 ) {
     if raw_line.contains('\t') {
-        linter.error(linenum, "whitespace/tab", 1, "Tab found; better to use spaces");
+        linter.error(
+            linenum,
+            "whitespace/tab",
+            1,
+            "Tab found; better to use spaces",
+        );
     }
 
     let width = UnicodeWidthStr::width(line_without_raw_strings);

@@ -1,4 +1,4 @@
-use crate::cleanse::{collapse_strings, CleansedLines};
+use crate::cleanse::{CleansedLines, collapse_strings};
 use crate::file_linter::FileLinter;
 use crate::line_utils;
 use crate::regex_utils;
@@ -559,38 +559,40 @@ fn check_braces(
         if ELSE_AFTER_BRACE_RE.is_match(elided_line)
             && let Some((_prev_idx, prev_line)) =
                 line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
-                && prev_line.trim() == "}" {
-                    linter.error(
-                        linenum,
-                        r#"whitespace/newline"#,
-                        4,
-                        r#"An else should appear on the same line as the preceding }"#,
-                    );
-                    last_wrong = true;
-                }
+            && prev_line.trim() == "}"
+        {
+            linter.error(
+                linenum,
+                r#"whitespace/newline"#,
+                4,
+                r#"An else should appear on the same line as the preceding }"#,
+            );
+            last_wrong = true;
+        }
 
         if ELSE_IF_RE.is_match(elided_line) {
             let brace_on_left = BRACED_ELSE_IF_RE.is_match(elided_line);
             if let Some(else_if_pos) = elided_line.find("else if")
-                && let Some(open_paren_offset) = elided_line[else_if_pos..].find('(') {
-                    let open_paren_pos = else_if_pos + open_paren_offset;
-                    if let Some((end_line, end_pos)) =
-                        line_utils::close_expression(clean_lines, linenum, open_paren_pos)
-                    {
-                        let endline = &clean_lines.elided[end_line];
-                        let brace_on_right = endline
-                            .get(end_pos..)
-                            .is_some_and(|suffix| suffix.contains('{'));
-                        if brace_on_left != brace_on_right {
-                            linter.error(
-                                linenum,
-                                "readability/braces",
-                                5,
-                                "If an else has a brace on one side, it should have it on both",
-                            );
-                        }
+                && let Some(open_paren_offset) = elided_line[else_if_pos..].find('(')
+            {
+                let open_paren_pos = else_if_pos + open_paren_offset;
+                if let Some((end_line, end_pos)) =
+                    line_utils::close_expression(clean_lines, linenum, open_paren_pos)
+                {
+                    let endline = &clean_lines.elided[end_line];
+                    let brace_on_right = endline
+                        .get(end_pos..)
+                        .is_some_and(|suffix| suffix.contains('{'));
+                    if brace_on_left != brace_on_right {
+                        linter.error(
+                            linenum,
+                            "readability/braces",
+                            5,
+                            "If an else has a brace on one side, it should have it on both",
+                        );
                     }
                 }
+            }
         } else {
             let has_left_brace = BRACED_ELSE_RE.is_match(elided_line);
             let has_right_brace = ELSE_WITH_BRACE_RE.is_match(elided_line) && !last_wrong;
@@ -1053,9 +1055,7 @@ fn check_namespace_termination_comment(
     let Some(captures) = NAMESPACE_START_RE.captures(start) else {
         return;
     };
-    if linenum.saturating_sub(namespace_line) < 10
-        && !NAMESPACE_TERMINATION_RE.is_match(raw_line)
-    {
+    if linenum.saturating_sub(namespace_line) < 10 && !NAMESPACE_TERMINATION_RE.is_match(raw_line) {
         return;
     }
 

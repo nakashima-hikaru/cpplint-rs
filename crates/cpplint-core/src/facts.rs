@@ -113,9 +113,10 @@ impl FileFacts {
                     }
                     for _ in 0..r_braces {
                         if let Some(popped) = ns_ext_stack.pop()
-                            && matches!(popped, ScopeKind::Namespace | ScopeKind::Extern) {
-                                ns_ext_depth = ns_ext_depth.saturating_sub(1);
-                            }
+                            && matches!(popped, ScopeKind::Namespace | ScopeKind::Extern)
+                        {
+                            ns_ext_depth = ns_ext_depth.saturating_sub(1);
+                        }
                     }
                 } else if !trimmed_elided.is_empty() {
                     pending_ns_ext_scope = None;
@@ -123,8 +124,11 @@ impl FileFacts {
             }
             if pending_ns_ext_scope.is_none() {
                 if elided.contains('{')
-                    && line_utils::namespace_decl_start_line(&clean_lines.lines_without_raw_strings, linenum)
-                        .is_some()
+                    && line_utils::namespace_decl_start_line(
+                        &clean_lines.lines_without_raw_strings,
+                        linenum,
+                    )
+                    .is_some()
                 {
                     ns_ext_stack.push(ScopeKind::Namespace);
                     ns_ext_depth += 1;
@@ -133,9 +137,10 @@ impl FileFacts {
                     }
                     for _ in 0..r_braces {
                         if let Some(popped) = ns_ext_stack.pop()
-                            && matches!(popped, ScopeKind::Namespace | ScopeKind::Extern) {
-                                ns_ext_depth = ns_ext_depth.saturating_sub(1);
-                            }
+                            && matches!(popped, ScopeKind::Namespace | ScopeKind::Extern)
+                        {
+                            ns_ext_depth = ns_ext_depth.saturating_sub(1);
+                        }
                     }
                 } else if trimmed_elided.starts_with("extern ") {
                     if elided.contains('{') {
@@ -150,9 +155,10 @@ impl FileFacts {
                     }
                     for _ in 0..r_braces {
                         if let Some(popped) = ns_ext_stack.pop()
-                            && matches!(popped, ScopeKind::Namespace | ScopeKind::Extern) {
-                                ns_ext_depth = ns_ext_depth.saturating_sub(1);
-                            }
+                            && matches!(popped, ScopeKind::Namespace | ScopeKind::Extern)
+                        {
+                            ns_ext_depth = ns_ext_depth.saturating_sub(1);
+                        }
                     }
                 }
             }
@@ -163,8 +169,11 @@ impl FileFacts {
                     .then_some(top_ns_depth),
             );
             if elided.contains('{')
-                && line_utils::namespace_decl_start_line(&clean_lines.lines_without_raw_strings, linenum)
-                    .is_some()
+                && line_utils::namespace_decl_start_line(
+                    &clean_lines.lines_without_raw_strings,
+                    linenum,
+                )
+                .is_some()
             {
                 top_ns_stack.push(ScopeKind::Namespace);
                 top_ns_depth += 1;
@@ -173,9 +182,10 @@ impl FileFacts {
                 }
                 for _ in 0..r_braces {
                     if let Some(popped) = top_ns_stack.pop()
-                        && popped == ScopeKind::Namespace {
-                            top_ns_depth = top_ns_depth.saturating_sub(1);
-                        }
+                        && popped == ScopeKind::Namespace
+                    {
+                        top_ns_depth = top_ns_depth.saturating_sub(1);
+                    }
                 }
             } else {
                 for _ in 0..l_braces {
@@ -183,9 +193,10 @@ impl FileFacts {
                 }
                 for _ in 0..r_braces {
                     if let Some(popped) = top_ns_stack.pop()
-                        && popped == ScopeKind::Namespace {
-                            top_ns_depth = top_ns_depth.saturating_sub(1);
-                        }
+                        && popped == ScopeKind::Namespace
+                    {
+                        top_ns_depth = top_ns_depth.saturating_sub(1);
+                    }
                 }
             }
 
@@ -311,11 +322,8 @@ impl FileFacts {
     }
 }
 
-
-
-static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(|| {
-    aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap()
-});
+static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
+    LazyLock::new(|| aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap());
 
 fn build_class_facts(lines: &[String]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
     let mut class_facts = Vec::new();
@@ -327,7 +335,9 @@ fn build_class_facts(lines: &[String]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
         }
         let trimmed = line.trim();
 
-        if pending.is_none() && let Some(captures) = CLASS_DECL_RE.captures(trimmed) {
+        if pending.is_none()
+            && let Some(captures) = CLASS_DECL_RE.captures(trimmed)
+        {
             let end_declaration = captures.get(1).map(|m| m.end()).unwrap_or(0);
             if !in_template_argument_list(lines, linenum, end_declaration) {
                 let name = captures
@@ -440,7 +450,6 @@ fn in_template_argument_list(lines: &[String], mut linenum: usize, mut pos: usiz
 
     false
 }
-
 
 fn brace_count(line: &str, brace: char) -> usize {
     line.bytes().filter(|&byte| byte == brace as u8).count()

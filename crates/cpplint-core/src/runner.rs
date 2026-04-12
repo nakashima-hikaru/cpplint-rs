@@ -8,8 +8,8 @@ use crate::state::{CountingStyle, CppLintState, OutputFormat, SessionSettings, S
 use crate::string_utils::set_to_str;
 use crate::{errors::Result, output::RenderedOutput};
 use ignore::WalkBuilder;
-use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -505,10 +505,12 @@ mod tests {
 
         assert!(planned.lint_jobs.is_empty());
         assert_eq!(planned.reports.len(), 1);
-        assert!(planned.reports[0]
-            .notes
-            .iter()
-            .any(|note| note.text.contains("not a valid file name")));
+        assert!(
+            planned.reports[0]
+                .notes
+                .iter()
+                .any(|note| note.text.contains("not a valid file name"))
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

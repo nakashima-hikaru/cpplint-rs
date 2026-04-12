@@ -8,7 +8,6 @@ pub enum CppLintError {
     #[error("Regex error: {0}")]
     Regex(#[from] regex::Error),
 
-
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

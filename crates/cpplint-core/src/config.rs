@@ -1,4 +1,4 @@
-use crate::options::{parse_filters, Filter, IncludeOrder, Options};
+use crate::options::{Filter, IncludeOrder, Options, parse_filters};
 use crate::string_utils::parse_comma_separated_list;
 use fxhash::FxHashMap;
 use parking_lot::RwLock;

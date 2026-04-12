@@ -371,12 +371,16 @@ mod tests {
         );
 
         assert!(rendered.stdout.contains("Done processing sample.cc"));
-        assert!(rendered
-            .stdout
-            .contains("Category 'whitespace/tab' errors found: 1"));
-        assert!(rendered
-            .stderr
-            .contains("sample.cc:7:  Tab found; better to use spaces"));
+        assert!(
+            rendered
+                .stdout
+                .contains("Category 'whitespace/tab' errors found: 1")
+        );
+        assert!(
+            rendered
+                .stderr
+                .contains("sample.cc:7:  Tab found; better to use spaces")
+        );
     }
 
     #[test]
@@ -440,11 +444,15 @@ mod tests {
             None,
         );
 
-        assert!(rendered
-            .stdout
-            .starts_with("Done processing a.cc\nDone processing b.cc\n"));
-        assert!(rendered
-            .stderr
-            .starts_with("a.cc:2:  Tab found; better to use spaces"));
+        assert!(
+            rendered
+                .stdout
+                .starts_with("Done processing a.cc\nDone processing b.cc\n")
+        );
+        assert!(
+            rendered
+                .stderr
+                .starts_with("a.cc:2:  Tab found; better to use spaces")
+        );
     }
 }

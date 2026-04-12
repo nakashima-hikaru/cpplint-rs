@@ -55,10 +55,14 @@ impl Filter {
         if !category.starts_with(&self.category) {
             return false;
         }
-        if let Some(expected_file) = &self.file && expected_file != file {
+        if let Some(expected_file) = &self.file
+            && expected_file != file
+        {
             return false;
         }
-        if let Some(expected_line) = self.linenum && expected_line != linenum {
+        if let Some(expected_line) = self.linenum
+            && expected_line != linenum
+        {
             return false;
         }
         true
