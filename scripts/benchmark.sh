@@ -33,6 +33,9 @@ fi
 echo "Building cpplint-rs..."
 cargo build --release --manifest-path "$BASE_DIR/Cargo.toml"
 CPPLINT_RS="$BASE_DIR/target/release/cpplint"
+if [ -f "${CPPLINT_RS}.exe" ]; then
+    CPPLINT_RS="${CPPLINT_RS}.exe"
+fi
 
 # Build/Download cpplint-cpp
 if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
