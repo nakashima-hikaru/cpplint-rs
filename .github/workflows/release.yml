@@ -40,8 +40,6 @@ jobs:
 
             - name: Rust Cache
               uses: Swatinem/rust-cache@v2
-              with:
-                  workspaces: "cpplint-rs -> target"
 
             - name: Build release binary
               if: matrix.runner == 'ubuntu-latest'
@@ -55,7 +53,7 @@ jobs:
               if: matrix.archive == 'tar.gz'
               run: |
                   mkdir -p dist
-                  cp cpplint-rs/target/${{ matrix.target }}/release/cpplint dist/
+                  cp target/${{ matrix.target }}/release/cpplint dist/
                   tar -C dist -czf cpplint-${{ matrix.target }}.tar.gz cpplint
 
             - name: Package zip
@@ -63,7 +61,7 @@ jobs:
               shell: pwsh
               run: |
                   New-Item -ItemType Directory -Force dist | Out-Null
-                  Copy-Item cpplint-rs/target/${{ matrix.target }}/release/cpplint.exe dist/cpplint.exe
+                  Copy-Item target/${{ matrix.target }}/release/cpplint.exe dist/cpplint.exe
                   Compress-Archive -Path dist/cpplint.exe -DestinationPath cpplint-${{ matrix.target }}.zip
 
             - name: Upload artifact
@@ -85,8 +83,6 @@ jobs:
 
             - name: Rust Cache
               uses: Swatinem/rust-cache@v2
-              with:
-                  workspaces: "cpplint-rs -> target"
 
             - name: Build universal binaries
               run: |
@@ -97,8 +93,8 @@ jobs:
               run: |
                   mkdir -p dist
                   lipo -create \
-                    cpplint-rs/target/x86_64-apple-darwin/release/cpplint \
-                    cpplint-rs/target/aarch64-apple-darwin/release/cpplint \
+                    target/x86_64-apple-darwin/release/cpplint \
+                    target/aarch64-apple-darwin/release/cpplint \
                     -output dist/cpplint
                   tar -C dist -czf cpplint-macos-universal.tar.gz cpplint
 
