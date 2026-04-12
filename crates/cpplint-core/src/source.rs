@@ -91,7 +91,7 @@ impl DecodedSource {
 
     pub fn has_mixed_line_endings(&self) -> bool {
         let lf_count = if !self.lines.is_empty()
-            && self.lines.last().map_or(false, |s| s.is_empty())
+            && self.lines.last().is_some_and(|s| s.is_empty())
             && self.lf_lines_count > 0
         {
             self.lf_lines_count - 1
