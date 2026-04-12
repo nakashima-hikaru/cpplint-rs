@@ -462,7 +462,7 @@ mod tests {
         let mut options = Options::new();
         options.add_filter("-legal/copyright");
         options.add_filter("-whitespace/ending_newline");
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../tests/test_files/crlf.c");
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/test_files/crlf.c");
         let mut linter = FileLinter::new(file, &state, options);
 
         linter.process_file().unwrap();
@@ -478,7 +478,7 @@ mod tests {
         options.add_filter("-legal/copyright");
         options.add_filter("-whitespace/ending_newline");
         let file =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../tests/test_files/invalid_utf.c");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/test_files/invalid_utf.c");
         let mut linter = FileLinter::new(file, &state, options);
 
         linter.process_file().unwrap();
