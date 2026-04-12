@@ -50,16 +50,22 @@ if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
         exit 1
     fi
 
-    # Build using meson, explicitly specifying the cpplint target
+    # Build using meson
     rm -rf build
     meson setup build --native-file=presets/release.ini
-    meson compile -C build cpplint
+    meson compile -C build
 
     # Find the binary
-    if [ -f "build/cpplint" ]; then
+    if [ -f "build/cpplint-cpp" ]; then
+        CPP_BIN="build/cpplint-cpp"
+    elif [ -f "build/cpplint" ]; then
         CPP_BIN="build/cpplint"
+    elif [ -f "build/src/cpplint-cpp" ]; then
+        CPP_BIN="build/src/cpplint-cpp"
+    elif [ -f "build/cpplint-cpp.exe" ]; then
+        CPP_BIN="build/cpplint-cpp.exe"
     else
-        CPP_BIN=$(find build -type f -name "cpplint" -executable | head -n 1)
+        CPP_BIN=$(find build -type f \( -name "cpplint-cpp" -o -name "cpplint-cpp.exe" -o -name "cpplint" -o -name "cpplint.exe" \) -executable | grep -v "subprojects" | head -n 1)
     fi
 
     if [ -z "$CPP_BIN" ]; then
