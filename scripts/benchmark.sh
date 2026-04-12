@@ -58,17 +58,21 @@ if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
     meson setup build --native-file=presets/release.ini
     meson compile -C build
 
-    # Find the binary
-    if [ -f "build/cpplint-cpp" ]; then
+    # Find the binary (prioritize .exe for Windows MSYS compat)
+    if [ -f "build/cpplint-cpp.exe" ]; then
+        CPP_BIN="build/cpplint-cpp.exe"
+    elif [ -f "build/cpplint.exe" ]; then
+        CPP_BIN="build/cpplint.exe"
+    elif [ -f "build/src/cpplint-cpp.exe" ]; then
+        CPP_BIN="build/src/cpplint-cpp.exe"
+    elif [ -f "build/cpplint-cpp" ]; then
         CPP_BIN="build/cpplint-cpp"
     elif [ -f "build/cpplint" ]; then
         CPP_BIN="build/cpplint"
     elif [ -f "build/src/cpplint-cpp" ]; then
         CPP_BIN="build/src/cpplint-cpp"
-    elif [ -f "build/cpplint-cpp.exe" ]; then
-        CPP_BIN="build/cpplint-cpp.exe"
     else
-        CPP_BIN=$(find build -type f \( -name "cpplint-cpp" -o -name "cpplint-cpp.exe" -o -name "cpplint" -o -name "cpplint.exe" \) -executable | grep -v "subprojects" | head -n 1)
+        CPP_BIN=$(find build -type f \( -name "cpplint-cpp.exe" -o -name "cpplint.exe" -o -name "cpplint-cpp" -o -name "cpplint" \) -executable | grep -v "subprojects" | head -n 1)
     fi
 
     if [ -z "$CPP_BIN" ]; then
@@ -109,18 +113,25 @@ run_bench() {
     local rs_bin="$CPPLINT_RS"
 
     if command -v cygpath &> /dev/null; then
-        run_path=$(cygpath -m "$target_path")
-        cpp_bin=$(cygpath -m "$CPPLINT_CPP")
-        rs_bin=$(cygpath -m "$CPPLINT_RS")
+        run_path=$(cygpath -w "$target_path")
+        cpp_bin=$(cygpath -w "$CPPLINT_CPP")
+        rs_bin=$(cygpath -w "$CPPLINT_RS")
     fi
+
+    echo "Debugging paths before hyperfine:"
+    echo "cpp_bin = $cpp_bin"
+    echo "rs_bin  = $rs_bin"
+    echo "run_path = $run_path"
 
     # We use --ignore-failure because linters will likely find issues in these repos
     # and return non-zero exit codes, which hyperfine would otherwise treat as an error.
+    # Note: we do not add inner quotes around variables here because cmd.exe handles quotes poorly.
+    # GitHub Action paths (/d/a/...) generally do not contain spaces.
     hyperfine --warmup 3 \
         --ignore-failure \
         --export-markdown "$BENCH_DIR/results_${target_name}.md" \
-        -n "cpplint-cpp" "\"$cpp_bin\" --recursive \"$run_path\"" \
-        -n "cpplint-rs" "\"$rs_bin\" --recursive \"$run_path\""
+        -n "cpplint-cpp" "$cpp_bin --recursive $run_path" \
+        -n "cpplint-rs" "$rs_bin --recursive $run_path"
 
     echo ""
     cat "$BENCH_DIR/results_${target_name}.md"
