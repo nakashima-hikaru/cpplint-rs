@@ -6,14 +6,23 @@ A high-performance Rust reimplementation of [cpplint 2.0](https://github.com/cpp
 
 ## 🚀 Performance
 
-`cpplint-rs` is designed for speed. By leveraging Rust's zero-cost abstractions, multi-threading, and efficient pattern matching, it outperforms even the C++ implementation.
+`cpplint-rs` is designed for speed. By leveraging Rust's zero-cost abstractions, multi-threading, and efficient pattern matching, it significantly outperforms the original linter.
 
-| Benchmark (QuantLib) | cpplint-cpp (C++ rewrite) | cpplint-rs (Rust) | Speedup          |
-| :------------------- | :------------------------ | :---------------- | :--------------- |
-| **Total Time**       | 5.97 s                    | **0.92 s**        | **~6.5x faster** |
-| **Time per File**    | 2.39 ms                   | **0.35 ms**       | **~6.8x faster** |
-
+### QuantLib Benchmark
 _Measured on 2,604 files in the QuantLib codebase._
+
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
+|:---|---:|---:|---:|---:|
+| `cpplint-cpp` | 3.118 ± 0.013 | 3.099 | 3.143 | 2.02 ± 0.11 |
+| `cpplint-rs` | 1.544 ± 0.081 | 1.422 | 1.619 | 1.00 |
+
+### GoogleTest Benchmark
+_Measured on the GoogleTest codebase._
+
+| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+|:---|---:|---:|---:|---:|
+| `cpplint-cpp` | 252.0 ± 3.9 | 247.1 | 259.0 | 1.75 ± 0.07 |
+| `cpplint-rs` | 144.0 ± 5.3 | 134.2 | 152.6 | 1.00 |
 
 ## ✨ Highlights
 
