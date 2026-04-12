@@ -1,0 +1,32 @@
+[package]
+name = "cpplint-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Core linting engine for cpplint-rs"
+readme = "../../README.md"
+keywords = ["cpplint", "cpp", "lint", "style"]
+categories = ["development-tools", "command-line-utilities"]
+
+[features]
+hotpath = ["dep:hotpath", "hotpath/hotpath"]
+hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+
+[dependencies]
+aho-corasick.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+ignore.workspace = true
+globset.workspace = true
+encoding_rs_io.workspace = true
+unicode-width.workspace = true
+parking_lot.workspace = true
+rayon.workspace = true
+fxhash.workspace = true
+hotpath = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion.workspace = true

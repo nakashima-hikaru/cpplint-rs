@@ -1,0 +1,34 @@
+[workspace]
+members = ["crates/cpplint-core", "crates/cpplint-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["nakashimahikaru <nakashimahikaru@gmail.com>"]
+license = "BSD-3-Clause"
+repository = "https://github.com/nakashima-hikaru/cpplint-rs"
+rust-version = "1.94"
+publish = false
+
+[workspace.dependencies]
+# Core utilities
+aho-corasick = "1.1"
+regex = "1.10"
+thiserror = "2.0"
+
+# ripgrep ecosystem
+ignore = "0.4"
+globset = "0.4"
+encoding_rs_io = "0.1"
+unicode-width = "0.2"
+parking_lot = "0.12.1"
+fxhash = "0.2"
+
+# CLI & Concurrency
+clap = { version = "4.5", features = ["derive"] }
+rayon = "1.10"
+
+# Testing & Benchmarking
+criterion = "0.8"
+hotpath = "0.15"

@@ -1,0 +1,21 @@
+[package]
+name = "cpplint-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Command-line interface for cpplint-rs"
+readme = "../../README.md"
+keywords = ["cpplint", "cpp", "lint", "style"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "cpplint"
+path = "src/main.rs"
+
+[dependencies]
+cpplint-core = { version = "0.1.0", path = "../cpplint-core" }
+clap.workspace = true
+rayon.workspace = true
