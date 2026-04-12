@@ -96,13 +96,19 @@ run_bench() {
         return
     fi
 
+    # If running under MSYS/Cygwin, convert target_path to Windows format
+    local run_path="$target_path"
+    if command -v cygpath &> /dev/null; then
+        run_path=$(cygpath -w "$target_path")
+    fi
+
     # We use --ignore-failure because linters will likely find issues in these repos
     # and return non-zero exit codes, which hyperfine would otherwise treat as an error.
     hyperfine --warmup 3 \
         --ignore-failure \
         --export-markdown "$BENCH_DIR/results_${target_name}.md" \
-        -n "cpplint-cpp" "$CPPLINT_CPP --recursive $target_path" \
-        -n "cpplint-rs" "$CPPLINT_RS --recursive $target_path"
+        -n "cpplint-cpp" "$CPPLINT_CPP --recursive \"$run_path\"" \
+        -n "cpplint-rs" "$CPPLINT_RS --recursive \"$run_path\""
 
     echo ""
     cat "$BENCH_DIR/results_${target_name}.md"
