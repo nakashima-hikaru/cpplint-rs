@@ -21,6 +21,7 @@ fn run_cli(repo_root: &Path, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
+#[allow(dead_code)]
 fn read_golden(name: &str, repo_root: &Path) -> String {
     std::fs::read_to_string(repo_root.join("cpplint-rs/tests/golden").join(name))
         .unwrap()
