@@ -90,7 +90,15 @@ impl DecodedSource {
     }
 
     pub fn has_mixed_line_endings(&self) -> bool {
-        self.lf_lines_count > 0 && !self.crlf_lines.is_empty()
+        let lf_count = if !self.lines.is_empty()
+            && self.lines.last().map_or(false, |s| s.is_empty())
+            && self.lf_lines_count > 0
+        {
+            self.lf_lines_count - 1
+        } else {
+            self.lf_lines_count
+        };
+        lf_count > 0 && !self.crlf_lines.is_empty()
     }
 
     pub fn into_lines(self) -> Vec<String> {

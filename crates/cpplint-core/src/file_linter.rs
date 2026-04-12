@@ -462,10 +462,15 @@ mod tests {
         let mut options = Options::new();
         options.add_filter("-legal/copyright");
         options.add_filter("-whitespace/ending_newline");
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/test_files/crlf.c");
-        let mut linter = FileLinter::new(file, &state, options);
 
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("cpplint_test_crlf.c");
+        std::fs::write(&file_path, b"line1\r\nline2\n").unwrap();
+
+        let mut linter = FileLinter::new(file_path.clone(), &state, options);
         linter.process_file().unwrap();
+
+        let _ = std::fs::remove_file(file_path);
 
         assert_eq!(state.error_count(), 1);
         assert!(state.has_error("whitespace/newline"));
@@ -477,11 +482,16 @@ mod tests {
         let mut options = Options::new();
         options.add_filter("-legal/copyright");
         options.add_filter("-whitespace/ending_newline");
-        let file =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/test_files/invalid_utf.c");
-        let mut linter = FileLinter::new(file, &state, options);
 
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("cpplint_test_invalid_utf8.c");
+        // FF 0A FF 0A is invalid UTF-8 (two lines)
+        std::fs::write(&file_path, b"\xff\n\xff\n").unwrap();
+
+        let mut linter = FileLinter::new(file_path.clone(), &state, options);
         linter.process_file().unwrap();
+
+        let _ = std::fs::remove_file(file_path);
 
         assert_eq!(state.error_count(), 2);
         assert!(state.has_error("readability/utf8"));
