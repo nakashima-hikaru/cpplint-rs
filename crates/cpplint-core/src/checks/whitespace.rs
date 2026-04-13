@@ -835,16 +835,7 @@ fn check_spacing_for_function_call_base(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if (keywords.has_if()
-        || keywords.has_elif()
-        || keywords.has_for()
-        || keywords.has_while()
-        || keywords.has_switch()
-        || keywords.has_return()
-        || keywords.has_new()
-        || keywords.has_delete()
-        || keywords.has_catch()
-        || keywords.has_sizeof())
+    if keywords.has_any_control_struct()
         && CONTROL_STRUCT_AC
             .find_iter(fncall)
             .any(|mat| string_utils::is_word_match(fncall, mat.start(), mat.end()))

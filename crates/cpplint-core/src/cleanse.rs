@@ -198,6 +198,21 @@ impl MatchedKeywords {
     pub fn has_any_cast(&self) -> bool {
         (self.0 & Self::CAST) != 0
     }
+
+    #[inline(always)]
+    pub fn has_any_control_struct(&self) -> bool {
+        const MASK: u32 = MatchedKeywords::IF
+            | MatchedKeywords::ELIF
+            | MatchedKeywords::FOR
+            | MatchedKeywords::WHILE
+            | MatchedKeywords::SWITCH
+            | MatchedKeywords::RETURN
+            | MatchedKeywords::NEW
+            | MatchedKeywords::DELETE
+            | MatchedKeywords::CATCH
+            | MatchedKeywords::SIZEOF;
+        (self.0 & MASK) != 0
+    }
 }
 
 const RAW_STRING_PREFIXES: &[&str] = &["u8R\"", "uR\"", "UR\"", "LR\"", "R\""];
