@@ -1,6 +1,7 @@
 use crate::config::{ConfigMessage, ConfigMessageKind, ConfigResolution, DirectoryConfigCache};
 use crate::diagnostics::{Diagnostic, Note, NoteStream, ProcessedFile};
 use crate::file_linter::FileLinter;
+use crate::fixer::fix_file_in_place;
 use crate::glob::GlobPattern;
 use crate::options::Options;
 use crate::output::render_owned;
@@ -24,6 +25,7 @@ pub struct RunnerConfig {
     pub num_threads: usize,
     pub recursive: bool,
     pub excludes: Vec<String>,
+    pub fix: bool,
 }
 
 impl Default for RunnerConfig {
@@ -37,6 +39,7 @@ impl Default for RunnerConfig {
             num_threads: 1,
             recursive: false,
             excludes: Vec::new(),
+            fix: false,
         }
     }
 }
@@ -133,13 +136,13 @@ pub fn run_lint(files: &[PathBuf], config: &RunnerConfig) -> Result<LintRunResul
         pool.install(|| {
             lint_jobs
                 .into_par_iter()
-                .map(|job| process_file(job, session_settings))
+                .map(|job| process_file(job, session_settings, config.fix))
                 .collect::<Vec<_>>()
         })
     } else {
         lint_jobs
             .into_iter()
-            .map(|job| process_file(job, session_settings))
+            .map(|job| process_file(job, session_settings, config.fix))
             .collect::<Vec<_>>()
     };
 
@@ -376,7 +379,11 @@ fn expand_directory(
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-fn process_file(job: PlannedLintJob, session_settings: SessionSettings) -> FileRunReport {
+fn process_file(
+    job: PlannedLintJob,
+    session_settings: SessionSettings,
+    fix: bool,
+) -> FileRunReport {
     let PlannedLintJob {
         file_index,
         file,
@@ -395,6 +402,19 @@ fn process_file(job: PlannedLintJob, session_settings: SessionSettings) -> FileR
     }
 
     let has_error = {
+        if fix {
+            if let Err(error) = fix_file_in_place(&file, options.as_ref()) {
+                state.record_raw_error(
+                    file_index,
+                    failure_note_order,
+                    format!(
+                        "Skipping input '{}': Can't apply fixes ({})\n",
+                        display_name, error
+                    ),
+                );
+                return state.into_snapshot().into();
+            }
+        }
         let mut linter = FileLinter::with_index(file, &state, options, file_index);
         match linter.process_file() {
             Ok(()) => Some(linter.has_error()),

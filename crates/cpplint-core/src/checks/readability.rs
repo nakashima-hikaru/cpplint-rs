@@ -8,8 +8,11 @@ use regex::Regex;
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-static CONTROL_STATEMENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(if|for|while|switch|catch|else)\b"#).unwrap());
+fn is_control_statement_start(s: &str) -> bool {
+    ["if", "for", "while", "switch", "catch", "else"]
+        .iter()
+        .any(|&kw| string_utils::trimmed_starts_with_word(s, kw))
+}
 static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
@@ -30,28 +33,7 @@ static SINGLE_LINE_FOR_BODY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bfor\s*\(.*\)\s*\{[^{}]+\}\s*$"#).unwrap());
 static SINGLE_LINE_WHILE_BODY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bwhile\s*\(.*\)\s*\{[^{}]+\}\s*$"#).unwrap());
-static TRAILING_SEMICOLON_CLOSING_PARENS_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*\)\s*)\{"#).unwrap());
-static TRAILING_SEMICOLON_MACRO_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b([A-Z_][A-Z0-9_]*)\s*$"#).unwrap());
-static TRAILING_SEMICOLON_CAPTURE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*\])\s*$"#).unwrap());
-static TRAILING_SEMICOLON_OPERATOR_INDEX_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\boperator\s*\[\s*\]\s*$"#).unwrap());
-static TRAILING_SEMICOLON_ALIGNAS_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(?:struct|union)\s+alignas\s*$"#).unwrap());
-static TRAILING_SEMICOLON_DECLTYPE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bdecltype$"#).unwrap());
-static TRAILING_SEMICOLON_REQUIRES_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\brequires.*$"#).unwrap());
-static TRAILING_SEMICOLON_ASSIGN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\s+=\s*$"#).unwrap());
-static TRAILING_SEMICOLON_ELSE_BLOCK_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*(?:else|\)\s*const)\s*)\{"#).unwrap());
-static TRAILING_SEMICOLON_PREV_TRAIL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"[;{}]\s*$"#).unwrap());
-static TRAILING_SEMICOLON_BLOCK_START_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(\s*)\{"#).unwrap());
+
 static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"^(\s*(?:template\s*<[\w\s<>,:=]*>\s*)?(?:class|struct)\s+(?:[A-Za-z0-9_]+\s+)*(\w+(?:::\w+)*))(.*)$"#,
@@ -68,13 +50,14 @@ static MULTILINE_IF_OPEN_BRACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*(?:\[\[(?:un)?likely\]\]\s*)?\{"#).unwrap());
 static MULTILINE_IF_MULTI_COMMAND_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^;[\s}]*(\\?)$"#).unwrap());
-static MULTILINE_IF_ELSE_INDENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*else\b"#).unwrap());
+
 static MULTILINE_IF_LAMBDA_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[^{};]*\[[^\[\]]*\][^{}]*\{[^{}]*\}\s*\)*[;,]\s*$"#).unwrap());
 static NAMESPACE_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*namespace\b\s*([:\w]+)?(.*)$"#).unwrap());
-static CHECK_CONST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"^(".*"|'.*')$"#).unwrap());
+fn is_check_const(s: &str) -> bool {
+    (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\''))
+}
 const INHERITANCE_KEYWORDS: [&str; 3] = ["virtual", "override", "final"];
 static INHERITANCE_KEYWORDS_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(INHERITANCE_KEYWORDS).unwrap());
@@ -232,7 +215,7 @@ fn check_check_macro(
     };
     let lhs = lhs.trim();
     let rhs = rhs.trim();
-    if !(CHECK_CONST_RE.is_match(lhs) || CHECK_CONST_RE.is_match(rhs)) {
+    if !(is_check_const(lhs) || is_check_const(rhs)) {
         return;
     }
 
@@ -364,7 +347,7 @@ fn check_function_size(
     };
 
     let signature_line = collect_function_signature(clean_lines, start_line);
-    if signature_line.is_empty() || CONTROL_STATEMENT_RE.is_match(&signature_line) {
+    if signature_line.is_empty() || is_control_statement_start(&signature_line) {
         return;
     }
 
@@ -427,7 +410,7 @@ fn find_function_without_body<'a>(
         || first_line.contains('{')
         || first_line.contains(';')
         || first_line.contains('}')
-        || CONTROL_STATEMENT_RE.is_match(first_line)
+        || is_control_statement_start(first_line)
     {
         return None;
     }
@@ -1016,7 +999,7 @@ fn check_multiline_if_else_bodies(
         let next_line = &clean_lines.elided[semicolon_line + 1];
         let next_indent = line_utils::get_indent_level(next_line);
         if if_match.is_some()
-            && MULTILINE_IF_ELSE_INDENT_RE.is_match(next_line)
+            && string_utils::trimmed_starts_with_word(next_line, "else")
             && next_indent != if_indent
         {
             linter.error(
@@ -1324,6 +1307,65 @@ fn in_template_argument_list(
     false
 }
 
+fn is_assign_match(line: &str) -> bool {
+    let trimmed = line.trim_end();
+    if !trimmed.ends_with('=') {
+        return false;
+    }
+    let before = &trimmed[..trimmed.len() - 1];
+    !before.is_empty() && before.chars().next_back().is_some_and(|c| c.is_whitespace())
+}
+
+fn is_alignas_match(line: &str) -> bool {
+    let trimmed = line.trim_end();
+    if !trimmed.ends_with("alignas") {
+        return false;
+    }
+    let before = trimmed[..trimmed.len() - 7].trim_end();
+    string_utils::ends_with_word(before, "struct") || string_utils::ends_with_word(before, "union")
+}
+
+fn get_trailing_macro(s: &str) -> Option<&str> {
+    let trimmed = s.trim_end();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut i = trimmed.len();
+    while i > 0 && string_utils::is_word_char(trimmed.as_bytes()[i - 1]) {
+        i -= 1;
+    }
+    let word = &trimmed[i..];
+    if !word.is_empty()
+        && (word.as_bytes()[0].is_ascii_uppercase() || word.as_bytes()[0] == b'_')
+        && word
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
+        Some(word)
+    } else {
+        None
+    }
+}
+
+fn is_operator_index_match(s: &str) -> bool {
+    let trimmed = s.trim_end();
+    if !trimmed.ends_with(']') {
+        return false;
+    }
+    let mut i = trimmed.len() - 1;
+    while i > 0 && trimmed.as_bytes()[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    if i == 0 || trimmed.as_bytes()[i - 1] != b'[' {
+        return false;
+    }
+    i -= 1;
+    while i > 0 && trimmed.as_bytes()[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    string_utils::ends_with_word(&trimmed[..i], "operator")
+}
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_trailing_semicolon(
     linter: &mut FileLinter,
@@ -1334,68 +1376,71 @@ fn check_trailing_semicolon(
     if !elided_line.contains('{') && !elided_line.contains('}') {
         return;
     }
-    let match_start =
-        if let Some(captures) = TRAILING_SEMICOLON_CLOSING_PARENS_RE.captures(elided_line) {
-            let brace_pos = captures.get(1).map_or(0, |m| m.end());
-            let Some(close_paren_pos) = elided_line[..brace_pos].rfind(')') else {
-                return;
-            };
+    let match_start = if let Some(brace_pos) = elided_line.find('{')
+        && let prefix = &elided_line[..brace_pos]
+        && prefix.trim_end().ends_with(')')
+    {
+        let close_paren_pos = prefix.rfind(')').unwrap();
 
-            let skip = line_utils::reverse_close_expression(clean_lines, linenum, close_paren_pos)
-                .is_some_and(|(open_line, open_pos)| {
-                    let line_prefix = &clean_lines.elided[open_line][..open_pos];
-                    let macro_name = TRAILING_SEMICOLON_MACRO_RE
-                        .captures(line_prefix)
-                        .and_then(|captures| captures.get(1))
-                        .map(|m| m.as_str());
-                    let unsafe_macro = macro_name.is_some_and(|name| {
-                        !matches!(
-                            name,
-                            "TEST"
-                                | "TEST_F"
-                                | "MATCHER"
-                                | "MATCHER_P"
-                                | "TYPED_TEST"
-                                | "EXCLUSIVE_LOCKS_REQUIRED"
-                                | "SHARED_LOCKS_REQUIRED"
-                                | "LOCKS_EXCLUDED"
-                                | "INTERFACE_DEF"
-                        )
-                    });
-                    let lambda_capture = TRAILING_SEMICOLON_CAPTURE_RE.is_match(line_prefix)
-                        && !TRAILING_SEMICOLON_OPERATOR_INDEX_RE.is_match(line_prefix);
-                    unsafe_macro
-                        || lambda_capture
-                        || TRAILING_SEMICOLON_ALIGNAS_RE.is_match(line_prefix)
-                        || TRAILING_SEMICOLON_DECLTYPE_RE.is_match(line_prefix)
-                        || TRAILING_SEMICOLON_REQUIRES_RE.is_match(line_prefix)
-                        || TRAILING_SEMICOLON_ASSIGN_RE.is_match(line_prefix)
-                        || (open_line > 0
-                            && string_utils::get_last_non_space(&clean_lines.elided[open_line - 1])
-                                == ']')
+        let skip = line_utils::reverse_close_expression(clean_lines, linenum, close_paren_pos)
+            .is_some_and(|(open_line, open_pos)| {
+                let line_prefix = &clean_lines.elided[open_line][..open_pos];
+                let macro_name = get_trailing_macro(line_prefix);
+                let unsafe_macro = macro_name.is_some_and(|name| {
+                    !matches!(
+                        name,
+                        "TEST"
+                            | "TEST_F"
+                            | "MATCHER"
+                            | "MATCHER_P"
+                            | "TYPED_TEST"
+                            | "EXCLUSIVE_LOCKS_REQUIRED"
+                            | "SHARED_LOCKS_REQUIRED"
+                            | "LOCKS_EXCLUDED"
+                            | "INTERFACE_DEF"
+                    )
                 });
-            if skip {
-                None
-            } else {
-                Some((linenum, brace_pos))
-            }
-        } else if let Some(captures) = TRAILING_SEMICOLON_ELSE_BLOCK_RE.captures(elided_line) {
-            Some((linenum, captures.get(1).map_or(0, |m| m.end())))
-        } else if line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
-            .is_some_and(|(_idx, prev_line)| TRAILING_SEMICOLON_PREV_TRAIL_RE.is_match(prev_line))
-        {
-            TRAILING_SEMICOLON_BLOCK_START_RE
-                .captures(elided_line)
-                .map(|captures| (linenum, captures.get(1).map_or(0, |m| m.end())))
-        } else {
+                let lambda_capture = line_prefix.trim_end().ends_with(']')
+                    && !is_operator_index_match(line_prefix);
+                unsafe_macro
+                    || lambda_capture
+                    || is_alignas_match(line_prefix)
+                    || string_utils::ends_with_word(line_prefix, "decltype")
+                    || string_utils::contains_word_start(line_prefix, "requires")
+                    || is_assign_match(line_prefix)
+                    || (open_line > 0
+                        && string_utils::get_last_non_space(&clean_lines.elided[open_line - 1])
+                            == ']')
+            });
+        if skip {
             None
-        };
+        } else {
+            Some((linenum, brace_pos))
+        }
+    } else if let Some(brace_pos) = elided_line.find('{')
+        && let prefix = elided_line[..brace_pos].trim_end()
+        && (string_utils::ends_with_word(prefix, "else")
+            || (prefix.ends_with("const")
+                && prefix[..prefix.len() - 5].trim_end().ends_with(')')))
+    {
+        Some((linenum, brace_pos))
+    } else if line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
+        .is_some_and(|(_idx, prev_line)| {
+            let last_char = string_utils::get_last_non_space(prev_line);
+            last_char == ';' || last_char == '{' || last_char == '}'
+        })
+        && let Some(brace_pos) = elided_line.find('{')
+        && elided_line[..brace_pos].trim().is_empty()
+    {
+        Some((linenum, brace_pos))
+    } else {
+        None
+    };
 
     let Some((start_line, start_pos)) = match_start else {
         return;
     };
-    let Some((end_line, end_pos)) =
-        line_utils::close_expression(clean_lines, start_line, start_pos)
+    let Some((end_line, end_pos)) = line_utils::close_expression(clean_lines, start_line, start_pos)
     else {
         return;
     };

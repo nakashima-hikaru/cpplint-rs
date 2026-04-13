@@ -14,11 +14,17 @@ publish = false
 [workspace.dependencies]
 # Core utilities
 aho-corasick = "1.1"
-regex = "1.10"
+regex = { version = "1.10", features = [
+    "perf-dfa",
+    "perf-inline",
+    "perf-literal",
+    "perf-onepass",
+    "perf-backtrack",
+] }
 thiserror = "2.0"
 
 # ripgrep ecosystem
-ignore = "0.4"
+ignore = { version = "0.4", features = ["simd-accel"] }
 globset = "0.4"
 encoding_rs_io = "0.1"
 unicode-width = "0.2"

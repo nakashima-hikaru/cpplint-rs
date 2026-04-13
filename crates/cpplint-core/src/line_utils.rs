@@ -1,13 +1,4 @@
 use crate::cleanse::CleansedLines;
-use regex::Regex;
-use std::sync::LazyLock;
-
-static TRAILING_OPERATOR_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\boperator\s*$"#).unwrap());
-static NAMESPACE_DECL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*namespace\b"#).unwrap());
-static NAMESPACE_NAME_CONTINUATION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^[A-Za-z_][\w:]*$"#).unwrap());
 
 pub fn get_indent_level(line: &str) -> usize {
     let mut count = 0;
@@ -39,7 +30,7 @@ pub fn get_previous_non_blank_line(lines: &[String], linenum: usize) -> Option<(
 
 pub fn namespace_decl_start_line(lines: &[String], start: usize) -> Option<usize> {
     let trimmed = lines.get(start)?.trim();
-    if NAMESPACE_DECL_RE.is_match(trimmed) {
+    if is_namespace_decl(trimmed) {
         return Some(start);
     }
     if trimmed != "{" {
@@ -48,18 +39,41 @@ pub fn namespace_decl_start_line(lines: &[String], start: usize) -> Option<usize
 
     let (prev, prev_line) = get_previous_non_blank_line(lines, start)?;
     let prev_trimmed = prev_line.trim();
-    if NAMESPACE_DECL_RE.is_match(prev_trimmed) {
+    if is_namespace_decl(prev_trimmed) {
         return Some(prev);
     }
-    if !NAMESPACE_NAME_CONTINUATION_RE.is_match(prev_trimmed) {
+    if !is_namespace_name_continuation(prev_trimmed) {
         return None;
     }
 
     get_previous_non_blank_line(lines, prev).and_then(|(namespace_line, namespace_decl)| {
-        NAMESPACE_DECL_RE
-            .is_match(namespace_decl.trim())
-            .then_some(namespace_line)
+        is_namespace_decl(namespace_decl.trim()).then_some(namespace_line)
     })
+}
+
+fn is_namespace_decl(s: &str) -> bool {
+    let trimmed = s.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("namespace") {
+        match rest.as_bytes().first() {
+            None => true,
+            Some(&c) => !c.is_ascii_alphanumeric() && c != b'_',
+        }
+    } else {
+        false
+    }
+}
+
+fn is_namespace_name_continuation(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    if !bytes[0].is_ascii_alphabetic() && bytes[0] != b'_' {
+        return false;
+    }
+    bytes[1..]
+        .iter()
+        .all(|&c| c.is_ascii_alphanumeric() || c == b'_' || c == b':')
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -289,7 +303,15 @@ fn find_start_of_expression_in_line(
 }
 
 fn trailing_operator_match(prefix: &str) -> bool {
-    TRAILING_OPERATOR_RE.is_match(prefix)
+    let trimmed = prefix.trim_end();
+    if let Some(op_start) = trimmed.strip_suffix("operator") {
+        match op_start.as_bytes().last() {
+            None => true,
+            Some(&c) => !c.is_ascii_alphanumeric() && c != b'_',
+        }
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]

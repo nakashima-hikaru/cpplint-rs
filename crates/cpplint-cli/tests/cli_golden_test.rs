@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -33,7 +36,8 @@ fn temp_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("cpplint-rs-cli-{}", unique))
+    let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("cpplint-rs-cli-{}-{}", unique, counter))
 }
 
 // #[test]
@@ -129,4 +133,22 @@ fn rule_command_lists_families_and_categories() {
     let category_stdout = String::from_utf8_lossy(&category.stdout);
     assert!(category_stdout.contains("Rule: whitespace/operators"));
     assert!(category_stdout.contains("Family: whitespace"));
+}
+
+#[test]
+fn fix_flag_rewrites_file_in_place() {
+    let root = repo_root();
+    let temp = temp_dir();
+    std::fs::create_dir_all(&temp).unwrap();
+    let file = temp.join("bad.cc");
+    std::fs::write(&file, "int x=0;\nCHECK(mode == 'x');\n").unwrap();
+
+    let file_arg = file.to_string_lossy().to_string();
+    let fixed = run_cli(&root, &["--filter=-legal/copyright", "--fix", &file_arg]);
+    assert_eq!(fixed.status.code(), Some(0));
+
+    let contents = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(contents, "int x = 0;\nCHECK_EQ(mode, 'x');\n");
+
+    std::fs::remove_dir_all(temp).unwrap();
 }

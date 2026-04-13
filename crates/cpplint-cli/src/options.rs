@@ -135,6 +135,9 @@ pub struct CheckArgs {
     #[arg(long)]
     pub threads: Option<i32>,
 
+    #[arg(long)]
+    pub fix: bool,
+
     #[arg(required = true, value_name = "FILE")]
     pub files: Vec<PathBuf>,
 }
@@ -240,6 +243,7 @@ impl CheckArgs {
             num_threads: parse_num_threads(self.threads)?,
             recursive: self.recursive,
             excludes: self.exclude.clone(),
+            fix: self.fix,
         })
     }
 }

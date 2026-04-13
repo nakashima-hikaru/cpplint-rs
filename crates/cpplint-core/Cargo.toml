@@ -30,3 +30,7 @@ hotpath = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion.workspace = true
+
+[[bench]]
+name = "quantlib"
+harness = false

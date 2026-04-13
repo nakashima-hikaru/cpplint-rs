@@ -19,6 +19,7 @@ pub mod errors;
 pub(crate) mod facts;
 pub mod file_linter;
 pub mod file_reader;
+pub mod fixer;
 pub mod glob;
 pub mod line_utils;
 pub mod options;

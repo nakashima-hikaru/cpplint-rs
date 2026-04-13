@@ -67,6 +67,31 @@ pub fn trimmed_starts_with_word(s: &str, word: &str) -> bool {
     rest.is_empty() || !is_word_char(rest.as_bytes()[0])
 }
 
+pub fn ends_with_word(s: &str, word: &str) -> bool {
+    if !s.ends_with(word) {
+        return false;
+    }
+    let start = s.len() - word.len();
+    start == 0 || !is_word_char(s.as_bytes()[start - 1])
+}
+
+pub fn contains_word_start(s: &str, word: &str) -> bool {
+    let mut search_start = 0;
+    while let Some(offset) = s[search_start..].find(word) {
+        let start = search_start + offset;
+        if start == 0 || !is_word_char(s.as_bytes()[start - 1]) {
+            return true;
+        }
+        search_start = start + 1;
+    }
+    false
+}
+
+pub fn ends_with_word_and_optional_spaces(s: &str, word: &str) -> bool {
+    let trimmed = s.trim_end();
+    ends_with_word(trimmed, word)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +137,27 @@ mod tests {
     fn test_trimmed_starts_with_word() {
         assert!(trimmed_starts_with_word("  else {", "else"));
         assert!(!trimmed_starts_with_word("  elsewhere", "else"));
+    }
+
+    #[test]
+    fn test_ends_with_word() {
+        assert!(ends_with_word("decltype", "decltype"));
+        assert!(ends_with_word("  decltype", "decltype"));
+        assert!(!ends_with_word("my_decltype", "decltype"));
+        assert!(!ends_with_word("decltype ", "decltype"));
+    }
+
+    #[test]
+    fn test_contains_word_start() {
+        assert!(contains_word_start("requires (x)", "requires"));
+        assert!(contains_word_start("requires_x", "requires"));
+        assert!(!contains_word_start("my_requires", "requires"));
+    }
+
+    #[test]
+    fn test_ends_with_word_and_optional_spaces() {
+        assert!(ends_with_word_and_optional_spaces("decltype", "decltype"));
+        assert!(ends_with_word_and_optional_spaces("decltype  ", "decltype"));
+        assert!(!ends_with_word_and_optional_spaces("my_decltype", "decltype"));
     }
 }
