@@ -15,7 +15,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "cpplint"
 path = "src/main.rs"
 
+[features]
+hotpath = ["cpplint-core/hotpath", "dep:hotpath"]
+
 [dependencies]
 cpplint-core = { version = "0.1.0", path = "../cpplint-core" }
 clap.workspace = true
 rayon.workspace = true
+hotpath = { workspace = true, optional = true }

@@ -15,17 +15,6 @@ static ACCESS_SPECIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static OPERATOR_METHOD_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^(.*\boperator\b)(\S+)(\s*\(.*)$"#).unwrap());
-static CONTROL_BLOCK_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(if|while|for) "#).unwrap());
-static CONTROL_PARENS_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\b(if|for|while|switch)\s*\(([ ]*)(.).*[^ ]+([ ]*)\)\s*\{\s*$"#).unwrap()
-});
-static CONTROL_PARENS_MISSING_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(if\(|for\(|while\(|switch\()"#).unwrap());
-static IF_FOR_SWITCH_CALL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(if|for|switch)\s*\((.*)\)\s*\{"#).unwrap());
-static WHILE_CALL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bwhile\s*\((.*)\)\s*[{;]"#).unwrap());
 static CONTROL_STRUCT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\b(if|elif|for|while|switch|return|new|delete|catch|sizeof)\b"#).unwrap()
 });
@@ -55,22 +44,25 @@ static DOC_COMMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^(///|//!)(\s+|$)"#).unwrap());
 static PREV_LINE_CONTINUATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[\",=><] *$"#).unwrap());
-static SCOPE_OR_LABEL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^\s*(?:public|private|protected|signals)(?:\s+(?:slots\s*)?)?:\s*\\?\s*$"#)
-        .unwrap()
-});
 static RANGE_FOR_COLON_LEFT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"for\s*\(.*[^:]:[^: ]"#).unwrap());
 static RANGE_FOR_COLON_RIGHT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"for\s*\(.*[^: ]:[^:]"#).unwrap());
-static MISSING_ASSIGN_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"[\w.]=|=[\w.]"#).unwrap());
-static ASSIGN_EXCEPTION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?:>=|<=|==|!=|&=|\^=|\|=|\+=|\*=|/=|%=)"#).unwrap());
-static MISSING_COMPARE_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"[^<>=!\s](==|!=|<=|>=|\|\|)[^<>=!\s,;\)]"#).unwrap());
-static EXTRA_UNARY_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(!\s|~\s|[\s]--[\s;]|[\s]\+\+[\s;])"#).unwrap());
+static SCOPE_OR_LABEL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^\s*(?:public|private|protected|signals)(?:\s+(?:slots\s*)?)?:\s*\\?\s*$"#)
+        .unwrap()
+});
+static CONTROL_BLOCK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\b(if|while|for) "#).unwrap());
+static CONTROL_PARENS_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\b(if|for|while|switch)\s*\(([ ]*)(.).*[^ ]+([ ]*)\)\s*\{\s*$"#).unwrap()
+});
+static CONTROL_PARENS_MISSING_SPACE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\b(if\(|for\(|while\(|switch\()"#).unwrap());
+static IF_FOR_SWITCH_CALL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\b(if|for|switch)\s*\((.*)\)\s*\{"#).unwrap());
+static WHILE_CALL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\bwhile\s*\((.*)\)\s*[{;]"#).unwrap());
 static FOR_CLOSING_SEMICOLON_EXCEPTION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bfor\s*\(.*; \)"#).unwrap());
 static EXTRA_SPACE_BEFORE_CALL_PAREN_RE: LazyLock<Regex> =
@@ -463,10 +455,9 @@ fn check_operator_spacing(
     let line_to_check = masked_line.as_ref();
 
     if line_to_check.contains('=')
-        && MISSING_ASSIGN_SPACE_RE.is_match(line_to_check)
         && !CONTROL_BLOCK_RE.is_match(line_to_check)
-        && !ASSIGN_EXCEPTION_RE.is_match(line_to_check)
         && !line_to_check.contains("operator=")
+        && has_missing_assignment_space(line_to_check)
     {
         linter.error(
             linenum,
@@ -476,15 +467,12 @@ fn check_operator_spacing(
         );
     }
 
-    if let Some(captures) = MISSING_COMPARE_SPACE_RE.captures(line_to_check) {
+    if let Some(op) = find_missing_comparison_space(line_to_check) {
         linter.error(
             linenum,
             "whitespace/operators",
             3,
-            &format!(
-                "Missing spaces around {}",
-                captures.get(1).map(|m| m.as_str()).unwrap_or("")
-            ),
+            &format!("Missing spaces around {}", op),
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if line_to_check.contains('<')
@@ -543,17 +531,122 @@ fn check_operator_spacing(
         );
     }
 
-    if let Some(captures) = EXTRA_UNARY_SPACE_RE.captures(line_to_check) {
+    if let Some(op) = find_extra_unary_space(line_to_check) {
         linter.error(
             linenum,
             "whitespace/operators",
             4,
-            &format!(
-                "Extra space for operator {}",
-                captures.get(1).map(|m| m.as_str()).unwrap_or("")
-            ),
+            &format!("Extra space for operator {}", op),
         );
     }
+}
+
+fn has_missing_assignment_space(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'=' {
+            // Check for compound assignments or comparisons (e.g., +=, ==, !=, >=)
+            if i > 0 {
+                let prev = bytes[i - 1];
+                if matches!(
+                    prev,
+                    b'>' | b'<' | b'=' | b'!' | b'&' | b'^' | b'|' | b'+' | b'-' | b'*' | b'/' | b'%'
+                ) {
+                    continue;
+                }
+            }
+            if let Some(&next) = bytes.get(i + 1) {
+                if next == b'=' {
+                    continue;
+                }
+            }
+
+            let mut missing = false;
+            if i > 0 {
+                let prev = bytes[i - 1];
+                if (prev.is_ascii_alphanumeric() || prev == b'.')
+                    && (i < 8 || &s[i - 8..i] != "operator")
+                {
+                    missing = true;
+                }
+            }
+            if !missing && i + 1 < bytes.len() {
+                let next = bytes[i + 1];
+                if next.is_ascii_alphanumeric() || next == b'.' {
+                    missing = true;
+                }
+            }
+            if missing {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn find_missing_comparison_space(s: &str) -> Option<&'static str> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 4 {
+        return None;
+    }
+
+    for (i, window) in bytes.windows(2).enumerate() {
+        let op = match window {
+            b"==" => "==",
+            b"!=" => "!=",
+            b"<=" => "<=",
+            b">=" => ">=",
+            b"||" => "||",
+            _ => continue,
+        };
+
+        // op is at i, i+1
+        if i > 0 && i + 2 < bytes.len() {
+            let prev = bytes[i - 1];
+            let next = bytes[i + 2];
+
+            let prev_is_op_char = matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
+            let next_is_op_char = matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')') || next.is_ascii_whitespace();
+
+            if !prev_is_op_char && !next_is_op_char {
+                return Some(op);
+            }
+        }
+    }
+    None
+}
+
+fn find_extra_unary_space(s: &str) -> Option<&'static str> {
+    let bytes = s.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'!' | b'~' => {
+                if let Some(&next) = bytes.get(i + 1) {
+                    if next.is_ascii_whitespace() {
+                        return Some(if b == b'!' { "!" } else { "~" });
+                    }
+                }
+            }
+            b'-' | b'+' => {
+                // Check for -- or ++
+                if let Some(&next) = bytes.get(i + 1) {
+                    if next == b {
+                        // We found -- or ++ at i, i+1
+                        // Original regex: [\s]--[\s;]
+                        if i > 0 && bytes[i - 1].is_ascii_whitespace() {
+                            if let Some(&after) = bytes.get(i + 2) {
+                                if after.is_ascii_whitespace() || after == b';' {
+                                    return Some(if b == b'-' { "--" } else { "++" });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
