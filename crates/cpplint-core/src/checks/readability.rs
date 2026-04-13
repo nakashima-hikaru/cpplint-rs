@@ -4,7 +4,7 @@ use crate::line_utils;
 use crate::regex_utils;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
@@ -25,14 +25,17 @@ static BRACED_ELSE_IF_RE: LazyLock<Regex> =
 static BRACED_ELSE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"}\s*else[^{]*$"#).unwrap());
 static ELSE_WITH_BRACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[^}]*else\s*\{"#).unwrap());
-static SINGLE_LINE_IF_BODY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bif\s*\(.*\)\s*\{[^{}]+\}\s*$"#).unwrap());
-static SINGLE_LINE_ELSE_BODY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\belse\s*\{[^{}]+\}\s*$"#).unwrap());
-static SINGLE_LINE_FOR_BODY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bfor\s*\(.*\)\s*\{[^{}]+\}\s*$"#).unwrap());
-static SINGLE_LINE_WHILE_BODY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bwhile\s*\(.*\)\s*\{[^{}]+\}\s*$"#).unwrap());
+static SINGLE_LINE_CONTROL_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"\bif\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
+        r#"\belse\s*\{[^{}]+\}\s*$"#,
+        r#"\bwhile\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
+        r#"\bfor\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
+    ])
+    .unwrap()
+});
+
+const CONTROL_KEYWORDS: [&str; 4] = ["if", "else", "while", "for"];
 
 static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -879,42 +882,17 @@ fn check_single_line_control_bodies(
     elided_line: &str,
     linenum: usize,
 ) {
-    if SINGLE_LINE_IF_BODY_RE.is_match(elided_line) {
+    let matches = SINGLE_LINE_CONTROL_SET.matches(elided_line);
+    if let Some(index) = matches.iter().next() {
+        let keyword = CONTROL_KEYWORDS[index];
         linter.error(
             linenum,
             "whitespace/newline",
             5,
-            "Controlled statements inside brackets of if clause should be on a separate line",
-        );
-        return;
-    }
-
-    if SINGLE_LINE_ELSE_BODY_RE.is_match(elided_line) {
-        linter.error(
-            linenum,
-            "whitespace/newline",
-            5,
-            "Controlled statements inside brackets of else clause should be on a separate line",
-        );
-        return;
-    }
-
-    if SINGLE_LINE_WHILE_BODY_RE.is_match(elided_line) {
-        linter.error(
-            linenum,
-            "whitespace/newline",
-            5,
-            "Controlled statements inside brackets of while clause should be on a separate line",
-        );
-        return;
-    }
-
-    if SINGLE_LINE_FOR_BODY_RE.is_match(elided_line) {
-        linter.error(
-            linenum,
-            "whitespace/newline",
-            5,
-            "Controlled statements inside brackets of for clause should be on a separate line",
+            &format!(
+                "Controlled statements inside brackets of {} clause should be on a separate line",
+                keyword
+            ),
         );
     }
 }
