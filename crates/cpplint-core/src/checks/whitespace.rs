@@ -36,10 +36,13 @@ static OPERATOR_COMMA_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator\s*,\s*\("#).unwrap());
 static BRACE_INLINE_COMMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^.*\{\s*//"#).unwrap());
-static COMMENT_WITHOUT_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^//[^ ]*\w"#).unwrap());
-static DOC_COMMENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(///|//!)(\s+|$)"#).unwrap());
+static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"^//[^ ]*\w"#,      // 0: COMMENT_WITHOUT_SPACE
+        r#"^(///|//!)(\s+|$)"#, // 1: DOC_COMMENT
+    ])
+    .unwrap()
+});
 static PREV_LINE_CONTINUATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[\",=><] *$"#).unwrap());
 static RANGE_FOR_COLON_LEFT_RE: LazyLock<Regex> =
@@ -183,7 +186,8 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, l
         }
     }
 
-    if COMMENT_WITHOUT_SPACE_RE.is_match(comment) && !DOC_COMMENT_RE.is_match(comment) {
+    let comment_matches = COMMENT_SPACING_SET.matches(comment);
+    if comment_matches.matched(0) && !comment_matches.matched(1) {
         linter.error(
             linenum,
             "whitespace/comments",
