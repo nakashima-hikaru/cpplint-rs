@@ -2,7 +2,7 @@ use crate::cleanse::{CleansedLines, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
 use unicode_width::UnicodeWidthStr;
@@ -20,10 +20,13 @@ static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
     ])
     .unwrap()
 });
-static FUNC_REF_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#" \([^)]+\)\([^)]*(\)|,$)"#).unwrap());
-static ARRAY_REF_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#" \([^)]+\)\[[^\]]+\]"#).unwrap());
+static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#" \([^)]+\)\([^)]*(\)|,$)"#, // 元 FUNC_REF_RE
+        r#" \([^)]+\)\[[^\]]+\]"#,     // 元 ARRAY_REF_RE
+    ])
+    .unwrap()
+});
 
 static OPERATOR_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator_*\b"#).unwrap());
@@ -59,15 +62,22 @@ static WHILE_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bwhile\s*\((.*)\)\s*[{;]"#).unwrap());
 static FOR_CLOSING_SEMICOLON_EXCEPTION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bfor\s*\(.*; \)"#).unwrap());
-static EXTRA_SPACE_BEFORE_CALL_PAREN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\w\s+\("#).unwrap());
-static ASM_VOLATILE_CALL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"_{0,2}asm_{0,2}\s+_{0,2}volatile_{0,2}\s+\("#).unwrap());
-static DEFINE_TYPEDEF_USING_ASSIGN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"#\s*define|typedef|using\s+\w+\s*="#).unwrap());
-static FUNCTION_POINTER_CALL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\w\s+\((\w+::)*\*\w+\)\("#).unwrap());
-static CASE_PAREN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\bcase\s+\("#).unwrap());
+static CALL_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"\w\s+\("#,                                   // 0: MAIN
+        r#"_{0,2}asm_{0,2}\s+_{0,2}volatile_{0,2}\s+\("#, // 1: ASM_VOLATILE
+        r#"#\s*define|typedef|using\s+\w+\s*="#,         // 2: DEFINE/TYPEDEF/USING
+        r#"\w\s+\((\w+::)*\*\w+\)\("#,                    // 3: FUNCTION_POINTER
+        r#"\bcase\s+\("#,                                 // 4: CASE
+    ])
+    .unwrap()
+});
+
+const CALL_SPACING_MAIN: usize = 0;
+const CALL_SPACING_ASM: usize = 1;
+const CALL_SPACING_DEFINE: usize = 2;
+const CALL_SPACING_FUNC_PTR: usize = 3;
+const CALL_SPACING_CASE: usize = 4;
 static EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[^)]\s+\)\s*[^{\s]"#).unwrap());
 static INITLIST_CONTINUATION_RE: LazyLock<Regex> =
@@ -92,27 +102,22 @@ static SPACE_BEFORE_LAST_SEMICOLON_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+;\s*$"#).unwrap());
 static CLASS_OR_STRUCT_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(["class", "struct"]).unwrap());
-static IFNDEF_ENDIF_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*#(ifndef|endif)\b"#).unwrap());
-static HTTP_URL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*//.*https?://\S*$"#).unwrap());
-static SINGLE_WORD_COMMENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*//\s*[^\s]*$"#).unwrap());
-static ID_COMMENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^// \$Id:.*#[0-9]+ \$$"#).unwrap());
-static DOXYGEN_COPY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*/// [@\\](copydoc|copydetails|copybrief) .*$"#).unwrap());
+static SKIP_LINE_LENGTH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"^\s*#(ifndef|endif)\b"#,
+        r#"^\s*//.*https?://\S*$"#,
+        r#"^\s*//\s*[^\s]*$"#,
+        r#"^// \$Id:.*#[0-9]+ \$$"#,
+        r#"^\s*/// [@\\](copydoc|copydetails|copybrief) .*$"#,
+    ])
+    .unwrap()
+});
 static QUALIFIED_BRACE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\)\s*(?:const|override|final|noexcept(?:\s*\([^)]*\))?)\{"#).unwrap()
 });
 
 fn should_skip_line_length(raw_line: &str) -> bool {
-    raw_line.starts_with("#include")
-        || IFNDEF_ENDIF_RE.is_match(raw_line)
-        || HTTP_URL_RE.is_match(raw_line)
-        || SINGLE_WORD_COMMENT_RE.is_match(raw_line)
-        || ID_COMMENT_RE.is_match(raw_line)
-        || DOXYGEN_COPY_RE.is_match(raw_line)
+    raw_line.starts_with("#include") || SKIP_LINE_LENGTH_SET.is_match(raw_line)
 }
 
 fn contains_class_or_struct_word(line: &str) -> bool {
@@ -843,7 +848,7 @@ fn check_spacing_for_function_call_base(
         return;
     }
 
-    if FUNC_REF_RE.is_match(fncall) || ARRAY_REF_RE.is_match(fncall) {
+    if REF_MATCHERS.is_match(fncall) {
         return;
     }
 
@@ -860,13 +865,21 @@ fn check_spacing_for_function_call_base(
         linter.error(linenum, "whitespace/parens", 2, "Extra space after (");
     }
 
-    if EXTRA_SPACE_BEFORE_CALL_PAREN_RE.is_match(fncall)
-        && (!keywords.has_va_opt() || !ASM_VOLATILE_CALL_RE.is_match(fncall))
-        && (!keywords.has_typedef() && !keywords.has_using()
-            || !DEFINE_TYPEDEF_USING_ASSIGN_RE.is_match(fncall))
-        && !FUNCTION_POINTER_CALL_RE.is_match(fncall)
-        && (!keywords.has_case() || !CASE_PAREN_RE.is_match(fncall))
+    let spacing_matches = CALL_SPACING_SET.matches(fncall);
+    if spacing_matches.matched(CALL_SPACING_MAIN) && !spacing_matches.matched(CALL_SPACING_FUNC_PTR)
     {
+        let mut exception_mask = 0u32;
+        if spacing_matches.matched(CALL_SPACING_ASM) {
+            exception_mask |= MatchedKeywords::VA_OPT;
+        }
+        if spacing_matches.matched(CALL_SPACING_DEFINE) {
+            exception_mask |= MatchedKeywords::TYPEDEF | MatchedKeywords::USING;
+        }
+        if spacing_matches.matched(CALL_SPACING_CASE) {
+            exception_mask |= MatchedKeywords::CASE;
+        }
+
+        if (keywords.bits() & exception_mask) == 0 {
         let confidence = if keywords.has_operator() && OPERATOR_NAME_RE.is_match(line) {
             0
         } else {
@@ -879,6 +892,7 @@ fn check_spacing_for_function_call_base(
             "Extra space before ( in function call",
         );
     }
+}
 
     if !EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE.is_match(fncall) {
         return;

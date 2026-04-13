@@ -64,26 +64,26 @@ static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KE
 pub struct MatchedKeywords(u32);
 
 impl MatchedKeywords {
-    const IF: u32 = 1 << 0;
-    const FOR: u32 = 1 << 1;
-    const WHILE: u32 = 1 << 2;
-    const SWITCH: u32 = 1 << 3;
-    const CASE: u32 = 1 << 4;
-    const DEFAULT: u32 = 1 << 5;
-    const RETURN: u32 = 1 << 6;
-    const NEW: u32 = 1 << 7;
-    const DELETE: u32 = 1 << 8;
-    const CATCH: u32 = 1 << 9;
-    const OPERATOR: u32 = 1 << 10;
-    const VA_OPT: u32 = 1 << 11;
-    const ACCESS: u32 = 1 << 12;
-    const SIZEOF: u32 = 1 << 13;
-    const ELIF: u32 = 1 << 14;
-    const TYPEDEF: u32 = 1 << 15;
-    const USING: u32 = 1 << 16;
-    const CAST: u32 = 1 << 17;
-    const ELSE: u32 = 1 << 18;
-    const DO: u32 = 1 << 19;
+    pub(crate) const IF: u32 = 1 << 0;
+    pub(crate) const FOR: u32 = 1 << 1;
+    pub(crate) const WHILE: u32 = 1 << 2;
+    pub(crate) const SWITCH: u32 = 1 << 3;
+    pub(crate) const CASE: u32 = 1 << 4;
+    pub(crate) const DEFAULT: u32 = 1 << 5;
+    pub(crate) const RETURN: u32 = 1 << 6;
+    pub(crate) const NEW: u32 = 1 << 7;
+    pub(crate) const DELETE: u32 = 1 << 8;
+    pub(crate) const CATCH: u32 = 1 << 9;
+    pub(crate) const OPERATOR: u32 = 1 << 10;
+    pub(crate) const VA_OPT: u32 = 1 << 11;
+    pub(crate) const ACCESS: u32 = 1 << 12;
+    pub(crate) const SIZEOF: u32 = 1 << 13;
+    pub(crate) const ELIF: u32 = 1 << 14;
+    pub(crate) const TYPEDEF: u32 = 1 << 15;
+    pub(crate) const USING: u32 = 1 << 16;
+    pub(crate) const CAST: u32 = 1 << 17;
+    pub(crate) const ELSE: u32 = 1 << 18;
+    pub(crate) const DO: u32 = 1 << 19;
 
     pub fn from_line(line: &str) -> Self {
         if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
@@ -197,6 +197,11 @@ impl MatchedKeywords {
     #[inline(always)]
     pub fn has_any_cast(&self) -> bool {
         (self.0 & Self::CAST) != 0
+    }
+
+    #[inline(always)]
+    pub fn bits(&self) -> u32 {
+        self.0
     }
 
     #[inline(always)]
