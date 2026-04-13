@@ -718,7 +718,13 @@ fn check_parenthesis_spacing(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if keywords.has_if() || keywords.has_for() || keywords.has_while() || keywords.has_switch() {
+    if (keywords.bits()
+        & (MatchedKeywords::IF
+            | MatchedKeywords::FOR
+            | MatchedKeywords::WHILE
+            | MatchedKeywords::SWITCH))
+        != 0
+    {
         if let Some(captures) = CONTROL_PARENS_MISSING_SPACE_RE.captures(elided_line) {
             linter.error(
                 linenum,
@@ -780,7 +786,10 @@ fn check_spacing_for_function_call(
     if !elided_line.contains('(') && !elided_line.contains(')') {
         return;
     }
-    if keywords.has_if() || keywords.has_for() || keywords.has_switch() {
+    if (keywords.bits()
+        & (MatchedKeywords::IF | MatchedKeywords::FOR | MatchedKeywords::SWITCH))
+        != 0
+    {
         if let Some(captures) = IF_FOR_SWITCH_CALL_RE.captures(elided_line) {
             check_spacing_for_function_call_base(
                 linter,
