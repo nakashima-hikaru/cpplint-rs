@@ -18,11 +18,11 @@ static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static ELSE_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
-        r#"^\s*else\b\s*(?:if\b|\{|$)"#, // 0: ELSE_AFTER_BRACE
-        r#"\belse if(?:\s+constexpr)?\s*\("#, // 1: ELSE_IF
+        r#"^\s*else\b\s*(?:if\b|\{|$)"#,        // 0: ELSE_AFTER_BRACE
+        r#"\belse if(?:\s+constexpr)?\s*\("#,   // 1: ELSE_IF
         r#"}\s*else if(?:\s+constexpr)?\s*\("#, // 2: BRACED_ELSE_IF
-        r#"}\s*else[^{]*$"#, // 3: BRACED_ELSE
-        r#"^[^}]*else\s*\{"#, // 4: ELSE_WITH_BRACE
+        r#"}\s*else[^{]*$"#,                    // 3: BRACED_ELSE
+        r#"^[^}]*else\s*\{"#,                   // 4: ELSE_WITH_BRACE
     ])
     .unwrap()
 });
@@ -1286,12 +1286,15 @@ fn in_template_argument_list(
         }
 
         let slice = &line[pos..];
-        let Some((offset, ch)) = slice.char_indices().find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>')) else {
+        let Some((offset, ch)) = slice
+            .char_indices()
+            .find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>'))
+        else {
             linenum += 1;
             pos = 0;
             continue;
         };
-        
+
         pos += offset + ch.len_utf8();
 
         match ch {
@@ -1326,7 +1329,11 @@ fn is_assign_match(line: &str) -> bool {
         return false;
     }
     let before = &trimmed[..trimmed.len() - 1];
-    !before.is_empty() && before.chars().next_back().is_some_and(|c| c.is_whitespace())
+    !before.is_empty()
+        && before
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_whitespace())
 }
 
 fn is_alignas_match(line: &str) -> bool {
@@ -1413,8 +1420,8 @@ fn check_trailing_semicolon(
                             | "INTERFACE_DEF"
                     )
                 });
-                let lambda_capture = line_prefix.trim_end().ends_with(']')
-                    && !is_operator_index_match(line_prefix);
+                let lambda_capture =
+                    line_prefix.trim_end().ends_with(']') && !is_operator_index_match(line_prefix);
                 unsafe_macro
                     || lambda_capture
                     || is_alignas_match(line_prefix)
@@ -1433,16 +1440,15 @@ fn check_trailing_semicolon(
     } else if let Some(brace_pos) = elided_line.find('{')
         && let prefix = elided_line[..brace_pos].trim_end()
         && (string_utils::ends_with_word(prefix, "else")
-            || (prefix.ends_with("const")
-                && prefix[..prefix.len() - 5].trim_end().ends_with(')')))
+            || (prefix.ends_with("const") && prefix[..prefix.len() - 5].trim_end().ends_with(')')))
     {
         Some((linenum, brace_pos))
-    } else if line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
-        .is_some_and(|(_idx, prev_line)| {
+    } else if line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum).is_some_and(
+        |(_idx, prev_line)| {
             let last_char = string_utils::get_last_non_space(prev_line);
             last_char == ';' || last_char == '{' || last_char == '}'
-        })
-        && let Some(brace_pos) = elided_line.find('{')
+        },
+    ) && let Some(brace_pos) = elided_line.find('{')
         && elided_line[..brace_pos].trim().is_empty()
     {
         Some((linenum, brace_pos))
@@ -1453,7 +1459,8 @@ fn check_trailing_semicolon(
     let Some((start_line, start_pos)) = match_start else {
         return;
     };
-    let Some((end_line, end_pos)) = line_utils::close_expression(clean_lines, start_line, start_pos)
+    let Some((end_line, end_pos)) =
+        line_utils::close_expression(clean_lines, start_line, start_pos)
     else {
         return;
     };

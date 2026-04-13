@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use cpplint_core::runner::{run_lint, RunnerConfig};
+use cpplint_core::runner::{RunnerConfig, run_lint};
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -13,7 +13,10 @@ fn bench_quantlib(c: &mut Criterion) {
     quantlib_path.push("QuantLib");
 
     if !quantlib_path.exists() {
-        eprintln!("Warning: QuantLib directory not found at {:?}. Skipping benchmark.", quantlib_path);
+        eprintln!(
+            "Warning: QuantLib directory not found at {:?}. Skipping benchmark.",
+            quantlib_path
+        );
         return;
     }
 
@@ -27,17 +30,17 @@ fn bench_quantlib(c: &mut Criterion) {
     };
 
     let mut group = c.benchmark_group("macro");
-    
+
     // QuantLibは巨大なので、サンプル数と計測時間を調整します
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(30));
-    
+
     group.bench_function("quantlib", |b| {
         b.iter(|| {
             let _ = run_lint(&[quantlib_path.clone()], &config).unwrap();
         })
     });
-    
+
     group.finish();
 }
 

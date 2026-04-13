@@ -444,12 +444,15 @@ fn in_template_argument_list(lines: &[String], mut linenum: usize, mut pos: usiz
         }
 
         let slice = &line[pos..];
-        let Some((offset, ch)) = slice.char_indices().find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>')) else {
+        let Some((offset, ch)) = slice
+            .char_indices()
+            .find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>'))
+        else {
             linenum += 1;
             pos = 0;
             continue;
         };
-        
+
         pos += offset + ch.len_utf8();
 
         match ch {

@@ -175,39 +175,73 @@ impl MatchedKeywords {
     }
 
     #[inline(always)]
-    fn has_if(&self) -> bool { (self.0 & Self::IF) != 0 }
+    fn has_if(&self) -> bool {
+        (self.0 & Self::IF) != 0
+    }
     #[inline(always)]
-    fn has_for(&self) -> bool { (self.0 & Self::FOR) != 0 }
+    fn has_for(&self) -> bool {
+        (self.0 & Self::FOR) != 0
+    }
     #[inline(always)]
-    fn has_while(&self) -> bool { (self.0 & Self::WHILE) != 0 }
+    fn has_while(&self) -> bool {
+        (self.0 & Self::WHILE) != 0
+    }
     #[inline(always)]
-    fn has_switch(&self) -> bool { (self.0 & Self::SWITCH) != 0 }
+    fn has_switch(&self) -> bool {
+        (self.0 & Self::SWITCH) != 0
+    }
     #[inline(always)]
-    fn has_case(&self) -> bool { (self.0 & Self::CASE) != 0 }
+    fn has_case(&self) -> bool {
+        (self.0 & Self::CASE) != 0
+    }
     #[inline(always)]
-    fn has_default(&self) -> bool { (self.0 & Self::DEFAULT) != 0 }
+    fn has_default(&self) -> bool {
+        (self.0 & Self::DEFAULT) != 0
+    }
     #[inline(always)]
-    fn has_return(&self) -> bool { (self.0 & Self::RETURN) != 0 }
+    fn has_return(&self) -> bool {
+        (self.0 & Self::RETURN) != 0
+    }
     #[inline(always)]
-    fn has_new(&self) -> bool { (self.0 & Self::NEW) != 0 }
+    fn has_new(&self) -> bool {
+        (self.0 & Self::NEW) != 0
+    }
     #[inline(always)]
-    fn has_delete(&self) -> bool { (self.0 & Self::DELETE) != 0 }
+    fn has_delete(&self) -> bool {
+        (self.0 & Self::DELETE) != 0
+    }
     #[inline(always)]
-    fn has_catch(&self) -> bool { (self.0 & Self::CATCH) != 0 }
+    fn has_catch(&self) -> bool {
+        (self.0 & Self::CATCH) != 0
+    }
     #[inline(always)]
-    fn has_operator(&self) -> bool { (self.0 & Self::OPERATOR) != 0 }
+    fn has_operator(&self) -> bool {
+        (self.0 & Self::OPERATOR) != 0
+    }
     #[inline(always)]
-    fn has_va_opt(&self) -> bool { (self.0 & Self::VA_OPT) != 0 }
+    fn has_va_opt(&self) -> bool {
+        (self.0 & Self::VA_OPT) != 0
+    }
     #[inline(always)]
-    fn has_access(&self) -> bool { (self.0 & Self::ACCESS) != 0 }
+    fn has_access(&self) -> bool {
+        (self.0 & Self::ACCESS) != 0
+    }
     #[inline(always)]
-    fn has_sizeof(&self) -> bool { (self.0 & Self::SIZEOF) != 0 }
+    fn has_sizeof(&self) -> bool {
+        (self.0 & Self::SIZEOF) != 0
+    }
     #[inline(always)]
-    fn has_elif(&self) -> bool { (self.0 & Self::ELIF) != 0 }
+    fn has_elif(&self) -> bool {
+        (self.0 & Self::ELIF) != 0
+    }
     #[inline(always)]
-    fn has_typedef(&self) -> bool { (self.0 & Self::TYPEDEF) != 0 }
+    fn has_typedef(&self) -> bool {
+        (self.0 & Self::TYPEDEF) != 0
+    }
     #[inline(always)]
-    fn has_using(&self) -> bool { (self.0 & Self::USING) != 0 }
+    fn has_using(&self) -> bool {
+        (self.0 & Self::USING) != 0
+    }
 }
 static BRACED_INIT_TRAILING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[\s}]*[{.;,)<>\]:]"#).unwrap());
@@ -588,7 +622,17 @@ fn has_missing_assignment_space(s: &str) -> bool {
                 let prev = bytes[i - 1];
                 if matches!(
                     prev,
-                    b'>' | b'<' | b'=' | b'!' | b'&' | b'^' | b'|' | b'+' | b'-' | b'*' | b'/' | b'%'
+                    b'>' | b'<'
+                        | b'='
+                        | b'!'
+                        | b'&'
+                        | b'^'
+                        | b'|'
+                        | b'+'
+                        | b'-'
+                        | b'*'
+                        | b'/'
+                        | b'%'
                 ) {
                     continue;
                 }
@@ -643,8 +687,11 @@ fn find_missing_comparison_space(s: &str) -> Option<&'static str> {
             let prev = bytes[i - 1];
             let next = bytes[i + 2];
 
-            let prev_is_op_char = matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
-            let next_is_op_char = matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')') || next.is_ascii_whitespace();
+            let prev_is_op_char =
+                matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
+            let next_is_op_char =
+                matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
+                    || next.is_ascii_whitespace();
 
             if !prev_is_op_char && !next_is_op_char {
                 return Some(op);

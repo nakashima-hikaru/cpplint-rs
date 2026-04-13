@@ -158,6 +158,9 @@ mod tests {
     fn test_ends_with_word_and_optional_spaces() {
         assert!(ends_with_word_and_optional_spaces("decltype", "decltype"));
         assert!(ends_with_word_and_optional_spaces("decltype  ", "decltype"));
-        assert!(!ends_with_word_and_optional_spaces("my_decltype", "decltype"));
+        assert!(!ends_with_word_and_optional_spaces(
+            "my_decltype",
+            "decltype"
+        ));
     }
 }
