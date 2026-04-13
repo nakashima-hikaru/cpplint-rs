@@ -4,7 +4,7 @@ use crate::line_utils;
 use crate::regex_utils;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
-use regex::{Regex, RegexSet};
+use regex::Regex;
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
@@ -16,27 +16,7 @@ fn is_control_statement_start(s: &str) -> bool {
 static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
-static ELSE_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([
-        r#"^\s*else\b\s*(?:if\b|\{|$)"#,        // 0: ELSE_AFTER_BRACE
-        r#"\belse if(?:\s+constexpr)?\s*\("#,   // 1: ELSE_IF
-        r#"}\s*else if(?:\s+constexpr)?\s*\("#, // 2: BRACED_ELSE_IF
-        r#"}\s*else[^{]*$"#,                    // 3: BRACED_ELSE
-        r#"^[^}]*else\s*\{"#,                   // 4: ELSE_WITH_BRACE
-    ])
-    .unwrap()
-});
-static SINGLE_LINE_CONTROL_SET: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([
-        r#"\bif\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
-        r#"\belse\s*\{[^{}]+\}\s*$"#,
-        r#"\bwhile\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
-        r#"\bfor\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
-    ])
-    .unwrap()
-});
 
-const CONTROL_KEYWORDS: [&str; 4] = ["if", "else", "while", "for"];
 
 static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -85,7 +65,6 @@ fn is_test_like_function(name: &str) -> bool {
     name.starts_with("TEST") || name.starts_with("Test")
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let elided_line = &clean_lines.elided[linenum];
 
@@ -107,7 +86,6 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     check_function_size(linter, clean_lines, elided_line, linenum);
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let use_raw_block_comment = clean_lines.has_comment[linenum]
         && clean_lines.elided[linenum].trim().is_empty()
@@ -145,7 +123,6 @@ fn is_interior_block_comment_line(raw_line: &str) -> bool {
         && !trimmed.contains("*/")
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
     let trimmed = elided_line.trim();
     if !trimmed.starts_with("using namespace ") {
@@ -165,7 +142,6 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
     );
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_unnamed_namespace_in_header(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
     if !linter.filename().ends_with(".h")
         && !linter.filename().ends_with(".hpp")
@@ -187,7 +163,6 @@ fn check_unnamed_namespace_in_header(linter: &mut FileLinter, elided_line: &str,
     );
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_check_macro(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -332,7 +307,6 @@ fn replacement_check_macro(check_macro: &str, op: &str) -> Option<&'static str> 
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_function_size(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -382,7 +356,6 @@ fn check_function_size(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_missing_function_body(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -502,7 +475,6 @@ fn parse_function_name(signature_line: &str) -> Option<&str> {
     Some(function_name)
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_braces(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -538,57 +510,73 @@ fn check_braces(
     }
 
     // 2. Check for "else" placement
-    if elided_line.contains("else") {
-        let else_matches = ELSE_CHECK_SET.matches(elided_line);
-        let mut last_wrong = false;
-        if else_matches.matched(0)
-            && let Some((_prev_idx, prev_line)) =
-                line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
-            && prev_line.trim() == "}"
-        {
-            linter.error(
-                linenum,
-                r#"whitespace/newline"#,
-                4,
-                r#"An else should appear on the same line as the preceding }"#,
-            );
-            last_wrong = true;
+    if let Some(else_pos) = elided_line.find("else") {
+        let _bytes = elided_line.as_bytes();
+        
+        // Check if it's a word match for "else"
+        if !string_utils::is_word_match(elided_line, else_pos, else_pos + 4) {
+            return;
         }
 
-        if else_matches.matched(1) {
-            let brace_on_left = else_matches.matched(2);
-            if let Some(else_if_pos) = elided_line.find("else if")
-                && let Some(open_paren_offset) = elided_line[else_if_pos..].find('(')
-            {
-                let open_paren_pos = else_if_pos + open_paren_offset;
-                if let Some((end_line, end_pos)) =
-                    line_utils::close_expression(clean_lines, linenum, open_paren_pos)
-                {
-                    let endline = &clean_lines.elided[end_line];
-                    let brace_on_right = endline
-                        .get(end_pos..)
-                        .is_some_and(|suffix| suffix.contains('{'));
-                    if brace_on_left != brace_on_right {
+        let mut last_wrong = false;
+        
+        // Pattern 0: ^\s*else\b\s*(?:if\b|\{|$)
+        let prefix = &elided_line[..else_pos];
+        if prefix.trim().is_empty() {
+            let suffix = elided_line[else_pos + 4..].trim_start();
+            if suffix.is_empty() || suffix.starts_with('{') || suffix.starts_with("if") {
+                if let Some((_prev_idx, prev_line)) = line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum) {
+                    if prev_line.trim() == "}" {
                         linter.error(
                             linenum,
-                            "readability/braces",
-                            5,
-                            "If an else has a brace on one side, it should have it on both",
+                            "whitespace/newline",
+                            4,
+                            "An else should appear on the same line as the preceding }",
                         );
+                        last_wrong = true;
                     }
                 }
             }
-        } else {
-            let has_left_brace = else_matches.matched(3);
-            let has_right_brace = else_matches.matched(4) && !last_wrong;
-            if has_left_brace || has_right_brace {
-                linter.error(
-                    linenum,
-                    "readability/braces",
-                    5,
-                    "If an else has a brace on one side, it should have it on both",
-                );
+        }
+
+        // Pattern 1 & 2: else if / } else if
+        if let Some(if_pos) = elided_line[else_pos + 4..].find("if") {
+            let if_pos = else_pos + 4 + if_pos;
+            if string_utils::is_word_match(elided_line, if_pos, if_pos + 2) {
+                // Check for BRACED_ELSE_IF: } \s* else if
+                let braced_else_if = prefix.trim() == "}";
+                
+                if let Some(open_paren_offset) = elided_line[if_pos + 2..].find('(') {
+                    let open_paren_pos = if_pos + 2 + open_paren_offset;
+                    if let Some((end_line, end_pos)) = line_utils::close_expression(clean_lines, linenum, open_paren_pos) {
+                        let endline = &clean_lines.elided[end_line];
+                        let brace_on_right = endline.get(end_pos..).is_some_and(|suffix| suffix.contains('{'));
+                        if braced_else_if != brace_on_right {
+                            linter.error(
+                                linenum,
+                                "readability/braces",
+                                5,
+                                "If an else has a brace on one side, it should have it on both",
+                            );
+                        }
+                    }
+                }
+                return;
             }
+        }
+
+        // Pattern 3 & 4: } \s* else [^{]*$ / ^[^}]* else \s* {
+        let has_left_brace = prefix.trim() == "}";
+        let suffix = elided_line[else_pos + 4..].trim_start();
+        let has_right_brace = suffix.starts_with('{') && !last_wrong;
+
+        if (has_left_brace || has_right_brace) && has_left_brace != has_right_brace {
+            linter.error(
+                linenum,
+                "readability/braces",
+                5,
+                "If an else has a brace on one side, it should have it on both",
+            );
         }
     }
 }
@@ -612,7 +600,6 @@ fn count_unescaped_quotes(line: &str) -> usize {
     count
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_multiline_strings(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let line = clean_lines.line_without_alternate_tokens(linenum);
     if line.contains('"') && count_unescaped_quotes(line) % 2 == 1 {
@@ -625,12 +612,13 @@ fn check_multiline_strings(linter: &mut FileLinter, clean_lines: &CleansedLines,
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_multiline_comments(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
-    let line_without_cpp_comments = clean_lines.lines_without_raw_strings[linenum]
-        .split("//")
-        .next()
-        .unwrap_or("");
+    let line = &clean_lines.lines_without_raw_strings[linenum];
+    if !line.contains("/*") {
+        return;
+    }
+
+    let line_without_cpp_comments = line.split("//").next().unwrap_or("");
     if !line_without_cpp_comments.contains("/*") {
         return;
     }
@@ -666,38 +654,55 @@ fn check_multiline_comments(linter: &mut FileLinter, clean_lines: &CleansedLines
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_empty_bodies(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
     elided_line: &str,
     linenum: usize,
 ) {
-    let trimmed = elided_line.trim();
-
-    if is_empty_control_statement(trimmed, "if") {
-        linter.error(
-            linenum,
-            "whitespace/empty_conditional_body",
-            5,
-            "Empty conditional bodies should use {}",
-        );
+    if elided_line.is_empty() {
         return;
     }
+
+    let trimmed_start = elided_line.trim_start();
+    if trimmed_start.is_empty() {
+        return;
+    }
+
+    // if/while/for empty bodies: if (cond) ;
+    if (trimmed_start.starts_with("if")
+        || trimmed_start.starts_with("while")
+        || trimmed_start.starts_with("for"))
+        && trimmed_start.contains('(')
+    {
+        if is_empty_control_statement(trimmed_start, "if") {
+            linter.error(
+                linenum,
+                "whitespace/empty_conditional_body",
+                5,
+                "Empty conditional bodies should use {}",
+            );
+            return;
+        }
+
+        if is_empty_control_statement(trimmed_start, "while")
+            || is_empty_control_statement(trimmed_start, "for")
+        {
+            linter.error(
+                linenum,
+                "whitespace/empty_loop_body",
+                5,
+                "Empty loop bodies should use {} or continue",
+            );
+            return;
+        }
+    }
+
     if unmatched_parentheses(elided_line) > 0 {
         return;
     }
 
-    if is_empty_control_statement(trimmed, "while") || is_empty_control_statement(trimmed, "for") {
-        linter.error(
-            linenum,
-            "whitespace/empty_loop_body",
-            5,
-            "Empty loop bodies should use {} or continue",
-        );
-        return;
-    }
-
+    let trimmed = trimmed_start.trim_end();
     if trimmed != "}" || linenum == 0 {
         return;
     }
@@ -805,7 +810,6 @@ fn is_empty_control_statement(line: &str, keyword: &str) -> bool {
     rest[split_index..].trim() == ";"
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_redundant_virtuals(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -874,29 +878,53 @@ fn check_redundant_virtuals(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_single_line_control_bodies(
     linter: &mut FileLinter,
     _clean_lines: &CleansedLines,
     elided_line: &str,
     linenum: usize,
 ) {
-    let matches = SINGLE_LINE_CONTROL_SET.matches(elided_line);
-    if let Some(index) = matches.iter().next() {
-        let keyword = CONTROL_KEYWORDS[index];
-        linter.error(
-            linenum,
-            "whitespace/newline",
-            5,
-            &format!(
-                "Controlled statements inside brackets of {} clause should be on a separate line",
-                keyword
-            ),
-        );
+    if elided_line.trim().is_empty() {
+        return;
+    }
+
+    // Manual implementation of SINGLE_LINE_CONTROL_SET patterns:
+    // r#"\b(if|else|while|for)\b.*\s*\{[^{}]+\}\s*$"#
+    for kw in ["if", "else", "while", "for"] {
+        if let Some(pos) = elided_line.find(kw) {
+            if !string_utils::is_word_match(elided_line, pos, pos + kw.len()) {
+                continue;
+            }
+
+            let rest = &elided_line[pos + kw.len()..];
+            if let Some(open_brace) = rest.find('{') {
+                let after_brace = &rest[open_brace + 1..];
+                if let Some(close_brace) = after_brace.find('}') {
+                    let inside = &after_brace[..close_brace];
+                    let after_close = &after_brace[close_brace + 1..];
+
+                    if !inside.trim().is_empty()
+                        && !inside.contains('{')
+                        && !inside.contains('}')
+                        && after_close.trim().is_empty()
+                    {
+                        linter.error(
+                            linenum,
+                            "whitespace/newline",
+                            5,
+                            &format!(
+                                "Controlled statements inside brackets of {} clause should be on a separate line",
+                                kw
+                            ),
+                        );
+                        return;
+                    }
+                }
+            }
+        }
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_multiline_if_else_bodies(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1026,7 +1054,6 @@ fn check_multiline_if_else_bodies(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_namespace_termination_comment(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1080,7 +1107,6 @@ fn check_namespace_termination_comment(
     );
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_namespace_indentation(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1154,13 +1180,11 @@ fn check_namespace_indentation(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn is_macro_definition(clean_lines: &CleansedLines, elided_line: &str, linenum: usize) -> bool {
     elided_line.starts_with("#define")
         || (linenum > 0 && clean_lines.elided[linenum - 1].ends_with('\\'))
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn is_namespace_closing_brace(
     linter: &FileLinter,
     clean_lines: &CleansedLines,
@@ -1185,7 +1209,6 @@ fn is_namespace_closing_brace(
             })
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn is_namespace_block_closure(
     linter: &FileLinter,
     clean_lines: &CleansedLines,
@@ -1211,7 +1234,6 @@ fn is_namespace_block_closure(
             })
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn is_namespace_initializer_continuation(
     linter: &FileLinter,
     clean_lines: &CleansedLines,
@@ -1231,7 +1253,6 @@ fn is_namespace_initializer_continuation(
         })
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn is_multiline_type_header_wrap(clean_lines: &CleansedLines, linenum: usize) -> bool {
     let current = clean_lines.elided[linenum].trim();
     if current.contains('}') {
@@ -1271,7 +1292,6 @@ fn is_multiline_type_header_wrap(clean_lines: &CleansedLines, linenum: usize) ->
     false
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn in_template_argument_list(
     clean_lines: &CleansedLines,
     mut linenum: usize,
@@ -1386,20 +1406,19 @@ fn is_operator_index_match(s: &str) -> bool {
     string_utils::ends_with_word(&trimmed[..i], "operator")
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_trailing_semicolon(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
     elided_line: &str,
     linenum: usize,
 ) {
-    if !elided_line.contains('{') && !elided_line.contains('}') {
+    let Some(brace_pos) = elided_line.find('{') else {
         return;
-    }
-    let match_start = if let Some(brace_pos) = elided_line.find('{')
-        && let prefix = &elided_line[..brace_pos]
-        && prefix.trim_end().ends_with(')')
-    {
+    };
+
+    let prefix = elided_line[..brace_pos].trim_end();
+
+    let match_start = if prefix.ends_with(')') {
         let close_paren_pos = prefix.rfind(')').unwrap();
 
         let skip = line_utils::reverse_close_expression(clean_lines, linenum, close_paren_pos)
@@ -1437,19 +1456,17 @@ fn check_trailing_semicolon(
         } else {
             Some((linenum, brace_pos))
         }
-    } else if let Some(brace_pos) = elided_line.find('{')
-        && let prefix = elided_line[..brace_pos].trim_end()
-        && (string_utils::ends_with_word(prefix, "else")
-            || (prefix.ends_with("const") && prefix[..prefix.len() - 5].trim_end().ends_with(')')))
+    } else if string_utils::ends_with_word(prefix, "else")
+        || (prefix.ends_with("const") && prefix[..prefix.len() - 5].trim_end().ends_with(')'))
     {
         Some((linenum, brace_pos))
-    } else if line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum).is_some_and(
-        |(_idx, prev_line)| {
-            let last_char = string_utils::get_last_non_space(prev_line);
-            last_char == ';' || last_char == '{' || last_char == '}'
-        },
-    ) && let Some(brace_pos) = elided_line.find('{')
-        && elided_line[..brace_pos].trim().is_empty()
+    } else if prefix.is_empty()
+        && line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum).is_some_and(
+            |(_idx, prev_line)| {
+                let last_char = string_utils::get_last_non_space(prev_line);
+                last_char == ';' || last_char == '{' || last_char == '}'
+            },
+        )
     {
         Some((linenum, brace_pos))
     } else {
