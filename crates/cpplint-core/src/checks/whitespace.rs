@@ -119,57 +119,95 @@ const KEYWORDS: [&str; 24] = [
 
 static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KEYWORDS).unwrap());
 
-#[derive(Default)]
-struct MatchedKeywords {
-    has_if: bool,
-    has_for: bool,
-    has_while: bool,
-    has_switch: bool,
-    has_case: bool,
-    has_default: bool,
-    has_return: bool,
-    has_new: bool,
-    has_delete: bool,
-    has_catch: bool,
-    has_operator: bool,
-    has_va_opt: bool,
-    has_access: bool,
-    has_sizeof: bool,
-    has_elif: bool,
-    has_typedef: bool,
-    has_using: bool,
-    has_cast: bool,
-}
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+struct MatchedKeywords(u32);
 
 impl MatchedKeywords {
+    const IF: u32 = 1 << 0;
+    const FOR: u32 = 1 << 1;
+    const WHILE: u32 = 1 << 2;
+    const SWITCH: u32 = 1 << 3;
+    const CASE: u32 = 1 << 4;
+    const DEFAULT: u32 = 1 << 5;
+    const RETURN: u32 = 1 << 6;
+    const NEW: u32 = 1 << 7;
+    const DELETE: u32 = 1 << 8;
+    const CATCH: u32 = 1 << 9;
+    const OPERATOR: u32 = 1 << 10;
+    const VA_OPT: u32 = 1 << 11;
+    const ACCESS: u32 = 1 << 12;
+    const SIZEOF: u32 = 1 << 13;
+    const ELIF: u32 = 1 << 14;
+    const TYPEDEF: u32 = 1 << 15;
+    const USING: u32 = 1 << 16;
+    const CAST: u32 = 1 << 17;
+
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn from_line(line: &str) -> Self {
-        let mut matched = Self::default();
-        for mat in KEYWORDS_AC.find_iter(line) {
-            match mat.pattern().as_usize() {
-                0 => matched.has_if = true,
-                1 => matched.has_for = true,
-                2 => matched.has_while = true,
-                3 => matched.has_switch = true,
-                4 => matched.has_case = true,
-                5 => matched.has_default = true,
-                6 => matched.has_return = true,
-                7 => matched.has_new = true,
-                8 => matched.has_delete = true,
-                9 => matched.has_catch = true,
-                10 => matched.has_operator = true,
-                11 => matched.has_va_opt = true,
-                12..=16 => matched.has_access = true,
-                17 => matched.has_sizeof = true,
-                18 => matched.has_elif = true,
-                19 => matched.has_typedef = true,
-                20 => matched.has_using = true,
-                21..=23 => matched.has_cast = true,
-                _ => {}
-            }
+        if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
+            return Self::default();
         }
-        matched
+        let mut bits = 0u32;
+        for mat in KEYWORDS_AC.find_iter(line) {
+            bits |= match mat.pattern().as_usize() {
+                0 => Self::IF,
+                1 => Self::FOR,
+                2 => Self::WHILE,
+                3 => Self::SWITCH,
+                4 => Self::CASE,
+                5 => Self::DEFAULT,
+                6 => Self::RETURN,
+                7 => Self::NEW,
+                8 => Self::DELETE,
+                9 => Self::CATCH,
+                10 => Self::OPERATOR,
+                11 => Self::VA_OPT,
+                12..=16 => Self::ACCESS,
+                17 => Self::SIZEOF,
+                18 => Self::ELIF,
+                19 => Self::TYPEDEF,
+                20 => Self::USING,
+                21..=23 => Self::CAST,
+                _ => 0,
+            };
+        }
+        Self(bits)
     }
+
+    #[inline(always)]
+    fn has_if(&self) -> bool { (self.0 & Self::IF) != 0 }
+    #[inline(always)]
+    fn has_for(&self) -> bool { (self.0 & Self::FOR) != 0 }
+    #[inline(always)]
+    fn has_while(&self) -> bool { (self.0 & Self::WHILE) != 0 }
+    #[inline(always)]
+    fn has_switch(&self) -> bool { (self.0 & Self::SWITCH) != 0 }
+    #[inline(always)]
+    fn has_case(&self) -> bool { (self.0 & Self::CASE) != 0 }
+    #[inline(always)]
+    fn has_default(&self) -> bool { (self.0 & Self::DEFAULT) != 0 }
+    #[inline(always)]
+    fn has_return(&self) -> bool { (self.0 & Self::RETURN) != 0 }
+    #[inline(always)]
+    fn has_new(&self) -> bool { (self.0 & Self::NEW) != 0 }
+    #[inline(always)]
+    fn has_delete(&self) -> bool { (self.0 & Self::DELETE) != 0 }
+    #[inline(always)]
+    fn has_catch(&self) -> bool { (self.0 & Self::CATCH) != 0 }
+    #[inline(always)]
+    fn has_operator(&self) -> bool { (self.0 & Self::OPERATOR) != 0 }
+    #[inline(always)]
+    fn has_va_opt(&self) -> bool { (self.0 & Self::VA_OPT) != 0 }
+    #[inline(always)]
+    fn has_access(&self) -> bool { (self.0 & Self::ACCESS) != 0 }
+    #[inline(always)]
+    fn has_sizeof(&self) -> bool { (self.0 & Self::SIZEOF) != 0 }
+    #[inline(always)]
+    fn has_elif(&self) -> bool { (self.0 & Self::ELIF) != 0 }
+    #[inline(always)]
+    fn has_typedef(&self) -> bool { (self.0 & Self::TYPEDEF) != 0 }
+    #[inline(always)]
+    fn has_using(&self) -> bool { (self.0 & Self::USING) != 0 }
 }
 static BRACED_INIT_TRAILING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[\s}]*[{.;,)<>\]:]"#).unwrap());
@@ -424,7 +462,7 @@ fn check_operator_spacing(
     }
 
     let mut masked_line: std::borrow::Cow<'_, str> = std::borrow::Cow::Borrowed(elided_line);
-    if keywords.has_operator
+    if keywords.has_operator()
         && let Some(captures) = OPERATOR_METHOD_RE.captures(elided_line)
     {
         let prefix = captures.get(1).map_or("", |m| m.as_str());
@@ -657,7 +695,7 @@ fn check_parenthesis_spacing(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if keywords.has_if || keywords.has_for || keywords.has_while || keywords.has_switch {
+    if keywords.has_if() || keywords.has_for() || keywords.has_while() || keywords.has_switch() {
         if let Some(captures) = CONTROL_PARENS_MISSING_SPACE_RE.captures(elided_line) {
             linter.error(
                 linenum,
@@ -720,7 +758,7 @@ fn check_spacing_for_function_call(
     if !elided_line.contains('(') && !elided_line.contains(')') {
         return;
     }
-    if keywords.has_if || keywords.has_for || keywords.has_switch {
+    if keywords.has_if() || keywords.has_for() || keywords.has_switch() {
         if let Some(captures) = IF_FOR_SWITCH_CALL_RE.captures(elided_line) {
             check_spacing_for_function_call_base(
                 linter,
@@ -731,7 +769,7 @@ fn check_spacing_for_function_call(
                 keywords,
             );
         }
-    } else if keywords.has_while
+    } else if keywords.has_while()
         && let Some(captures) = WHILE_CALL_RE.captures(elided_line)
     {
         check_spacing_for_function_call_base(
@@ -784,16 +822,16 @@ fn check_spacing_for_function_call_base(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if (keywords.has_if
-        || keywords.has_elif
-        || keywords.has_for
-        || keywords.has_while
-        || keywords.has_switch
-        || keywords.has_return
-        || keywords.has_new
-        || keywords.has_delete
-        || keywords.has_catch
-        || keywords.has_sizeof)
+    if (keywords.has_if()
+        || keywords.has_elif()
+        || keywords.has_for()
+        || keywords.has_while()
+        || keywords.has_switch()
+        || keywords.has_return()
+        || keywords.has_new()
+        || keywords.has_delete()
+        || keywords.has_catch()
+        || keywords.has_sizeof())
         && CONTROL_STRUCT_RE.is_match(fncall)
     {
         return;
@@ -817,13 +855,13 @@ fn check_spacing_for_function_call_base(
     }
 
     if EXTRA_SPACE_BEFORE_CALL_PAREN_RE.is_match(fncall)
-        && (!keywords.has_va_opt || !ASM_VOLATILE_CALL_RE.is_match(fncall))
-        && (!keywords.has_typedef && !keywords.has_using
+        && (!keywords.has_va_opt() || !ASM_VOLATILE_CALL_RE.is_match(fncall))
+        && (!keywords.has_typedef() && !keywords.has_using()
             || !DEFINE_TYPEDEF_USING_ASSIGN_RE.is_match(fncall))
         && !FUNCTION_POINTER_CALL_RE.is_match(fncall)
-        && (!keywords.has_case || !CASE_PAREN_RE.is_match(fncall))
+        && (!keywords.has_case() || !CASE_PAREN_RE.is_match(fncall))
     {
-        let confidence = if keywords.has_operator && OPERATOR_NAME_RE.is_match(line) {
+        let confidence = if keywords.has_operator() && OPERATOR_NAME_RE.is_match(line) {
             0
         } else {
             4
@@ -1037,7 +1075,7 @@ fn check_section_spacing(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if !keywords.has_access {
+    if !keywords.has_access() {
         return;
     }
     let line = &clean_lines.lines_without_raw_strings[linenum];
@@ -1129,7 +1167,7 @@ fn check_access_specifier_indentation(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if !keywords.has_access {
+    if !keywords.has_access() {
         return;
     }
     let raw_line = clean_lines.raw_lines[linenum].trim_start();
@@ -1335,7 +1373,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     }
 
     // 6. Check for space around colon in range-based for
-    if keywords.has_for
+    if keywords.has_for()
         && (RANGE_FOR_COLON_LEFT_RE.is_match(elided_line)
             || RANGE_FOR_COLON_RIGHT_RE.is_match(elided_line))
     {
@@ -1362,7 +1400,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     );
 
     // 9. Check comma and semicolon spacing.
-    let comma_check_line: Cow<'_, str> = if keywords.has_operator || keywords.has_va_opt {
+    let comma_check_line: Cow<'_, str> = if keywords.has_operator() || keywords.has_va_opt() {
         let replaced = VA_OPT_COMMA_RE.replace_all(elided_line, "");
         Cow::Owned(
             OPERATOR_COMMA_CALL_RE
@@ -1415,10 +1453,10 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         ""
     };
     let switch_case_single_line =
-        (keywords.has_case || keywords.has_default) && elided_line.contains("break;");
+        (keywords.has_case() || keywords.has_default()) && elided_line.contains("break;");
     if semicolon_count > 1
         && !MULTI_COMMAND_INITLIST_RE.is_match(line)
-        && !keywords.has_for
+        && !keywords.has_for()
         && (!prev_line.contains("for") || prev_line.contains(';'))
         && !switch_case_single_line
     {

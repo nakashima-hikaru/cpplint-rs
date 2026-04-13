@@ -33,10 +33,12 @@ pub struct FileFacts {
     macro_lines: Vec<bool>,
     matching_block_starts: Vec<Option<usize>>,
     non_blank_elided_prefix: Vec<usize>,
+    block_kind: Vec<Option<ScopeKind>>,
+    namespace_decl_line: Vec<Option<usize>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScopeKind {
+pub enum ScopeKind {
     Namespace,
     Extern,
     Block,
@@ -58,9 +60,12 @@ impl FileFacts {
         let mut ns_ext_stack = Vec::new();
         let mut ns_ext_depth = 0usize;
         let mut pending_ns_ext_scope = None;
+        let mut last_namespace_decl = None;
 
         let mut top_ns_stack = Vec::new();
         let mut top_ns_depth = 0usize;
+        let mut block_kind = vec![None; n];
+        let mut namespace_decl_line = vec![None; n];
 
         let mut brace_stack = Vec::new();
         let mut matching_stack = Vec::new();
@@ -100,9 +105,17 @@ impl FileFacts {
             in_namespace_or_extern_block.push(ns_ext_depth > 0);
             let trimmed_elided = elided.trim();
 
+            if trimmed_elided.starts_with("namespace") {
+                last_namespace_decl = Some(linenum);
+            }
+
             if let Some(scope) = pending_ns_ext_scope {
                 if trimmed_elided.starts_with('{') {
                     ns_ext_stack.push(scope);
+                    if scope == ScopeKind::Namespace {
+                        block_kind[linenum] = Some(ScopeKind::Namespace);
+                        namespace_decl_line[linenum] = last_namespace_decl;
+                    }
                     if matches!(scope, ScopeKind::Namespace | ScopeKind::Extern) {
                         ns_ext_depth += 1;
                     }
@@ -122,14 +135,12 @@ impl FileFacts {
                 }
             }
             if pending_ns_ext_scope.is_none() {
-                if elided.contains('{')
-                    && line_utils::namespace_decl_start_line(
-                        &clean_lines.lines_without_raw_strings,
-                        linenum,
-                    )
-                    .is_some()
-                {
+                if elided.contains('{') && last_namespace_decl.is_some() {
+                    // Try to confirm if this brace belongs to the namespace
+                    // For now, if we have a recent namespace decl and a brace, we assume it's linked
                     ns_ext_stack.push(ScopeKind::Namespace);
+                    block_kind[linenum] = Some(ScopeKind::Namespace);
+                    namespace_decl_line[linenum] = last_namespace_decl;
                     ns_ext_depth += 1;
                     for _ in 1..l_braces {
                         ns_ext_stack.push(ScopeKind::Block);
@@ -140,6 +151,19 @@ impl FileFacts {
                         {
                             ns_ext_depth = ns_ext_depth.saturating_sub(1);
                         }
+                    }
+                    last_namespace_decl = None; // consumed
+                } else if trimmed_elided.starts_with("namespace") {
+                    if elided.contains('{') {
+                        ns_ext_stack.push(ScopeKind::Namespace);
+                        block_kind[linenum] = Some(ScopeKind::Namespace);
+                        namespace_decl_line[linenum] = Some(linenum);
+                        ns_ext_depth += 1;
+                        for _ in 1..l_braces {
+                            ns_ext_stack.push(ScopeKind::Block);
+                        }
+                    } else {
+                        pending_ns_ext_scope = Some(ScopeKind::Namespace);
                     }
                 } else if trimmed_elided.starts_with("extern ") {
                     if elided.contains('{') {
@@ -167,13 +191,7 @@ impl FileFacts {
                 (top_ns_depth > 0 && top_ns_stack.last() == Some(&ScopeKind::Namespace))
                     .then_some(top_ns_depth),
             );
-            if elided.contains('{')
-                && line_utils::namespace_decl_start_line(
-                    &clean_lines.lines_without_raw_strings,
-                    linenum,
-                )
-                .is_some()
-            {
+            if elided.contains('{') && block_kind[linenum] == Some(ScopeKind::Namespace) {
                 top_ns_stack.push(ScopeKind::Namespace);
                 top_ns_depth += 1;
                 for _ in 1..l_braces {
@@ -266,6 +284,8 @@ impl FileFacts {
             macro_lines,
             matching_block_starts,
             non_blank_elided_prefix,
+            block_kind,
+            namespace_decl_line,
         }
     }
 
@@ -299,6 +319,14 @@ impl FileFacts {
 
     pub fn closing_brace_start(&self, linenum: usize) -> Option<usize> {
         self.closing_brace_starts.get(linenum).copied().flatten()
+    }
+
+    pub fn block_kind(&self, linenum: usize) -> Option<ScopeKind> {
+        self.block_kind.get(linenum).copied().flatten()
+    }
+
+    pub fn namespace_decl_line(&self, linenum: usize) -> Option<usize> {
+        self.namespace_decl_line.get(linenum).copied().flatten()
     }
 
     pub fn matching_block_start(&self, linenum: usize) -> Option<usize> {

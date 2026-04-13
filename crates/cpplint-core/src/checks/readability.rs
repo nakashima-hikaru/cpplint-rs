@@ -1108,7 +1108,7 @@ fn check_namespace_indentation(
         return;
     }
 
-    if crate::line_utils::namespace_decl_start_line(&clean_lines.elided, linenum) == Some(linenum)
+    if linter.facts().block_kind(linenum) == Some(crate::facts::ScopeKind::Namespace)
         && NAMESPACE_START_RE.is_match(clean_lines.elided[linenum].trim())
         && !clean_lines.elided[linenum].contains('}')
     {
@@ -1171,7 +1171,11 @@ fn is_namespace_closing_brace(
             .facts()
             .matching_block_start(linenum)
             .and_then(|start| {
-                crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start)
+                if linter.facts().block_kind(start) == Some(crate::facts::ScopeKind::Namespace) {
+                    linter.facts().namespace_decl_line(start)
+                } else {
+                    None
+                }
             })
             .is_some_and(|namespace_line| {
                 linter
@@ -1192,15 +1196,17 @@ fn is_namespace_block_closure(
             .facts()
             .matching_block_start(linenum)
             .is_some_and(|start| {
-                if let Some(namespace_line) =
-                    crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start)
-                {
-                    linter
-                        .facts()
-                        .namespace_top_level_depth(namespace_line)
-                        .is_some()
+                if linter.facts().block_kind(start) == Some(crate::facts::ScopeKind::Namespace) {
+                    if let Some(namespace_line) = linter.facts().namespace_decl_line(start) {
+                        linter
+                            .facts()
+                            .namespace_top_level_depth(namespace_line)
+                            .is_some()
+                    } else {
+                        linter.facts().namespace_top_level_depth(start).is_some()
+                    }
                 } else {
-                    linter.facts().namespace_top_level_depth(start).is_some()
+                    false
                 }
             })
 }
