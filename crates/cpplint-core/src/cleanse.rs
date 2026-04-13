@@ -1,5 +1,6 @@
 use crate::options::Options;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 static INCLUDE_RE: LazyLock<regex::Regex> =
@@ -73,21 +74,93 @@ impl CleansedLines {
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn new_with_options(raw_lines: Vec<String>, options: &Options, filename: &str) -> Self {
-        let lines_without_raw_strings = cleanse_raw_strings(&raw_lines);
-        let (lines, has_comment) = cleanse_comments_from_lines(&lines_without_raw_strings);
-        let mut elided = Vec::with_capacity(raw_lines.len());
-        let replace_alt_tokens = !options.should_print_error("readability/alt_tokens", filename, 0);
-        let mut elided_without_alternate_tokens =
-            replace_alt_tokens.then(|| Vec::with_capacity(raw_lines.len()));
+        let n = raw_lines.len();
+        let mut lines = Vec::with_capacity(n);
+        let mut elided = Vec::with_capacity(n);
+        let mut has_comment = Vec::with_capacity(n);
+        let mut lines_without_raw_strings = Vec::with_capacity(n);
 
-        for comment_removed in &lines {
-            let collapsed_line = collapse_strings(comment_removed);
+        let mut in_block_comment = false;
+        let mut raw_delimiter = String::new();
+        let replace_alt_tokens = !options.should_print_error("readability/alt_tokens", filename, 0);
+        let mut elided_without_alternate_tokens = replace_alt_tokens.then(|| Vec::with_capacity(n));
+
+        for raw_line in &raw_lines {
+            // 1. Cleanse raw strings
+            let mut line_without_raw: Cow<'_, str> = Cow::Borrowed(raw_line);
+
+            if !raw_delimiter.is_empty() {
+                if let Some(pos) = raw_line.find(&raw_delimiter) {
+                    let leading_space_count = raw_line
+                        .bytes()
+                        .take_while(|b| b.is_ascii_whitespace())
+                        .count();
+                    let mut s = String::with_capacity(
+                        leading_space_count + 2 + raw_line.len() - (pos + raw_delimiter.len()),
+                    );
+                    for _ in 0..leading_space_count {
+                        s.push(' ');
+                    }
+                    s.push_str("\"\"");
+                    s.push_str(&raw_line[pos + raw_delimiter.len()..]);
+                    line_without_raw = Cow::Owned(s);
+                    raw_delimiter.clear();
+                } else {
+                    line_without_raw = Cow::Borrowed("\"\"");
+                }
+            }
+
+            while raw_delimiter.is_empty() {
+                let Some((prefix, delimiter_text, suffix)) =
+                    find_raw_string_start(&line_without_raw)
+                else {
+                    break;
+                };
+
+                if prefix_is_in_comment_or_literal(prefix) {
+                    break;
+                }
+
+                raw_delimiter.clear();
+                raw_delimiter.push(')');
+                raw_delimiter.push_str(delimiter_text);
+                raw_delimiter.push('"');
+
+                if let Some(end) = suffix.find(&raw_delimiter) {
+                    let mut s = String::with_capacity(
+                        prefix.len() + 2 + suffix.len() - (end + raw_delimiter.len()),
+                    );
+                    s.push_str(prefix);
+                    s.push_str("\"\"");
+                    s.push_str(&suffix[end + raw_delimiter.len()..]);
+                    line_without_raw = Cow::Owned(s);
+                    raw_delimiter.clear();
+                } else {
+                    let mut s = String::with_capacity(prefix.len() + 2);
+                    s.push_str(prefix);
+                    s.push_str("\"\"");
+                    line_without_raw = Cow::Owned(s);
+                }
+            }
+
+            let line_without_raw_owned = line_without_raw.into_owned();
+            lines_without_raw_strings.push(line_without_raw_owned.clone());
+
+            // 2. Cleanse comments
+            let (comment_removed, is_comment, still_in_block) =
+                cleanse_comments_line(&line_without_raw_owned, in_block_comment);
+            lines.push(comment_removed.to_string());
+            has_comment.push(is_comment);
+            in_block_comment = still_in_block;
+
+            // 3. Collapse strings
+            let collapsed_line = collapse_strings(&comment_removed);
             if let Some(lines_without_alt_tokens) = &mut elided_without_alternate_tokens {
                 let elided_line = replace_alternate_tokens(&collapsed_line);
-                lines_without_alt_tokens.push(collapsed_line);
-                elided.push(elided_line);
+                lines_without_alt_tokens.push(collapsed_line.to_string());
+                elided.push(elided_line.into_owned());
             } else {
-                elided.push(collapsed_line);
+                elided.push(collapsed_line.into_owned());
             }
         }
 
@@ -226,7 +299,7 @@ fn cleanse_comments_from_lines(lines: &[String]) -> (Vec<String>, Vec<bool>) {
     for line in lines {
         let (comment_removed, is_comment, still_in_block) =
             cleanse_comments_line(line, in_block_comment);
-        result.push(comment_removed);
+        result.push(comment_removed.into_owned());
         has_comment.push(is_comment);
         in_block_comment = still_in_block;
     }
@@ -234,7 +307,27 @@ fn cleanse_comments_from_lines(lines: &[String]) -> (Vec<String>, Vec<bool>) {
     (result, has_comment)
 }
 
-fn cleanse_comments_line(line: &str, mut in_block_comment: bool) -> (String, bool, bool) {
+fn cleanse_comments_line<'a>(
+    line: &'a str,
+    mut in_block_comment: bool,
+) -> (Cow<'a, str>, bool, bool) {
+    if line.is_empty() {
+        return (Cow::Borrowed(""), false, in_block_comment);
+    }
+
+    // Quick check if we need to do anything.
+    // If we're not in a block comment and the line has no interesting characters, return as-is (possibly trimmed)
+    if !in_block_comment {
+        let bytes = line.as_bytes();
+        let has_special = bytes
+            .iter()
+            .any(|&b| matches!(b, b'/' | b'*' | b'"' | b'\'' | b'\\'));
+        if !has_special {
+            let trimmed = line.trim_end();
+            return (Cow::Borrowed(trimmed), false, false);
+        }
+    }
+
     let mut result = String::with_capacity(line.len());
     let mut is_comment = false;
     let mut in_string = false;
@@ -242,74 +335,101 @@ fn cleanse_comments_line(line: &str, mut in_block_comment: bool) -> (String, boo
     let mut escaped = false;
     let mut just_closed_block_comment = false;
 
-    let mut it = line.chars().peekable();
-    while let Some(ch) = it.next() {
+    let bytes = line.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
         if in_block_comment {
             is_comment = true;
-            if ch == '*' && it.peek() == Some(&'/') {
-                it.next(); // consume '/'
+            if b == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+                i += 2;
                 in_block_comment = false;
                 just_closed_block_comment = true;
+                continue;
             }
+            i += 1;
             continue;
         }
 
         if escaped {
-            result.push(ch);
+            result.push(b as char);
             escaped = false;
             just_closed_block_comment = false;
+            i += 1;
             continue;
         }
 
         if just_closed_block_comment
-            && ch.is_whitespace()
-            && (result.is_empty() || result.ends_with(|prev: char| prev.is_whitespace()))
+            && b.is_ascii_whitespace()
+            && (result.is_empty()
+                || result
+                    .as_bytes()
+                    .last()
+                    .is_some_and(|&last| last.is_ascii_whitespace()))
         {
+            i += 1;
             continue;
         }
 
-        if ch == '\\' && (in_string || in_char) {
-            result.push(ch);
+        if b == b'\\' && (in_string || in_char) {
+            result.push('\\');
             escaped = true;
             just_closed_block_comment = false;
+            i += 1;
             continue;
         }
 
-        if ch == '"' && !in_char {
+        if b == b'"' && !in_char {
             in_string = !in_string;
-            result.push(ch);
+            result.push('"');
             just_closed_block_comment = false;
+            i += 1;
             continue;
         }
 
-        if ch == '\'' && !in_string {
+        if b == b'\'' && !in_string {
             in_char = !in_char;
-            result.push(ch);
+            result.push('\'');
             just_closed_block_comment = false;
+            i += 1;
             continue;
         }
 
-        if !in_string && !in_char && ch == '/' {
-            match it.peek() {
-                Some(&'/') => {
+        if !in_string && !in_char && b == b'/' {
+            if i + 1 < bytes.len() {
+                if bytes[i + 1] == b'/' {
                     is_comment = true;
                     break;
                 }
-                Some(&'*') => {
-                    it.next(); // consume '*'
-                    is_comment = true;
+                if bytes[i + 1] == b'*' {
                     in_block_comment = true;
+                    is_comment = true;
+                    i += 2;
                     continue;
                 }
-                _ => {}
             }
         }
 
-        result.push(ch);
+        result.push(b as char);
         just_closed_block_comment = false;
+        i += 1;
     }
 
-    (result.trim_end().to_string(), is_comment, in_block_comment)
+    if !is_comment
+        && !in_block_comment
+        && !escaped
+        && !in_string
+        && !in_char
+        && result.len() == line.trim_end().len()
+    {
+        return (Cow::Borrowed(line.trim_end()), false, false);
+    }
+
+    (
+        Cow::Owned(result.trim_end().to_string()),
+        is_comment,
+        in_block_comment,
+    )
 }
 
 pub fn is_cpp_string(line: &str) -> bool {
@@ -327,35 +447,44 @@ pub fn is_cpp_string(line: &str) -> bool {
     in_string
 }
 
-pub fn collapse_strings(elided: &str) -> String {
+pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
     if INCLUDE_RE.is_match(elided) {
-        return elided.to_string();
+        return Cow::Borrowed(elided);
     }
 
     if !elided.contains('\\') && !elided.contains('"') && !elided.contains('\'') {
-        return elided.to_string();
+        return Cow::Borrowed(elided);
     }
 
     // Remove escapes
     let result = if elided.contains('\\') {
-        ESCAPE_RE.replace_all(elided, "").to_string()
+        Cow::Owned(ESCAPE_RE.replace_all(elided, "").to_string())
     } else {
-        elided.to_string()
+        Cow::Borrowed(elided)
     };
-    collapse_quotes_and_separators(&result)
+
+    let collapsed = collapse_quotes_and_separators(&result);
+    if collapsed.len() == result.len() {
+        result
+    } else {
+        Cow::Owned(collapsed)
+    }
 }
 
-pub fn replace_alternate_tokens(line: &str) -> String {
+pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
     let bytes = line.as_bytes();
-    let mut result = String::with_capacity(line.len());
     let mut last = 0usize;
-    let mut replaced = false;
+    let mut result = String::new();
 
     for mat in ALT_TOKEN_AC.find_iter(line) {
         let start = mat.start();
         let end = mat.end();
         if !is_valid_alt_token_match(bytes, start, end) {
             continue;
+        }
+
+        if result.is_empty() {
+            result.reserve(line.len());
         }
 
         let (token, replacement) = ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()];
@@ -366,70 +495,79 @@ pub fn replace_alternate_tokens(line: &str) -> String {
         } else {
             end
         };
-        replaced = true;
     }
 
-    if !replaced {
-        return line.to_string();
+    if result.is_empty() {
+        return Cow::Borrowed(line);
     }
 
     result.push_str(&line[last..]);
-    result
+    Cow::Owned(result)
 }
 
 fn collapse_quotes_and_separators(elided: &str) -> String {
     let mut result = String::with_capacity(elided.len());
-    let mut it = elided.chars().enumerate().peekable();
+    let bytes = elided.as_bytes();
+    let mut i = 0usize;
 
-    while let Some((i, ch)) = it.next() {
-        if ch == '"' {
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
             let mut found = false;
-            let mut buffer = String::new();
-            for (_, next_ch) in it.by_ref() {
-                if next_ch == '"' {
+            let mut j = i + 1;
+            while j < bytes.len() {
+                if bytes[j] == b'"' {
                     result.push_str("\"\"");
+                    i = j + 1;
                     found = true;
                     break;
                 }
-                buffer.push(next_ch);
+                j += 1;
             }
             if !found {
                 result.push('"');
-                result.push_str(&buffer);
+                if i + 1 < bytes.len() {
+                    result.push_str(&elided[i + 1..]);
+                }
                 return result;
             }
             continue;
         }
 
-        if ch == '\'' {
+        if b == b'\'' {
             // Check for digit separator
-            if i > 0 && i + 1 < elided.len() {
-                let prev = elided.as_bytes()[i - 1];
-                let next = elided.as_bytes()[i + 1];
+            if i > 0 && i + 1 < bytes.len() {
+                let prev = bytes[i - 1];
+                let next = bytes[i + 1];
                 if prev.is_ascii_hexdigit() && (next.is_ascii_alphanumeric() || next == b'_') {
+                    i += 1;
                     continue;
                 }
             }
 
             let mut found = false;
-            let mut buffer = String::new();
-            for (_, next_ch) in it.by_ref() {
-                if next_ch == '\'' {
+            let mut j = i + 1;
+            while j < bytes.len() {
+                if bytes[j] == b'\'' {
                     result.push_str("''");
+                    i = j + 1;
                     found = true;
                     break;
                 }
-                buffer.push(next_ch);
+                j += 1;
             }
             if !found {
                 result.push('\'');
-                result.push_str(&buffer);
+                if i + 1 < bytes.len() {
+                    result.push_str(&elided[i + 1..]);
+                }
                 return result;
             }
             continue;
         }
 
-        result.push(ch);
+        result.push(b as char);
+        i += 1;
     }
 
     result
