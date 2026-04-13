@@ -22,14 +22,7 @@ static FUNC_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#" \([^)]+\)\([^)]*(\)|,$)"#).unwrap());
 static ARRAY_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#" \([^)]+\)\[[^\]]+\]"#).unwrap());
-static LESS_SPACING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*[^\s<])<[^\s=<,]"#).unwrap());
-static GREATER_SPACING_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*[^-\s>])>[^\s=>,]"#).unwrap());
-static LSHIFT_SPACING_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(operator|[^\s(<])(?:L|UL|LL|ULL|l|ul|ll|ull)?<<([^\s,=<])"#).unwrap()
-});
-static RSHIFT_SPACING_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#">>[a-zA-Z_]"#).unwrap());
+
 static OPERATOR_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator_*\b"#).unwrap());
 static VA_OPT_COMMA_RE: LazyLock<Regex> =
@@ -548,9 +541,8 @@ fn check_operator_spacing(
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if line_to_check.contains('<')
-            && let Some(captures) = LESS_SPACING_RE.captures(line_to_check)
+            && let Some(end_pos) = find_less_spacing(line_to_check)
         {
-            let end_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
             if crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none() {
                 linter.error(
                     linenum,
@@ -562,9 +554,8 @@ fn check_operator_spacing(
         }
 
         if line_to_check.contains('>')
-            && let Some(captures) = GREATER_SPACING_RE.captures(line_to_check)
+            && let Some(start_pos) = find_greater_spacing(line_to_check)
         {
-            let start_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
             if crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
                 .is_none()
             {
@@ -578,9 +569,7 @@ fn check_operator_spacing(
         }
     }
 
-    if let Some(captures) = LSHIFT_SPACING_RE.captures(line_to_check) {
-        let left = captures.get(1).map(|m| m.as_str()).unwrap_or("");
-        let right = captures.get(2).map(|m| m.as_str()).unwrap_or("");
+    if let Some((left, right)) = find_lshift_spacing(line_to_check) {
         let left_is_digit = left.len() == 1 && left.as_bytes()[0].is_ascii_digit();
         let right_is_digit = right.len() == 1 && right.as_bytes()[0].is_ascii_digit();
         let operator_semicolon = left == "operator" && right == ";";
@@ -594,7 +583,7 @@ fn check_operator_spacing(
         }
     }
 
-    if RSHIFT_SPACING_RE.is_match(line_to_check) {
+    if has_rshift_spacing(line_to_check) {
         linter.error(
             linenum,
             "whitespace/operators",
@@ -659,6 +648,102 @@ fn has_missing_assignment_space(s: &str) -> bool {
                 }
             }
             if missing {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn find_less_spacing(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 2 {
+        return None;
+    }
+    for i in (1..bytes.len() - 1).rev() {
+        if bytes[i] == b'<' {
+            let prev = bytes[i - 1];
+            if prev.is_ascii_whitespace() || prev == b'<' {
+                continue;
+            }
+            let next = bytes[i + 1];
+            if next.is_ascii_whitespace() || next == b'=' || next == b'<' || next == b',' {
+                continue;
+            }
+            return Some(i);
+        }
+    }
+    None
+}
+
+fn find_greater_spacing(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 2 {
+        return None;
+    }
+    for i in (1..bytes.len() - 1).rev() {
+        if bytes[i] == b'>' {
+            let prev = bytes[i - 1];
+            if prev.is_ascii_whitespace() || prev == b'-' || prev == b'>' {
+                continue;
+            }
+            let next = bytes[i + 1];
+            if next.is_ascii_whitespace() || next == b'=' || next == b'>' || next == b',' {
+                continue;
+            }
+            return Some(i);
+        }
+    }
+    None
+}
+
+fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
+    let bytes = s.as_bytes();
+    if bytes.len() < 3 {
+        return None;
+    }
+    for i in 1..bytes.len().saturating_sub(1) {
+        if bytes[i] == b'<' && bytes[i + 1] == b'<' {
+            let next_idx = i + 2;
+            if next_idx >= bytes.len() { continue; }
+            let next_b = bytes[next_idx];
+            if next_b.is_ascii_whitespace() || next_b == b',' || next_b == b'=' || next_b == b'<' {
+                continue;
+            }
+            
+            let mut prefix_end = i;
+            let upper = &s[..i].to_ascii_uppercase();
+            if upper.ends_with("ULL") { prefix_end = prefix_end.saturating_sub(3); }
+            else if upper.ends_with("LL") || upper.ends_with("UL") { prefix_end = prefix_end.saturating_sub(2); }
+            else if upper.ends_with("L") { prefix_end = prefix_end.saturating_sub(1); }
+            
+            if prefix_end == 0 { continue; }
+            let prefix = &s[..prefix_end];
+            let left = if prefix.ends_with("operator") {
+                "operator"
+            } else {
+                let prev_char = prefix.chars().last().unwrap();
+                if prev_char.is_ascii_whitespace() || prev_char == '(' || prev_char == '<' {
+                    continue;
+                }
+                &prefix[prefix.len() - prev_char.len_utf8() ..]
+            };
+            
+            let next_char = s[next_idx..].chars().next().unwrap();
+            let right = &s[next_idx .. next_idx + next_char.len_utf8()];
+            
+            return Some((left, right));
+        }
+    }
+    None
+}
+
+fn has_rshift_spacing(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for i in 0..bytes.len().saturating_sub(2) {
+        if bytes[i] == b'>' && bytes[i + 1] == b'>' {
+            let next = bytes[i + 2];
+            if next.is_ascii_alphabetic() || next == b'_' {
                 return true;
             }
         }
