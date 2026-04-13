@@ -9,8 +9,7 @@ static CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static CLASS_TEMPLATE_ARG_TOKEN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^[^{};=\[\]\.<>]*(.)"#).unwrap());
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClassRange {
     pub start: usize,
@@ -410,25 +409,25 @@ fn build_class_facts(lines: &[String]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
 fn in_template_argument_list(lines: &[String], mut linenum: usize, mut pos: usize) -> bool {
     while linenum < lines.len() {
         let line = &lines[linenum];
-        if pos > line.len() {
+        if pos >= line.len() {
             linenum += 1;
             pos = 0;
             continue;
         }
 
         let slice = &line[pos..];
-        let Some(captures) = CLASS_TEMPLATE_ARG_TOKEN_RE.captures(slice) else {
+        let Some((offset, ch)) = slice.char_indices().find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>')) else {
             linenum += 1;
             pos = 0;
             continue;
         };
-        let token = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
-        pos += captures.get(0).map(|m| m.end()).unwrap_or(0);
+        
+        pos += offset + ch.len_utf8();
 
-        match token {
-            "{" | "}" | ";" => return false,
-            ">" | "=" | "[" | "]" | "." => return true,
-            "<" => {
+        match ch {
+            '{' | '}' | ';' => return false,
+            '>' | '=' | '[' | ']' | '.' => return true,
+            '<' => {
                 let open_pos = pos.saturating_sub(1);
                 let Some((end_line, end_pos)) =
                     line_utils::close_expression_in_lines(lines, linenum, open_pos)
@@ -439,6 +438,7 @@ fn in_template_argument_list(lines: &[String], mut linenum: usize, mut pos: usiz
                 pos = end_pos;
             }
             _ => {
+                // Should not happen given the find criteria
                 pos += 1;
                 if pos >= line.len() {
                     linenum += 1;

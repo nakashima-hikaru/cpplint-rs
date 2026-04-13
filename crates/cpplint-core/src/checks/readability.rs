@@ -44,8 +44,7 @@ static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static NAMESPACE_INDENT_TEMPLATE_ARG_TOKEN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^[^{};=\[\]\.<>]*(.)"#).unwrap());
+
 static MULTILINE_IF_ELSE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\b(if\s*(?:constexpr\s*)?\(|else\b)"#).unwrap());
 static MULTILINE_IF_RE: LazyLock<Regex> =
@@ -1246,25 +1245,25 @@ fn in_template_argument_list(
 ) -> bool {
     while linenum < clean_lines.elided.len() {
         let line = &clean_lines.elided[linenum];
-        if pos > line.len() {
+        if pos >= line.len() {
             linenum += 1;
             pos = 0;
             continue;
         }
 
         let slice = &line[pos..];
-        let Some(captures) = NAMESPACE_INDENT_TEMPLATE_ARG_TOKEN_RE.captures(slice) else {
+        let Some((offset, ch)) = slice.char_indices().find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>')) else {
             linenum += 1;
             pos = 0;
             continue;
         };
-        let token = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
-        pos += captures.get(0).map(|m| m.end()).unwrap_or(0);
+        
+        pos += offset + ch.len_utf8();
 
-        match token {
-            "{" | "}" | ";" => return false,
-            ">" | "=" | "[" | "]" | "." => return true,
-            "<" => {
+        match ch {
+            '{' | '}' | ';' => return false,
+            '>' | '=' | '[' | ']' | '.' => return true,
+            '<' => {
                 let open_pos = pos.saturating_sub(1);
                 let Some((end_line, end_pos)) =
                     line_utils::close_expression(clean_lines, linenum, open_pos)
