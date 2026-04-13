@@ -16,15 +16,16 @@ fn is_control_statement_start(s: &str) -> bool {
 static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
-static ELSE_AFTER_BRACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*else\b\s*(?:if\b|\{|$)"#).unwrap());
-static ELSE_IF_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\belse if(?:\s+constexpr)?\s*\("#).unwrap());
-static BRACED_ELSE_IF_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"}\s*else if(?:\s+constexpr)?\s*\("#).unwrap());
-static BRACED_ELSE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"}\s*else[^{]*$"#).unwrap());
-static ELSE_WITH_BRACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^[^}]*else\s*\{"#).unwrap());
+static ELSE_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"^\s*else\b\s*(?:if\b|\{|$)"#, // 0: ELSE_AFTER_BRACE
+        r#"\belse if(?:\s+constexpr)?\s*\("#, // 1: ELSE_IF
+        r#"}\s*else if(?:\s+constexpr)?\s*\("#, // 2: BRACED_ELSE_IF
+        r#"}\s*else[^{]*$"#, // 3: BRACED_ELSE
+        r#"^[^}]*else\s*\{"#, // 4: ELSE_WITH_BRACE
+    ])
+    .unwrap()
+});
 static SINGLE_LINE_CONTROL_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"\bif\s*\(.*\)\s*\{[^{}]+\}\s*$"#,
@@ -541,8 +542,9 @@ fn check_braces(
 
     // 2. Check for "else" placement
     if elided_line.contains("else") {
+        let else_matches = ELSE_CHECK_SET.matches(elided_line);
         let mut last_wrong = false;
-        if ELSE_AFTER_BRACE_RE.is_match(elided_line)
+        if else_matches.matched(0)
             && let Some((_prev_idx, prev_line)) =
                 line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
             && prev_line.trim() == "}"
@@ -556,8 +558,8 @@ fn check_braces(
             last_wrong = true;
         }
 
-        if ELSE_IF_RE.is_match(elided_line) {
-            let brace_on_left = BRACED_ELSE_IF_RE.is_match(elided_line);
+        if else_matches.matched(1) {
+            let brace_on_left = else_matches.matched(2);
             if let Some(else_if_pos) = elided_line.find("else if")
                 && let Some(open_paren_offset) = elided_line[else_if_pos..].find('(')
             {
@@ -580,8 +582,8 @@ fn check_braces(
                 }
             }
         } else {
-            let has_left_brace = BRACED_ELSE_RE.is_match(elided_line);
-            let has_right_brace = ELSE_WITH_BRACE_RE.is_match(elided_line) && !last_wrong;
+            let has_left_brace = else_matches.matched(3);
+            let has_right_brace = else_matches.matched(4) && !last_wrong;
             if has_left_brace || has_right_brace {
                 linter.error(
                     linenum,
