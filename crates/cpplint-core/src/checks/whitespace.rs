@@ -396,30 +396,27 @@ fn check_operator_spacing(
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if line_to_check.contains('<')
             && let Some(end_pos) = find_less_spacing(line_to_check)
+            && crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none()
         {
-            if crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none() {
-                linter.error(
-                    linenum,
-                    "whitespace/operators",
-                    3,
-                    "Missing spaces around <",
-                );
-            }
+            linter.error(
+                linenum,
+                "whitespace/operators",
+                3,
+                "Missing spaces around <",
+            );
         }
 
         if line_to_check.contains('>')
             && let Some(start_pos) = find_greater_spacing(line_to_check)
-        {
-            if crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
+            && crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
                 .is_none()
-            {
-                linter.error(
-                    linenum,
-                    "whitespace/operators",
-                    3,
-                    "Missing spaces around >",
-                );
-            }
+        {
+            linter.error(
+                linenum,
+                "whitespace/operators",
+                3,
+                "Missing spaces around >",
+            );
         }
     }
 
@@ -517,10 +514,10 @@ fn has_missing_assignment_space(s: &str) -> bool {
                     continue;
                 }
             }
-            if let Some(&next) = bytes.get(i + 1) {
-                if next == b'=' {
-                    continue;
-                }
+            if let Some(&next) = bytes.get(i + 1)
+                && next == b'='
+            {
+                continue;
             }
 
             let mut missing = false;
@@ -690,26 +687,22 @@ fn find_extra_unary_space(s: &str) -> Option<&'static str> {
     for (i, &b) in bytes.iter().enumerate() {
         match b {
             b'!' | b'~' => {
-                if let Some(&next) = bytes.get(i + 1) {
-                    if next.is_ascii_whitespace() {
-                        return Some(if b == b'!' { "!" } else { "~" });
-                    }
+                if let Some(&next) = bytes.get(i + 1)
+                    && next.is_ascii_whitespace()
+                {
+                    return Some(if b == b'!' { "!" } else { "~" });
                 }
             }
             b'-' | b'+' => {
                 // Check for -- or ++
-                if let Some(&next) = bytes.get(i + 1) {
-                    if next == b {
-                        // We found -- or ++ at i, i+1
-                        // Original regex: [\s]--[\s;]
-                        if i > 0 && bytes[i - 1].is_ascii_whitespace() {
-                            if let Some(&after) = bytes.get(i + 2) {
-                                if after.is_ascii_whitespace() || after == b';' {
-                                    return Some(if b == b'-' { "--" } else { "++" });
-                                }
-                            }
-                        }
-                    }
+                if let Some(&next) = bytes.get(i + 1)
+                    && next == b
+                    && i > 0
+                    && bytes[i - 1].is_ascii_whitespace()
+                    && let Some(&after) = bytes.get(i + 2)
+                    && (after.is_ascii_whitespace() || after == b';')
+                {
+                    return Some(if b == b'-' { "--" } else { "++" });
                 }
             }
             _ => {}
@@ -1406,11 +1399,11 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     check_blank_line_rules(linter, clean_lines, linenum);
 
     if linenum > 0 {
-        check_section_spacing(linter, clean_lines, linenum, &keywords);
+        check_section_spacing(linter, clean_lines, linenum, keywords);
     }
 
     if has_colon || keywords.has_access() {
-        check_access_specifier_indentation(linter, clean_lines, linenum, &keywords);
+        check_access_specifier_indentation(linter, clean_lines, linenum, keywords);
     }
 
     if elided_line.contains('}') {
@@ -1438,17 +1431,17 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         );
     }
 
-    check_operator_spacing(linter, clean_lines, elided_line, linenum, &keywords);
+    check_operator_spacing(linter, clean_lines, elided_line, linenum, keywords);
 
     if has_paren {
-        check_parenthesis_spacing(linter, elided_line, raw_line, linenum, &keywords);
+        check_parenthesis_spacing(linter, elided_line, raw_line, linenum, keywords);
         check_spacing_for_function_call(
             linter,
             clean_lines,
             elided_line,
             raw_line,
             linenum,
-            &keywords,
+            keywords,
         );
     }
 
@@ -1472,17 +1465,15 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
             for i in 0..check_line_bytes.len().saturating_sub(1) {
                 if check_line_bytes[i] == b','
                     && !matches!(check_line_bytes[i + 1], b',' | b' ' | b'\t' | b'\n' | b'\r')
+                    && i < original_line_bytes.len().saturating_sub(1)
+                    && original_line_bytes[i] == b','
+                    && !matches!(
+                        original_line_bytes[i + 1],
+                        b',' | b' ' | b'\t' | b'\n' | b'\r'
+                    )
                 {
-                    if i < original_line_bytes.len().saturating_sub(1)
-                        && original_line_bytes[i] == b','
-                        && !matches!(
-                            original_line_bytes[i + 1],
-                            b',' | b' ' | b'\t' | b'\n' | b'\r'
-                        )
-                    {
-                        missing_comma_space = true;
-                        break;
-                    }
+                    missing_comma_space = true;
+                    break;
                 }
             }
 
@@ -1563,28 +1554,26 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     }
 
     // 10. Brace and semicolon spacing.
-    if has_brace {
-        if let Some(brace_pos) = elided_line.find('{') {
-            if brace_pos > 0 {
-                let prefix = &elided_line[..brace_pos];
-                let last_char = prefix.chars().last();
-                if let Some(c) = last_char {
-                    if !matches!(c, ' ' | '(' | '{' | '>') {
-                        let missing_space_before_qualified_brace =
-                            QUALIFIED_BRACE_RE.is_match(elided_line);
-                        if (!is_braced_initialization(clean_lines, elided_line, linenum)
-                            || missing_space_before_qualified_brace)
-                            && !FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line)
-                        {
-                            linter.error(
-                                linenum,
-                                r#"whitespace/braces"#,
-                                5,
-                                r#"Missing space before {"#,
-                            );
-                        }
-                    }
-                }
+    if has_brace
+        && let Some(brace_pos) = elided_line.find('{')
+        && brace_pos > 0
+    {
+        let prefix = &elided_line[..brace_pos];
+        let last_char = prefix.chars().last();
+        if let Some(c) = last_char
+            && !matches!(c, ' ' | '(' | '{' | '>')
+        {
+            let missing_space_before_qualified_brace = QUALIFIED_BRACE_RE.is_match(elided_line);
+            if (!is_braced_initialization(clean_lines, elided_line, linenum)
+                || missing_space_before_qualified_brace)
+                && !FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line)
+            {
+                linter.error(
+                    linenum,
+                    r#"whitespace/braces"#,
+                    5,
+                    r#"Missing space before {"#,
+                );
             }
         }
     }

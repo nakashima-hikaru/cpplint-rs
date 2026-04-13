@@ -591,18 +591,16 @@ fn cleanse_comments_line<'a>(
             continue;
         }
 
-        if !in_string && !in_char && b == b'/' {
-            if i + 1 < bytes.len() {
-                if bytes[i + 1] == b'/' {
-                    is_comment = true;
-                    break;
-                }
-                if bytes[i + 1] == b'*' {
-                    in_block_comment = true;
-                    is_comment = true;
-                    i += 2;
-                    continue;
-                }
+        if !in_string && !in_char && b == b'/' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'/' {
+                is_comment = true;
+                break;
+            }
+            if bytes[i + 1] == b'*' {
+                in_block_comment = true;
+                is_comment = true;
+                i += 2;
+                continue;
             }
         }
 

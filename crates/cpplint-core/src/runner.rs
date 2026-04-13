@@ -402,18 +402,16 @@ fn process_file(
     }
 
     let has_error = {
-        if fix {
-            if let Err(error) = fix_file_in_place(&file, options.as_ref()) {
-                state.record_raw_error(
-                    file_index,
-                    failure_note_order,
-                    format!(
-                        "Skipping input '{}': Can't apply fixes ({})\n",
-                        display_name, error
-                    ),
-                );
-                return state.into_snapshot().into();
-            }
+        if fix && let Err(error) = fix_file_in_place(&file, options.as_ref()) {
+            state.record_raw_error(
+                file_index,
+                failure_note_order,
+                format!(
+                    "Skipping input '{}': Can't apply fixes ({})\n",
+                    display_name, error
+                ),
+            );
+            return state.into_snapshot().into();
         }
         let mut linter = FileLinter::with_index(file, &state, options, file_index);
         match linter.process_file() {

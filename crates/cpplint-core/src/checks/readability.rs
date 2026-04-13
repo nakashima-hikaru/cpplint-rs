@@ -581,20 +581,18 @@ fn check_braces(
         let prefix = &elided_line[..else_pos];
         if prefix.trim().is_empty() {
             let suffix = elided_line[else_pos + 4..].trim_start();
-            if suffix.is_empty() || suffix.starts_with('{') || suffix.starts_with("if") {
-                if let Some((_prev_idx, prev_line)) =
+            if (suffix.is_empty() || suffix.starts_with('{') || suffix.starts_with("if"))
+                && let Some((_prev_idx, prev_line)) =
                     line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
-                {
-                    if prev_line.trim() == "}" {
-                        linter.error(
-                            linenum,
-                            "whitespace/newline",
-                            4,
-                            "An else should appear on the same line as the preceding }",
-                        );
-                        last_wrong = true;
-                    }
-                }
+                && prev_line.trim() == "}"
+            {
+                linter.error(
+                    linenum,
+                    "whitespace/newline",
+                    4,
+                    "An else should appear on the same line as the preceding }",
+                );
+                last_wrong = true;
             }
         }
 
@@ -1521,15 +1519,13 @@ fn check_trailing_semicolon(
         }
     } else if string_utils::ends_with_word(prefix, "else")
         || (prefix.ends_with("const") && prefix[..prefix.len() - 5].trim_end().ends_with(')'))
-    {
-        Some((linenum, brace_pos))
-    } else if prefix.is_empty()
-        && line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum).is_some_and(
-            |(_idx, prev_line)| {
-                let last_char = string_utils::get_last_non_space(prev_line);
-                last_char == ';' || last_char == '{' || last_char == '}'
-            },
-        )
+        || (prefix.is_empty()
+            && line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum).is_some_and(
+                |(_idx, prev_line)| {
+                    let last_char = string_utils::get_last_non_space(prev_line);
+                    last_char == ';' || last_char == '{' || last_char == '}'
+                },
+            ))
     {
         Some((linenum, brace_pos))
     } else {

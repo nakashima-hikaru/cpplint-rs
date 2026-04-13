@@ -48,6 +48,12 @@ static ALT_TOKEN_FIXES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| 
 });
 static REDUNDANT_SPACE_AFTER_SLASHES_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^//(?P<body>\S.*)$"#).unwrap());
+static COMMA_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#",([^,\s])"#).unwrap());
+static BRACE_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"}\s*;\s*$"#).unwrap());
+static SEMICOLON_SPACE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#";([^\s};\\)/])"#).unwrap());
+static COLON_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#":\s*;\s*$"#).unwrap());
+static SPACE_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s+;\s*$"#).unwrap());
 static MAKE_PAIR_TEMPLATE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bmake_pair\s*<"#).unwrap());
 static PRINTF_Q_RE: LazyLock<Regex> =
@@ -88,9 +94,7 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<bool> {
     );
     let mut lines = read_result.lines;
     let original_lines = lines.clone();
-    let newline_style = if mixed_line_endings {
-        NewlineStyle::Lf
-    } else if read_result.crlf_lines.is_empty() {
+    let newline_style = if mixed_line_endings || read_result.crlf_lines.is_empty() {
         NewlineStyle::Lf
     } else {
         NewlineStyle::CrLf
@@ -614,10 +618,7 @@ fn apply_line_fixes(
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= update_code_and_comment(line, |code| {
-                        Regex::new(r#",([^,\s])"#)
-                            .unwrap()
-                            .replace_all(code, ", $1")
-                            .into_owned()
+                        COMMA_SPACE_RE.replace_all(code, ", $1").into_owned()
                     });
                 }
             }
@@ -705,16 +706,13 @@ fn apply_line_fixes(
             }
             "readability/braces" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    if diagnostic.message == "You don't need a ; after a }" {
-                        let fixed = Regex::new(r#"}\s*;\s*$"#)
-                            .unwrap()
-                            .replace(line, "}")
-                            .into_owned();
-                        if *line != fixed {
-                            *line = fixed;
-                            changed = true;
-                        }
+                if let Some(line) = lines.get_mut(idx)
+                    && diagnostic.message == "You don't need a ; after a }"
+                {
+                    let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
+                    if *line != fixed {
+                        *line = fixed;
+                        changed = true;
                     }
                 }
             }
@@ -937,16 +935,10 @@ fn fix_empty_if_body(lines: &mut Vec<String>, idx: usize) -> bool {
 fn fix_semicolon_spacing(line: &mut String, message: &str) -> bool {
     let fixed = if message == "Missing space after ;" {
         update_code(line, |code| {
-            Regex::new(r#";([^\s};\\)/])"#)
-                .unwrap()
-                .replace_all(code, "; $1")
-                .into_owned()
+            SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
         })
     } else if message == "Semicolon defining empty statement. Use {} instead." {
-        Regex::new(r#":\s*;\s*$"#)
-            .unwrap()
-            .replace(line, ": {}")
-            .into_owned()
+        COLON_SEMICOLON_RE.replace(line, ": {}").into_owned()
     } else if message
         == "Line contains only semicolon. If this should be an empty statement, use {} instead."
     {
@@ -958,10 +950,7 @@ fn fix_semicolon_spacing(line: &mut String, message: &str) -> bool {
     } else if message
         == "Extra space before last semicolon. If this should be an empty statement, use {} instead."
     {
-        Regex::new(r#"\s+;\s*$"#)
-            .unwrap()
-            .replace(line, ";")
-            .into_owned()
+        SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
     } else {
         return false;
     };
