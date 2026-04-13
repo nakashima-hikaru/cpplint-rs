@@ -1,4 +1,4 @@
-use crate::cleanse::{CleansedLines, collapse_strings};
+use crate::cleanse::{collapse_strings, CleansedLines, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::line_utils;
 use crate::regex_utils;
@@ -116,11 +116,13 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         check_multiline_strings(linter, clean_lines, linenum);
     }
 
-    let has_control = keywords.has_if()
-        || keywords.has_else()
-        || keywords.has_for()
-        || keywords.has_while()
-        || keywords.has_do();
+    let has_control = (keywords.bits()
+        & (MatchedKeywords::IF
+            | MatchedKeywords::ELSE
+            | MatchedKeywords::FOR
+            | MatchedKeywords::WHILE
+            | MatchedKeywords::DO))
+        != 0;
     if has_brace
         || has_control
         || elided_line.contains("virtual")

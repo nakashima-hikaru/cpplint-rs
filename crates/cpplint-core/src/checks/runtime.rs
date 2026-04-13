@@ -2,7 +2,7 @@ use crate::cleanse::CleansedLines;
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
-use regex::Regex;
+use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
@@ -124,31 +124,41 @@ static STRING_PTR_OR_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bstring\b(\s+const)?\s*[\*\&]\s*(const\s+)?\w"#).unwrap());
 static GLOBAL_STRING_CTOR_TAIL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*(<.*>)?(::[a-zA-Z0-9_]+)*\s*\(([^"]|$)"#).unwrap());
-static PRINTF_Q_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"printf\s*\(.*".*%[-+ ]?\d*q"#).unwrap());
-static PRINTF_POSITIONAL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"printf\s*\(.*".*%\d+\$"#).unwrap());
+static PRINTF_FORMAT_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"printf\s*\(.*".*%[-+ ]?\d*q"#, // 0: Q
+        r#"printf\s*\(.*".*%\d+\$"#,     // 1: POSITIONAL
+    ])
+    .unwrap()
+});
 static UNARY_OPERATOR_AMPERSAND_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator\s*&\s*\(\s*\)"#).unwrap());
-static NON_CONST_REFERENCE_EXEMPT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(?:swap|operator<<|operator>>)\s*\("#).unwrap());
-static FUNCTION_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^\s*(?:[\w:<>]+\s*(?:::\s*[\w:<>]+)*\s*[&*]?\s+)+(?:operator[^\s(]+|[A-Za-z_~]\w*)\s*\("#).unwrap()
+static NON_CONST_REF_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"\b(?:swap|operator<<|operator>>)\s*\("#, // 0: EXEMPT
+        r#"^\s*(?:[\w:<>]+\s*(?:::\s*[\w:<>]+)*\s*[&*]?\s+)+(?:operator[^\s(]+|[A-Za-z_~]\w*)\s*\("#, // 1: FUNCTION_DECL
+    ])
+    .unwrap()
 });
-static CONST_REF_PREFIX_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*const\b.*&"#).unwrap());
-static CONST_REF_INLINE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bconst\s*&"#).unwrap());
+static CONST_REF_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"^\s*const\b.*&"#, // 0: PREFIX
+        r#"\bconst\s*&"#,      // 1: INLINE
+    ])
+    .unwrap()
+});
 static SIZEOF_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"sizeof\(.+\)"#).unwrap());
 static ARRAYSIZE_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"arraysize\(\w+\)"#).unwrap());
-static HEX_LITERAL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^0[xX][0-9A-Fa-f]+$"#).unwrap());
-static K_CONSTANT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"^k[A-Z0-9]\w*$"#).unwrap());
-static QUALIFIED_K_CONSTANT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(?:.+::)?k[A-Z0-9]\w*$"#).unwrap());
-static QUALIFIED_UPPER_CONSTANT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(?:.+::)?[A-Z][A-Z0-9_]*$"#).unwrap());
+static CONSTANT_MATCH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"^0[xX][0-9A-Fa-f]+$"#,         // 0: HEX_LITERAL
+        r#"^k[A-Z0-9]\w*$"#,             // 1: K_CONSTANT
+        r#"^(?:.+::)?k[A-Z0-9]\w*$"#,    // 2: QUALIFIED_K_CONSTANT
+        r#"^(?:.+::)?[A-Z][A-Z0-9_]*$"#, // 3: QUALIFIED_UPPER_CONSTANT
+    ])
+    .unwrap()
+});
 const THREADSAFE_FN_NEEDLES: [&str; 12] = [
     "asctime(",
     "ctime(",
@@ -1001,7 +1011,8 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
 
 fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
     if line.contains("printf") {
-        if PRINTF_Q_RE.is_match(line) {
+        let matches = PRINTF_FORMAT_SET.matches(line);
+        if matches.matched(0) {
             linter.error(
                 linenum,
                 "runtime/printf_format",
@@ -1010,7 +1021,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
             );
         }
 
-        if PRINTF_POSITIONAL_RE.is_match(line) {
+        if matches.matched(1) {
             linter.error(
                 linenum,
                 "runtime/printf_format",
@@ -1157,12 +1168,12 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
         || line.trim_end().ends_with('\\')
         || line.contains("static_assert")
         || !line.contains('&')
-        || NON_CONST_REFERENCE_EXEMPT_RE.is_match(line)
     {
         return;
     }
 
-    if !FUNCTION_DECL_RE.is_match(line) {
+    let matches = NON_CONST_REF_CHECK_SET.matches(line);
+    if matches.matched(0) || !matches.matched(1) {
         return;
     }
 
@@ -1181,9 +1192,7 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
 
         let normalized = normalize_template_spacing(arg);
         let normalized = normalized.as_ref();
-        let is_const_ref = !normalized.contains('*')
-            && (CONST_REF_PREFIX_RE.is_match(normalized)
-                || CONST_REF_INLINE_RE.is_match(normalized));
+        let is_const_ref = !normalized.contains('*') && CONST_REF_SET.is_match(normalized);
         if is_const_ref {
             continue;
         }
@@ -1235,10 +1244,7 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
         let cleaned = token.trim_start_matches('(').trim_end_matches(')');
         if cleaned.is_empty()
             || string_utils::str_is_digit(cleaned)
-            || HEX_LITERAL_RE.is_match(cleaned)
-            || K_CONSTANT_RE.is_match(cleaned)
-            || QUALIFIED_K_CONSTANT_RE.is_match(cleaned)
-            || QUALIFIED_UPPER_CONSTANT_RE.is_match(cleaned)
+            || CONSTANT_MATCH_SET.is_match(cleaned)
         {
             continue;
         }

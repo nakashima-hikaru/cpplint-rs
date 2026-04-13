@@ -45,10 +45,13 @@ static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
 });
 static PREV_LINE_CONTINUATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[\",=><] *$"#).unwrap());
-static RANGE_FOR_COLON_LEFT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"for\s*\(.*[^:]:[^: ]"#).unwrap());
-static RANGE_FOR_COLON_RIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"for\s*\(.*[^: ]:[^:]"#).unwrap());
+static RANGE_FOR_COLON_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"for\s*\(.*[^:]:[^: ]"#, // 0: LEFT
+        r#"for\s*\(.*[^: ]:[^:]"#, // 1: RIGHT
+    ])
+    .unwrap()
+});
 static SCOPE_OR_LABEL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^\s*(?:public|private|protected|signals)(?:\s+(?:slots\s*)?)?:\s*\\?\s*$"#)
         .unwrap()
@@ -85,10 +88,13 @@ static EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[^)]\s+\)\s*[^{\s]"#).unwrap());
 static INITLIST_CONTINUATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^ {6}\w"#).unwrap());
-static FUNCTION_HEADER_BLANK_LINE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^ {4}\w[^\(]*\)\s*(const\s*)?(\{\s*$|:)"#).unwrap());
-static INITLIST_HEADER_BLANK_LINE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^ {4}:"#).unwrap());
+static HEADER_BLANK_LINE_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"^ {4}\w[^\(]*\)\s*(const\s*)?(\{\s*$|:)"#, // 0: FUNCTION
+        r#"^ {4}:"#,                                  // 1: INITLIST
+    ])
+    .unwrap()
+});
 
 static MULTI_COMMAND_INITLIST_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[^{};]*\[[^\[\]]*\][^{}]*\{[^{}\n\r]*\}"#).unwrap());
@@ -367,7 +373,8 @@ fn check_operator_spacing(
     let line_to_check = masked_line.as_ref();
 
     if line_to_check.contains('=')
-        && !(keywords.has_if() || keywords.has_while() || keywords.has_for())
+        && (keywords.bits() & (MatchedKeywords::IF | MatchedKeywords::WHILE | MatchedKeywords::FOR))
+            == 0
         && !line_to_check.contains("operator=")
         && has_missing_assignment_space(line_to_check)
     {
@@ -1044,8 +1051,7 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
                 .map(|position| clean_lines.elided[position].starts_with("    :"))
                 .unwrap_or(false)
         } else {
-            FUNCTION_HEADER_BLANK_LINE_RE.is_match(prev_line)
-                || INITLIST_HEADER_BLANK_LINE_RE.is_match(prev_line)
+            HEADER_BLANK_LINE_SET.is_match(prev_line)
         };
 
         if !exception {
@@ -1426,8 +1432,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
 
     if keywords.has_for()
         && has_colon
-        && (RANGE_FOR_COLON_LEFT_RE.is_match(elided_line)
-            || RANGE_FOR_COLON_RIGHT_RE.is_match(elided_line))
+        && RANGE_FOR_COLON_SET.is_match(elided_line)
     {
         linter.error(
             linenum,
