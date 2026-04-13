@@ -14,8 +14,11 @@ static ACCESS_SPECIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
         .unwrap()
 });
 
-static CONTROL_STRUCT_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\b(if|elif|for|while|switch|return|new|delete|catch|sizeof)\b"#).unwrap()
+static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::new([
+        "if", "elif", "for", "while", "switch", "return", "new", "delete", "catch", "sizeof",
+    ])
+    .unwrap()
 });
 static FUNC_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#" \([^)]+\)\([^)]*(\)|,$)"#).unwrap());
@@ -842,7 +845,9 @@ fn check_spacing_for_function_call_base(
         || keywords.has_delete()
         || keywords.has_catch()
         || keywords.has_sizeof())
-        && CONTROL_STRUCT_RE.is_match(fncall)
+        && CONTROL_STRUCT_AC
+            .find_iter(fncall)
+            .any(|mat| string_utils::is_word_match(fncall, mat.start(), mat.end()))
     {
         return;
     }
