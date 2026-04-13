@@ -45,10 +45,8 @@ static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-static MULTILINE_IF_ELSE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(if\s*(?:constexpr\s*)?\(|else\b)"#).unwrap());
-static MULTILINE_IF_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bif\s*(?:constexpr\s*)?\("#).unwrap());
+static IF_ELSE_AC: LazyLock<AhoCorasick> =
+    LazyLock::new(|| AhoCorasick::new(["if", "else"]).unwrap());
 static MULTILINE_IF_OPEN_BRACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*(?:\[\[(?:un)?likely\]\]\s*)?\{"#).unwrap());
 static MULTILINE_IF_MULTI_COMMAND_RE: LazyLock<Regex> =
@@ -909,16 +907,46 @@ fn check_multiline_if_else_bodies(
         return;
     }
 
-    let Some(if_else_match) = MULTILINE_IF_ELSE_RE.find(elided_line) else {
+    let mut if_else_match = None;
+    for mat in IF_ELSE_AC.find_iter(elided_line) {
+        if string_utils::is_word_match(elided_line, mat.start(), mat.end()) {
+            let keyword = match mat.pattern().as_usize() {
+                0 => "if",
+                _ => "else",
+            };
+
+            if keyword == "else" {
+                if_else_match = Some((mat.start(), mat.end(), false));
+                break;
+            } else {
+                // Check for "if ... ("
+                let rest = &elided_line[mat.end()..];
+                let trimmed_rest = rest.trim_start();
+                if trimmed_rest.starts_with('(') {
+                    let open_paren_pos = mat.end() + rest.len() - trimmed_rest.len();
+                    if_else_match = Some((mat.start(), open_paren_pos + 1, true));
+                    break;
+                } else if let Some(rest_after_constexpr) = trimmed_rest.strip_prefix("constexpr") {
+                    let rest_after_constexpr = rest_after_constexpr.trim_start();
+                    if rest_after_constexpr.starts_with('(') {
+                        let open_paren_pos = elided_line.len() - rest_after_constexpr.len();
+                        if_else_match = Some((mat.start(), open_paren_pos + 1, true));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let Some((_match_start, match_end, is_if_match)) = if_else_match else {
         return;
     };
 
     let if_indent = line_utils::get_indent_level(elided_line);
     let mut endlinenum = linenum;
-    let mut endpos = if_else_match.end();
-    let if_match = MULTILINE_IF_RE.find(elided_line);
-    if let Some(if_match) = if_match {
-        let open_paren_pos = if_match.end().saturating_sub(1);
+    let mut endpos = match_end;
+    if is_if_match {
+        let open_paren_pos = match_end.saturating_sub(1);
         let Some((matched_line, matched_pos)) =
             line_utils::close_expression(clean_lines, linenum, open_paren_pos)
         else {
@@ -977,7 +1005,7 @@ fn check_multiline_if_else_bodies(
     if semicolon_line + 1 < clean_lines.elided.len() {
         let next_line = &clean_lines.elided[semicolon_line + 1];
         let next_indent = line_utils::get_indent_level(next_line);
-        if if_match.is_some()
+        if is_if_match
             && string_utils::trimmed_starts_with_word(next_line, "else")
             && next_indent != if_indent
         {
