@@ -17,7 +17,6 @@ static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
 
-
 static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"^(\s*(?:template\s*<[\w\s<>,:=]*>\s*)?(?:class|struct)\s+(?:[A-Za-z0-9_]+\s+)*(\w+(?:::\w+)*))(.*)$"#,
@@ -37,7 +36,13 @@ static MULTILINE_IF_LAMBDA_RE: LazyLock<Regex> =
 static NAMESPACE_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*namespace\b\s*([:\w]+)?(.*)$"#).unwrap());
 fn is_check_const(s: &str) -> bool {
-    (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\''))
+    let bytes = s.as_bytes();
+    if bytes.len() < 2 {
+        return false;
+    }
+    let first = bytes[0];
+    let last = bytes[bytes.len() - 1];
+    (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'')
 }
 const INHERITANCE_KEYWORDS: [&str; 3] = ["virtual", "override", "final"];
 static INHERITANCE_KEYWORDS_AC: LazyLock<AhoCorasick> =
@@ -491,14 +496,10 @@ fn check_braces(
         {
             // Exceptions: previous line ends with , ; : ( { } or starts with #
             let prev_trimmed = prev_line.trim();
-            if !prev_trimmed.ends_with(',')
-                && !prev_trimmed.ends_with(';')
-                && !prev_trimmed.ends_with(':')
-                && !prev_trimmed.ends_with('(')
-                && !prev_trimmed.ends_with('{')
-                && !prev_trimmed.ends_with('}')
-                && !prev_trimmed.starts_with('#')
-            {
+            let last_byte = prev_trimmed.as_bytes().last();
+            let safe_end =
+                last_byte.is_some_and(|&b| matches!(b, b',' | b';' | b':' | b'(' | b'{' | b'}'));
+            if !safe_end && !prev_trimmed.starts_with('#') {
                 linter.error(
                     linenum,
                     r#"whitespace/braces"#,
@@ -512,20 +513,22 @@ fn check_braces(
     // 2. Check for "else" placement
     if let Some(else_pos) = elided_line.find("else") {
         let _bytes = elided_line.as_bytes();
-        
+
         // Check if it's a word match for "else"
         if !string_utils::is_word_match(elided_line, else_pos, else_pos + 4) {
             return;
         }
 
         let mut last_wrong = false;
-        
+
         // Pattern 0: ^\s*else\b\s*(?:if\b|\{|$)
         let prefix = &elided_line[..else_pos];
         if prefix.trim().is_empty() {
             let suffix = elided_line[else_pos + 4..].trim_start();
             if suffix.is_empty() || suffix.starts_with('{') || suffix.starts_with("if") {
-                if let Some((_prev_idx, prev_line)) = line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum) {
+                if let Some((_prev_idx, prev_line)) =
+                    line_utils::get_previous_non_blank_line(&clean_lines.elided, linenum)
+                {
                     if prev_line.trim() == "}" {
                         linter.error(
                             linenum,
@@ -545,12 +548,16 @@ fn check_braces(
             if string_utils::is_word_match(elided_line, if_pos, if_pos + 2) {
                 // Check for BRACED_ELSE_IF: } \s* else if
                 let braced_else_if = prefix.trim() == "}";
-                
+
                 if let Some(open_paren_offset) = elided_line[if_pos + 2..].find('(') {
                     let open_paren_pos = if_pos + 2 + open_paren_offset;
-                    if let Some((end_line, end_pos)) = line_utils::close_expression(clean_lines, linenum, open_paren_pos) {
+                    if let Some((end_line, end_pos)) =
+                        line_utils::close_expression(clean_lines, linenum, open_paren_pos)
+                    {
                         let endline = &clean_lines.elided[end_line];
-                        let brace_on_right = endline.get(end_pos..).is_some_and(|suffix| suffix.contains('{'));
+                        let brace_on_right = endline
+                            .get(end_pos..)
+                            .is_some_and(|suffix| suffix.contains('{'));
                         if braced_else_if != brace_on_right {
                             linter.error(
                                 linenum,
