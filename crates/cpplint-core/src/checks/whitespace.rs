@@ -13,8 +13,7 @@ static ACCESS_SPECIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^(.*)\b(public|private|protected|signals)(\s+(?:slots\s*)?)?:(?:[^:]|$)"#)
         .unwrap()
 });
-static OPERATOR_METHOD_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*\boperator\b)(\S+)(\s*\(.*)$"#).unwrap());
+
 static CONTROL_STRUCT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\b(if|elif|for|while|switch|return|new|delete|catch|sizeof)\b"#).unwrap()
 });
@@ -45,8 +44,7 @@ static SCOPE_OR_LABEL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^\s*(?:public|private|protected|signals)(?:\s+(?:slots\s*)?)?:\s*\\?\s*$"#)
         .unwrap()
 });
-static CONTROL_BLOCK_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(if|while|for) "#).unwrap());
+
 static CONTROL_PARENS_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"\b(if|for|while|switch)\s*\(([ ]*)(.).*[^ ]+([ ]*)\)\s*\{\s*$"#).unwrap()
 });
@@ -490,11 +488,8 @@ fn check_operator_spacing(
 
     let mut masked_line: std::borrow::Cow<'_, str> = std::borrow::Cow::Borrowed(elided_line);
     if keywords.has_operator()
-        && let Some(captures) = OPERATOR_METHOD_RE.captures(elided_line)
+        && let Some((prefix, operator, suffix)) = find_operator_method(elided_line)
     {
-        let prefix = captures.get(1).map_or("", |m| m.as_str());
-        let operator = captures.get(2).map_or("", |m| m.as_str());
-        let suffix = captures.get(3).map_or("", |m| m.as_str());
         let mut replaced = String::with_capacity(prefix.len() + operator.len() + suffix.len());
         replaced.push_str(prefix);
         replaced.extend(std::iter::repeat_n('_', operator.len()));
@@ -520,7 +515,7 @@ fn check_operator_spacing(
     let line_to_check = masked_line.as_ref();
 
     if line_to_check.contains('=')
-        && !CONTROL_BLOCK_RE.is_match(line_to_check)
+        && !(keywords.has_if() || keywords.has_while() || keywords.has_for())
         && !line_to_check.contains("operator=")
         && has_missing_assignment_space(line_to_check)
     {
@@ -600,6 +595,43 @@ fn check_operator_spacing(
             &format!("Extra space for operator {}", op),
         );
     }
+}
+
+fn find_operator_method(s: &str) -> Option<(&str, &str, &str)> {
+    // Regex: ^(.*\boperator\b)(\S+)(\s*\(.*)$
+    // Search for "operator" from right to left to mimic greedy (.*)
+    let mut offset = s.len();
+    while let Some(pos) = s[..offset].rfind("operator") {
+        let end_pos = pos + 8;
+        // Check word boundaries
+        let prev_ok = pos == 0 || !s[pos - 1..pos].chars().next()?.is_ascii_alphanumeric();
+        let next_ok = end_pos == s.len()
+            || !s[end_pos..end_pos + 1]
+                .chars()
+                .next()?
+                .is_ascii_alphanumeric();
+
+        if prev_ok && next_ok {
+            let prefix = &s[..end_pos];
+            let rest = &s[end_pos..];
+
+            // Find end of operator (\S+)
+            let op_end = rest.find(char::is_whitespace).or_else(|| rest.find('('))?;
+            if op_end == 0 {
+                offset = pos;
+                continue;
+            }
+            let operator = &rest[..op_end];
+            let suffix = &rest[op_end..];
+
+            // Suffix must contain '('
+            if suffix.contains('(') {
+                return Some((prefix, operator, suffix));
+            }
+        }
+        offset = pos;
+    }
+    None
 }
 
 fn has_missing_assignment_space(s: &str) -> bool {
@@ -705,19 +737,27 @@ fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
     for i in 1..bytes.len().saturating_sub(1) {
         if bytes[i] == b'<' && bytes[i + 1] == b'<' {
             let next_idx = i + 2;
-            if next_idx >= bytes.len() { continue; }
+            if next_idx >= bytes.len() {
+                continue;
+            }
             let next_b = bytes[next_idx];
             if next_b.is_ascii_whitespace() || next_b == b',' || next_b == b'=' || next_b == b'<' {
                 continue;
             }
-            
+
             let mut prefix_end = i;
             let upper = &s[..i].to_ascii_uppercase();
-            if upper.ends_with("ULL") { prefix_end = prefix_end.saturating_sub(3); }
-            else if upper.ends_with("LL") || upper.ends_with("UL") { prefix_end = prefix_end.saturating_sub(2); }
-            else if upper.ends_with("L") { prefix_end = prefix_end.saturating_sub(1); }
-            
-            if prefix_end == 0 { continue; }
+            if upper.ends_with("ULL") {
+                prefix_end = prefix_end.saturating_sub(3);
+            } else if upper.ends_with("LL") || upper.ends_with("UL") {
+                prefix_end = prefix_end.saturating_sub(2);
+            } else if upper.ends_with("L") {
+                prefix_end = prefix_end.saturating_sub(1);
+            }
+
+            if prefix_end == 0 {
+                continue;
+            }
             let prefix = &s[..prefix_end];
             let left = if prefix.ends_with("operator") {
                 "operator"
@@ -726,12 +766,12 @@ fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
                 if prev_char.is_ascii_whitespace() || prev_char == '(' || prev_char == '<' {
                     continue;
                 }
-                &prefix[prefix.len() - prev_char.len_utf8() ..]
+                &prefix[prefix.len() - prev_char.len_utf8()..]
             };
-            
+
             let next_char = s[next_idx..].chars().next().unwrap();
-            let right = &s[next_idx .. next_idx + next_char.len_utf8()];
-            
+            let right = &s[next_idx..next_idx + next_char.len_utf8()];
+
             return Some((left, right));
         }
     }

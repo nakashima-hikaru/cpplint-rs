@@ -196,10 +196,8 @@ fn prefix_is_in_comment_or_literal(prefix: &str) -> bool {
     let mut escaped = false;
     let mut in_single = false;
     let mut in_double = false;
-    let chars: Vec<char> = prefix.chars().collect();
-    let mut idx = 0usize;
-    while idx + 1 < chars.len() {
-        let ch = chars[idx];
+    let mut it = prefix.chars().peekable();
+    while let Some(ch) = it.next() {
         if escaped {
             escaped = false;
         } else if ch == '\\' {
@@ -208,10 +206,9 @@ fn prefix_is_in_comment_or_literal(prefix: &str) -> bool {
             in_double = !in_double;
         } else if ch == '\'' && !in_double {
             in_single = !in_single;
-        } else if ch == '/' && chars[idx + 1] == '/' && !in_single && !in_double {
+        } else if ch == '/' && it.peek() == Some(&'/') && !in_single && !in_double {
             return true;
         }
-        idx += 1;
     }
     in_single || in_double
 }
