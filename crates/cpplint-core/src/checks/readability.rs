@@ -72,23 +72,77 @@ fn is_test_like_function(name: &str) -> bool {
 
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let elided_line = &clean_lines.elided[linenum];
+    let raw_line = &clean_lines.raw_lines[linenum];
+
+    let mut has_brace = false;
+    let mut has_semicolon = false;
+    let has_slash = raw_line.contains('/');
+
+    for &b in elided_line.as_bytes() {
+        match b {
+            b'{' | b'}' => has_brace = true,
+            b';' => has_semicolon = true,
+            _ => {}
+        }
+    }
+
+    let keywords = &clean_lines.keywords[linenum];
 
     check_alt_tokens(linter, clean_lines, linenum);
-    check_namespace_using(linter, elided_line, linenum);
-    check_unnamed_namespace_in_header(linter, elided_line, linenum);
-    check_namespace_termination_comment(linter, clean_lines, linenum);
-    check_check_macro(linter, clean_lines, elided_line, linenum);
-    check_multiline_comments(linter, clean_lines, linenum);
-    check_multiline_strings(linter, clean_lines, linenum);
-    check_braces(linter, clean_lines, elided_line, linenum);
-    check_single_line_control_bodies(linter, clean_lines, elided_line, linenum);
-    check_multiline_if_else_bodies(linter, clean_lines, elided_line, linenum);
+
+    if elided_line.contains("using") || elided_line.contains("namespace") {
+        check_namespace_using(linter, elided_line, linenum);
+        check_unnamed_namespace_in_header(linter, elided_line, linenum);
+    }
+
+    // Always check namespace indentation as it depends on context facts, not just keywords
     check_namespace_indentation(linter, clean_lines, elided_line, linenum);
-    check_trailing_semicolon(linter, clean_lines, elided_line, linenum);
-    check_empty_bodies(linter, clean_lines, elided_line, linenum);
-    check_redundant_virtuals(linter, clean_lines, elided_line, linenum);
+
+    if has_brace || has_slash || has_semicolon {
+        check_namespace_termination_comment(linter, clean_lines, linenum);
+    }
+
+    if elided_line.contains("CHECK")
+        || elided_line.contains("ASSERT_")
+        || elided_line.contains("EXPECT_")
+    {
+        check_check_macro(linter, clean_lines, elided_line, linenum);
+    }
+
+    if has_slash {
+        check_multiline_comments(linter, clean_lines, linenum);
+    }
+    if raw_line.contains('"') {
+        check_multiline_strings(linter, clean_lines, linenum);
+    }
+
+    let has_control = keywords.has_if()
+        || keywords.has_else()
+        || keywords.has_for()
+        || keywords.has_while()
+        || keywords.has_do();
+    if has_brace
+        || has_control
+        || elided_line.contains("virtual")
+        || elided_line.contains("override")
+        || elided_line.contains("final")
+    {
+        check_redundant_virtuals(linter, clean_lines, elided_line, linenum);
+    }
+
+    if has_brace || has_control {
+        check_braces(linter, clean_lines, elided_line, linenum);
+        check_single_line_control_bodies(linter, clean_lines, elided_line, linenum);
+        check_multiline_if_else_bodies(linter, clean_lines, elided_line, linenum);
+        check_function_size(linter, clean_lines, elided_line, linenum);
+    }
+
+    if has_brace || has_semicolon || has_control {
+        check_empty_bodies(linter, clean_lines, elided_line, linenum);
+        check_trailing_semicolon(linter, clean_lines, elided_line, linenum);
+    }
+
     check_missing_function_body(linter, clean_lines, linenum);
-    check_function_size(linter, clean_lines, elided_line, linenum);
 }
 
 fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {

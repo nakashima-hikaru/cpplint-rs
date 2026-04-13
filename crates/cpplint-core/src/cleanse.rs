@@ -29,6 +29,177 @@ static ALT_TOKEN_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .unwrap()
 });
 
+const KEYWORDS: &[&str] = &[
+    "if",
+    "for",
+    "while",
+    "switch",
+    "case",
+    "default",
+    "return",
+    "new",
+    "delete",
+    "catch",
+    "operator",
+    "__VA_OPT__",
+    "public",
+    "protected",
+    "private",
+    "signals",
+    "slots",
+    "sizeof",
+    "elif",
+    "typedef",
+    "using",
+    "static_cast",
+    "reinterpret_cast",
+    "const_cast",
+    "else",
+    "do",
+];
+
+static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KEYWORDS).unwrap());
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MatchedKeywords(u32);
+
+impl MatchedKeywords {
+    const IF: u32 = 1 << 0;
+    const FOR: u32 = 1 << 1;
+    const WHILE: u32 = 1 << 2;
+    const SWITCH: u32 = 1 << 3;
+    const CASE: u32 = 1 << 4;
+    const DEFAULT: u32 = 1 << 5;
+    const RETURN: u32 = 1 << 6;
+    const NEW: u32 = 1 << 7;
+    const DELETE: u32 = 1 << 8;
+    const CATCH: u32 = 1 << 9;
+    const OPERATOR: u32 = 1 << 10;
+    const VA_OPT: u32 = 1 << 11;
+    const ACCESS: u32 = 1 << 12;
+    const SIZEOF: u32 = 1 << 13;
+    const ELIF: u32 = 1 << 14;
+    const TYPEDEF: u32 = 1 << 15;
+    const USING: u32 = 1 << 16;
+    const CAST: u32 = 1 << 17;
+    const ELSE: u32 = 1 << 18;
+    const DO: u32 = 1 << 19;
+
+    pub fn from_line(line: &str) -> Self {
+        if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
+            return Self::default();
+        }
+        let mut bits = 0u32;
+        for mat in KEYWORDS_AC.find_iter(line) {
+            bits |= match mat.pattern().as_usize() {
+                0 => Self::IF,
+                1 => Self::FOR,
+                2 => Self::WHILE,
+                3 => Self::SWITCH,
+                4 => Self::CASE,
+                5 => Self::DEFAULT,
+                6 => Self::RETURN,
+                7 => Self::NEW,
+                8 => Self::DELETE,
+                9 => Self::CATCH,
+                10 => Self::OPERATOR,
+                11 => Self::VA_OPT,
+                12..=16 => Self::ACCESS,
+                17 => Self::SIZEOF,
+                18 => Self::ELIF,
+                19 => Self::TYPEDEF,
+                20 => Self::USING,
+                21..=23 => Self::CAST,
+                24 => Self::ELSE,
+                25 => Self::DO,
+                _ => 0,
+            };
+        }
+        Self(bits)
+    }
+
+    #[inline(always)]
+    pub fn has_if(&self) -> bool {
+        (self.0 & Self::IF) != 0
+    }
+    #[inline(always)]
+    pub fn has_for(&self) -> bool {
+        (self.0 & Self::FOR) != 0
+    }
+    #[inline(always)]
+    pub fn has_while(&self) -> bool {
+        (self.0 & Self::WHILE) != 0
+    }
+    #[inline(always)]
+    pub fn has_switch(&self) -> bool {
+        (self.0 & Self::SWITCH) != 0
+    }
+    #[inline(always)]
+    pub fn has_case(&self) -> bool {
+        (self.0 & Self::CASE) != 0
+    }
+    #[inline(always)]
+    pub fn has_default(&self) -> bool {
+        (self.0 & Self::DEFAULT) != 0
+    }
+    #[inline(always)]
+    pub fn has_return(&self) -> bool {
+        (self.0 & Self::RETURN) != 0
+    }
+    #[inline(always)]
+    pub fn has_new(&self) -> bool {
+        (self.0 & Self::NEW) != 0
+    }
+    #[inline(always)]
+    pub fn has_delete(&self) -> bool {
+        (self.0 & Self::DELETE) != 0
+    }
+    #[inline(always)]
+    pub fn has_catch(&self) -> bool {
+        (self.0 & Self::CATCH) != 0
+    }
+    #[inline(always)]
+    pub fn has_operator(&self) -> bool {
+        (self.0 & Self::OPERATOR) != 0
+    }
+    #[inline(always)]
+    pub fn has_va_opt(&self) -> bool {
+        (self.0 & Self::VA_OPT) != 0
+    }
+    #[inline(always)]
+    pub fn has_access(&self) -> bool {
+        (self.0 & Self::ACCESS) != 0
+    }
+    #[inline(always)]
+    pub fn has_sizeof(&self) -> bool {
+        (self.0 & Self::SIZEOF) != 0
+    }
+    #[inline(always)]
+    pub fn has_elif(&self) -> bool {
+        (self.0 & Self::ELIF) != 0
+    }
+    #[inline(always)]
+    pub fn has_typedef(&self) -> bool {
+        (self.0 & Self::TYPEDEF) != 0
+    }
+    #[inline(always)]
+    pub fn has_using(&self) -> bool {
+        (self.0 & Self::USING) != 0
+    }
+    #[inline(always)]
+    pub fn has_else(&self) -> bool {
+        (self.0 & Self::ELSE) != 0
+    }
+    #[inline(always)]
+    pub fn has_do(&self) -> bool {
+        (self.0 & Self::DO) != 0
+    }
+    #[inline(always)]
+    pub fn has_any_cast(&self) -> bool {
+        (self.0 & Self::CAST) != 0
+    }
+}
+
 const RAW_STRING_PREFIXES: &[&str] = &["u8R\"", "uR\"", "UR\"", "LR\"", "R\""];
 static RAW_STRING_PREFIXES_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
     AhoCorasickBuilder::new()
@@ -64,6 +235,7 @@ pub struct CleansedLines {
     pub raw_lines: Vec<String>,
     pub lines_without_raw_strings: Vec<String>,
     pub has_comment: Vec<bool>,
+    pub keywords: Vec<MatchedKeywords>,
 }
 
 impl CleansedLines {
@@ -79,6 +251,7 @@ impl CleansedLines {
         let mut elided = Vec::with_capacity(n);
         let mut has_comment = Vec::with_capacity(n);
         let mut lines_without_raw_strings = Vec::with_capacity(n);
+        let mut keywords = Vec::with_capacity(n);
 
         let mut in_block_comment = false;
         let mut raw_delimiter = String::new();
@@ -162,6 +335,8 @@ impl CleansedLines {
             } else {
                 elided.push(collapsed_line.into_owned());
             }
+
+            keywords.push(MatchedKeywords::from_line(&elided[elided.len() - 1]));
         }
 
         CleansedLines {
@@ -171,6 +346,7 @@ impl CleansedLines {
             raw_lines,
             lines_without_raw_strings,
             has_comment,
+            keywords,
         }
     }
 

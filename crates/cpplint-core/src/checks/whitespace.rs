@@ -1,4 +1,4 @@
-use crate::cleanse::CleansedLines;
+use crate::cleanse::{CleansedLines, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
@@ -73,176 +73,18 @@ static FUNCTION_HEADER_BLANK_LINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^ {4}\w[^\(]*\)\s*(const\s*)?(\{\s*$|:)"#).unwrap());
 static INITLIST_HEADER_BLANK_LINE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^ {4}:"#).unwrap());
-static MISSING_SPACE_AFTER_COMMA_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#",[^,\s]"#).unwrap());
-static MISSING_SPACE_AFTER_SEMICOLON_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#";[^\s};\\)/]"#).unwrap());
+
 static MULTI_COMMAND_INITLIST_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[^{};]*\[[^\[\]]*\][^{}]*\{[^{}\n\r]*\}"#).unwrap());
 static OPEN_BRACE_NEEDS_SPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^(.*[^ ({>])\{"#).unwrap());
-const KEYWORDS: [&str; 24] = [
-    "if",
-    "for",
-    "while",
-    "switch",
-    "case",
-    "default",
-    "return",
-    "new",
-    "delete",
-    "catch",
-    "operator",
-    "__VA_OPT__",
-    "public",
-    "private",
-    "protected",
-    "signals",
-    "slots",
-    "sizeof",
-    "elif",
-    "typedef",
-    "using",
-    "static_cast",
-    "reinterpret_cast",
-    "const_cast",
-];
-
-static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KEYWORDS).unwrap());
-
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-struct MatchedKeywords(u32);
-
-impl MatchedKeywords {
-    const IF: u32 = 1 << 0;
-    const FOR: u32 = 1 << 1;
-    const WHILE: u32 = 1 << 2;
-    const SWITCH: u32 = 1 << 3;
-    const CASE: u32 = 1 << 4;
-    const DEFAULT: u32 = 1 << 5;
-    const RETURN: u32 = 1 << 6;
-    const NEW: u32 = 1 << 7;
-    const DELETE: u32 = 1 << 8;
-    const CATCH: u32 = 1 << 9;
-    const OPERATOR: u32 = 1 << 10;
-    const VA_OPT: u32 = 1 << 11;
-    const ACCESS: u32 = 1 << 12;
-    const SIZEOF: u32 = 1 << 13;
-    const ELIF: u32 = 1 << 14;
-    const TYPEDEF: u32 = 1 << 15;
-    const USING: u32 = 1 << 16;
-    const CAST: u32 = 1 << 17;
-
-    #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    fn from_line(line: &str) -> Self {
-        if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
-            return Self::default();
-        }
-        let mut bits = 0u32;
-        for mat in KEYWORDS_AC.find_iter(line) {
-            bits |= match mat.pattern().as_usize() {
-                0 => Self::IF,
-                1 => Self::FOR,
-                2 => Self::WHILE,
-                3 => Self::SWITCH,
-                4 => Self::CASE,
-                5 => Self::DEFAULT,
-                6 => Self::RETURN,
-                7 => Self::NEW,
-                8 => Self::DELETE,
-                9 => Self::CATCH,
-                10 => Self::OPERATOR,
-                11 => Self::VA_OPT,
-                12..=16 => Self::ACCESS,
-                17 => Self::SIZEOF,
-                18 => Self::ELIF,
-                19 => Self::TYPEDEF,
-                20 => Self::USING,
-                21..=23 => Self::CAST,
-                _ => 0,
-            };
-        }
-        Self(bits)
-    }
-
-    #[inline(always)]
-    fn has_if(&self) -> bool {
-        (self.0 & Self::IF) != 0
-    }
-    #[inline(always)]
-    fn has_for(&self) -> bool {
-        (self.0 & Self::FOR) != 0
-    }
-    #[inline(always)]
-    fn has_while(&self) -> bool {
-        (self.0 & Self::WHILE) != 0
-    }
-    #[inline(always)]
-    fn has_switch(&self) -> bool {
-        (self.0 & Self::SWITCH) != 0
-    }
-    #[inline(always)]
-    fn has_case(&self) -> bool {
-        (self.0 & Self::CASE) != 0
-    }
-    #[inline(always)]
-    fn has_default(&self) -> bool {
-        (self.0 & Self::DEFAULT) != 0
-    }
-    #[inline(always)]
-    fn has_return(&self) -> bool {
-        (self.0 & Self::RETURN) != 0
-    }
-    #[inline(always)]
-    fn has_new(&self) -> bool {
-        (self.0 & Self::NEW) != 0
-    }
-    #[inline(always)]
-    fn has_delete(&self) -> bool {
-        (self.0 & Self::DELETE) != 0
-    }
-    #[inline(always)]
-    fn has_catch(&self) -> bool {
-        (self.0 & Self::CATCH) != 0
-    }
-    #[inline(always)]
-    fn has_operator(&self) -> bool {
-        (self.0 & Self::OPERATOR) != 0
-    }
-    #[inline(always)]
-    fn has_va_opt(&self) -> bool {
-        (self.0 & Self::VA_OPT) != 0
-    }
-    #[inline(always)]
-    fn has_access(&self) -> bool {
-        (self.0 & Self::ACCESS) != 0
-    }
-    #[inline(always)]
-    fn has_sizeof(&self) -> bool {
-        (self.0 & Self::SIZEOF) != 0
-    }
-    #[inline(always)]
-    fn has_elif(&self) -> bool {
-        (self.0 & Self::ELIF) != 0
-    }
-    #[inline(always)]
-    fn has_typedef(&self) -> bool {
-        (self.0 & Self::TYPEDEF) != 0
-    }
-    #[inline(always)]
-    fn has_using(&self) -> bool {
-        (self.0 & Self::USING) != 0
-    }
-}
 static BRACED_INIT_TRAILING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[\s}]*[{.;,)<>\]:]"#).unwrap());
 static FIXED_WIDTH_BRACED_INT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\s*\{"#)
         .unwrap()
 });
-static EMPTY_STATEMENT_AFTER_COLON_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#":\s*;\s*$"#).unwrap());
-static ONLY_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"^\s*;\s*$"#).unwrap());
+
 static SPACE_BEFORE_LAST_SEMICOLON_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+;\s*$"#).unwrap());
 static CLASS_OR_STRUCT_AC: LazyLock<AhoCorasick> =
@@ -276,7 +118,6 @@ fn contains_class_or_struct_word(line: &str) -> bool {
         .any(|mat| string_utils::is_word_match(line, mat.start(), mat.end()))
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let line = &clean_lines.lines_without_raw_strings[linenum];
     let Some(comment_pos) = line.find("//") else {
@@ -458,7 +299,6 @@ fn has_extra_space_after_leading_nested_open_paren(line: &str) -> bool {
     space_count > 1 && rest[space_count..].starts_with('(')
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_operator_spacing(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -859,7 +699,6 @@ fn find_extra_unary_space(s: &str) -> Option<&'static str> {
     None
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_parenthesis_spacing(
     linter: &mut FileLinter,
     elided_line: &str,
@@ -918,7 +757,6 @@ fn check_parenthesis_spacing(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_spacing_for_function_call(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1142,7 +980,6 @@ fn looks_like_type_name(expr: &str) -> bool {
             .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let line = &clean_lines.lines_without_raw_strings[linenum];
     if !crate::line_utils::is_blank_line(line) {
@@ -1240,7 +1077,6 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_section_spacing(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1332,7 +1168,6 @@ fn check_section_spacing(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_access_specifier_indentation(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1391,7 +1226,6 @@ fn check_access_specifier_indentation(
     );
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_class_closing_brace_alignment(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1441,7 +1275,6 @@ fn check_class_closing_brace_alignment(
     );
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_tabs_and_line_length(
     linter: &mut FileLinter,
     raw_line: &str,
@@ -1471,7 +1304,6 @@ fn check_tabs_and_line_length(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_indentation(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines,
@@ -1513,29 +1345,54 @@ fn check_indentation(
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
     let raw_line = &clean_lines.raw_lines[linenum];
     let line_without_raw_strings = &clean_lines.lines_without_raw_strings[linenum];
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
 
-    let keywords = MatchedKeywords::from_line(elided_line);
+    let has_slash = raw_line.contains('/');
+    let mut has_colon = false;
+    let mut has_paren = false;
+    let mut has_comma = false;
+    let mut has_semicolon = false;
+    let mut has_brace = false;
 
-    check_comment_spacing(linter, clean_lines, linenum);
+    for &b in elided_line.as_bytes() {
+        match b {
+            b':' => has_colon = true,
+            b'(' | b')' => has_paren = true,
+            b',' => has_comma = true,
+            b';' => has_semicolon = true,
+            b'{' => has_brace = true,
+            _ => {}
+        }
+    }
+
+    let keywords = &clean_lines.keywords[linenum];
+
+    if has_slash {
+        check_comment_spacing(linter, clean_lines, linenum);
+    }
+
     check_blank_line_rules(linter, clean_lines, linenum);
+
     if linenum > 0 {
         check_section_spacing(linter, clean_lines, linenum, &keywords);
     }
-    check_access_specifier_indentation(linter, clean_lines, linenum, &keywords);
-    check_class_closing_brace_alignment(linter, clean_lines, linenum);
+
+    if has_colon || keywords.has_access() {
+        check_access_specifier_indentation(linter, clean_lines, linenum, &keywords);
+    }
+
+    if elided_line.contains('}') {
+        check_class_closing_brace_alignment(linter, clean_lines, linenum);
+    }
 
     check_tabs_and_line_length(linter, raw_line, line_without_raw_strings, linenum);
-
     check_indentation(linter, clean_lines, raw_line, line, linenum);
 
-    // 5. Check for redundant space before [
-    if has_extra_space_before_bracket(elided_line) {
+    if elided_line.contains('[') && has_extra_space_before_bracket(elided_line) {
         linter.error(
             linenum,
             r#"whitespace/braces"#,
@@ -1544,8 +1401,8 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         );
     }
 
-    // 6. Check for space around colon in range-based for
     if keywords.has_for()
+        && has_colon
         && (RANGE_FOR_COLON_LEFT_RE.is_match(elided_line)
             || RANGE_FOR_COLON_RIGHT_RE.is_match(elided_line))
     {
@@ -1557,102 +1414,155 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         );
     }
 
-    // 7. Check operator spacing.
     check_operator_spacing(linter, clean_lines, elided_line, linenum, &keywords);
 
-    // 8. Check paren spacing.
-    check_parenthesis_spacing(linter, elided_line, raw_line, linenum, &keywords);
-    check_spacing_for_function_call(
-        linter,
-        clean_lines,
-        elided_line,
-        raw_line,
-        linenum,
-        &keywords,
-    );
-
-    // 9. Check comma and semicolon spacing.
-    let comma_check_line: Cow<'_, str> = if keywords.has_operator() || keywords.has_va_opt() {
-        let replaced = VA_OPT_COMMA_RE.replace_all(elided_line, "");
-        Cow::Owned(
-            OPERATOR_COMMA_CALL_RE
-                .replace_all(&replaced, "F(")
-                .into_owned(),
-        )
-    } else {
-        Cow::Borrowed(elided_line)
-    };
-
-    if MISSING_SPACE_AFTER_COMMA_RE.is_match(comma_check_line.as_ref())
-        && MISSING_SPACE_AFTER_COMMA_RE.is_match(line)
-    {
-        linter.error(
+    if has_paren {
+        check_parenthesis_spacing(linter, elided_line, raw_line, linenum, &keywords);
+        check_spacing_for_function_call(
+            linter,
+            clean_lines,
+            elided_line,
+            raw_line,
             linenum,
-            r#"whitespace/comma"#,
-            3,
-            r#"Missing space after ,"#,
+            &keywords,
         );
     }
 
-    let semicolon_before_block_comment = raw_line.contains(";/*");
-    if MISSING_SPACE_AFTER_SEMICOLON_RE.is_match(elided_line) || semicolon_before_block_comment {
-        let mut target_linenum = linenum;
-        if semicolon_before_block_comment && !raw_line.contains("*/") {
-            while target_linenum + 1 < clean_lines.raw_lines.len() {
-                target_linenum += 1;
-                if clean_lines.raw_lines[target_linenum].contains("*/") {
+    if has_comma || has_semicolon || raw_line.contains(";/*") {
+        // 9. Check comma and semicolon spacing.
+        let comma_check_line: Cow<'_, str> = if keywords.has_operator() || keywords.has_va_opt() {
+            let replaced = VA_OPT_COMMA_RE.replace_all(elided_line, "");
+            Cow::Owned(
+                OPERATOR_COMMA_CALL_RE
+                    .replace_all(&replaced, "F(")
+                    .into_owned(),
+            )
+        } else {
+            Cow::Borrowed(elided_line)
+        };
+
+        if has_comma {
+            let check_line_bytes = comma_check_line.as_bytes();
+            let original_line_bytes = line.as_bytes();
+            let mut missing_comma_space = false;
+            for i in 0..check_line_bytes.len().saturating_sub(1) {
+                if check_line_bytes[i] == b','
+                    && !matches!(check_line_bytes[i + 1], b',' | b' ' | b'\t' | b'\n' | b'\r')
+                {
+                    if i < original_line_bytes.len().saturating_sub(1)
+                        && original_line_bytes[i] == b','
+                        && !matches!(
+                            original_line_bytes[i + 1],
+                            b',' | b' ' | b'\t' | b'\n' | b'\r'
+                        )
+                    {
+                        missing_comma_space = true;
+                        break;
+                    }
+                }
+            }
+
+            if missing_comma_space {
+                linter.error(
+                    linenum,
+                    r#"whitespace/comma"#,
+                    3,
+                    r#"Missing space after ,"#,
+                );
+            }
+        }
+
+        if has_semicolon || raw_line.contains(";/*") {
+            let elided_bytes = elided_line.as_bytes();
+            let mut missing_semicolon_space = false;
+            for i in 0..elided_bytes.len().saturating_sub(1) {
+                if elided_bytes[i] == b';'
+                    && !matches!(
+                        elided_bytes[i + 1],
+                        b' ' | b'\t' | b'\n' | b'\r' | b'}' | b';' | b'\\' | b')' | b'/'
+                    )
+                {
+                    missing_semicolon_space = true;
                     break;
                 }
             }
+
+            let semicolon_before_block_comment = raw_line.contains(";/*");
+            if missing_semicolon_space || semicolon_before_block_comment {
+                let mut target_linenum = linenum;
+                if semicolon_before_block_comment && !raw_line.contains("*/") {
+                    while target_linenum + 1 < clean_lines.raw_lines.len() {
+                        target_linenum += 1;
+                        if clean_lines.raw_lines[target_linenum].contains("*/") {
+                            break;
+                        }
+                    }
+                }
+                linter.error(
+                    target_linenum,
+                    r#"whitespace/semicolon"#,
+                    3,
+                    r#"Missing space after ;"#,
+                );
+            }
         }
-        linter.error(
-            target_linenum,
-            r#"whitespace/semicolon"#,
-            3,
-            r#"Missing space after ;"#,
-        );
     }
 
-    let semicolon_count = elided_line.chars().filter(|&c| c == ';').count();
-    let prev_line = if linenum > 0 {
-        crate::line_utils::get_previous_non_blank_line(
-            &clean_lines.lines_without_raw_strings,
-            linenum,
-        )
-        .map(|(_, line)| line)
-        .unwrap_or("")
-    } else {
-        ""
-    };
-    let switch_case_single_line =
-        (keywords.has_case() || keywords.has_default()) && elided_line.contains("break;");
-    if semicolon_count > 1
-        && !MULTI_COMMAND_INITLIST_RE.is_match(line)
-        && !keywords.has_for()
-        && (!prev_line.contains("for") || prev_line.contains(';'))
-        && !switch_case_single_line
-    {
-        linter.error(
-            linenum,
-            "whitespace/newline",
-            0,
-            "More than one command on the same line",
-        );
+    if has_semicolon {
+        let semicolon_count = elided_line.bytes().filter(|&b| b == b';').count();
+        let switch_case_single_line =
+            (keywords.has_case() || keywords.has_default()) && elided_line.contains("break;");
+
+        if semicolon_count > 1 && !keywords.has_for() && !switch_case_single_line {
+            let prev_line = if linenum > 0 {
+                crate::line_utils::get_previous_non_blank_line(
+                    &clean_lines.lines_without_raw_strings,
+                    linenum,
+                )
+                .map(|(_, line)| line)
+                .unwrap_or("")
+            } else {
+                ""
+            };
+
+            if !MULTI_COMMAND_INITLIST_RE.is_match(line)
+                && (!prev_line.contains("for") || prev_line.contains(';'))
+            {
+                linter.error(
+                    linenum,
+                    "whitespace/newline",
+                    0,
+                    "More than one command on the same line",
+                );
+            }
+        }
     }
 
     // 10. Brace and semicolon spacing.
-    let missing_space_before_qualified_brace = QUALIFIED_BRACE_RE.is_match(elided_line);
-    if OPEN_BRACE_NEEDS_SPACE_RE.is_match(elided_line)
-        && (!is_braced_initialization(clean_lines, elided_line, linenum)
-            || missing_space_before_qualified_brace)
-        && !FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line)
-    {
-        linter.error(
-            linenum,
-            r#"whitespace/braces"#,
-            5,
-            r#"Missing space before {"#,
-        );
+    if has_brace {
+        if let Some(brace_pos) = elided_line.find('{') {
+            if brace_pos > 0 {
+                let prefix = &elided_line[..brace_pos];
+                let last_char = prefix.chars().last();
+                if let Some(c) = last_char {
+                    if !matches!(c, ' ' | '(' | '{' | '>') {
+                        let missing_space_before_qualified_brace =
+                            QUALIFIED_BRACE_RE.is_match(elided_line);
+                        if (!is_braced_initialization(clean_lines, elided_line, linenum)
+                            || missing_space_before_qualified_brace)
+                            && !FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line)
+                        {
+                            linter.error(
+                                linenum,
+                                r#"whitespace/braces"#,
+                                5,
+                                r#"Missing space before {"#,
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if elided_line.contains("}else") {
@@ -1664,14 +1574,18 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         );
     }
 
-    if EMPTY_STATEMENT_AFTER_COLON_RE.is_match(elided_line) {
-        linter.error(
-            linenum,
-            r#"whitespace/semicolon"#,
-            5,
-            r#"Semicolon defining empty statement. Use {} instead."#,
-        );
-    } else if ONLY_SEMICOLON_RE.is_match(elided_line) {
+    if let Some(colon_pos) = elided_line.find(':') {
+        let suffix = &elided_line[colon_pos + 1..];
+        let trimmed_suffix = suffix.trim();
+        if trimmed_suffix == ";" {
+            linter.error(
+                linenum,
+                r#"whitespace/semicolon"#,
+                5,
+                r#"Semicolon defining empty statement. Use {} instead."#,
+            );
+        }
+    } else if elided_line.trim() == ";" {
         linter.error(
             linenum,
             r#"whitespace/semicolon"#,
