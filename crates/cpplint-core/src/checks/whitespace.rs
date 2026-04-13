@@ -22,8 +22,8 @@ static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
 });
 static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
-        r#" \([^)]+\)\([^)]*(\)|,$)"#, // 元 FUNC_REF_RE
-        r#" \([^)]+\)\[[^\]]+\]"#,     // 元 ARRAY_REF_RE
+        r#" \([^)]+\)\([^)]*(\)|,$)"#, // 0: FUNC_REF_RE
+        r#" \([^)]+\)\[[^\]]+\]"#,     // 1: ARRAY_REF_RE
     ])
     .unwrap()
 });
