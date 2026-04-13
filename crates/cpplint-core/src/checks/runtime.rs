@@ -127,7 +127,7 @@ static GLOBAL_STRING_CTOR_TAIL_RE: LazyLock<Regex> =
 static PRINTF_FORMAT_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"printf\s*\(.*".*%[-+ ]?\d*q"#, // 0: Q
-        r#"printf\s*\(.*".*%\d+\$"#,     // 1: POSITIONAL
+        r#"printf\s*\(.*".*%\d+\$"#,      // 1: POSITIONAL
     ])
     .unwrap()
 });
@@ -143,7 +143,7 @@ static NON_CONST_REF_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
 static CONST_REF_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"^\s*const\b.*&"#, // 0: PREFIX
-        r#"\bconst\s*&"#,      // 1: INLINE
+        r#"\bconst\s*&"#,    // 1: INLINE
     ])
     .unwrap()
 });
@@ -152,7 +152,7 @@ static ARRAYSIZE_TOKEN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"arraysize\(\w+\)"#).unwrap());
 static CONSTANT_MATCH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
-        r#"^0[xX][0-9A-Fa-f]+$"#,         // 0: HEX_LITERAL
+        r#"^0[xX][0-9A-Fa-f]+$"#,        // 0: HEX_LITERAL
         r#"^k[A-Z0-9]\w*$"#,             // 1: K_CONSTANT
         r#"^(?:.+::)?k[A-Z0-9]\w*$"#,    // 2: QUALIFIED_K_CONSTANT
         r#"^(?:.+::)?[A-Z][A-Z0-9_]*$"#, // 3: QUALIFIED_UPPER_CONSTANT

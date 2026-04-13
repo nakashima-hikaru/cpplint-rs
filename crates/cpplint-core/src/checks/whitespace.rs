@@ -38,7 +38,7 @@ static BRACE_INLINE_COMMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^.*\{\s*//"#).unwrap());
 static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
-        r#"^//[^ ]*\w"#,      // 0: COMMENT_WITHOUT_SPACE
+        r#"^//[^ ]*\w"#,        // 0: COMMENT_WITHOUT_SPACE
         r#"^(///|//!)(\s+|$)"#, // 1: DOC_COMMENT
     ])
     .unwrap()
@@ -70,9 +70,9 @@ static FOR_CLOSING_SEMICOLON_EXCEPTION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bfor\s*\(.*; \)"#).unwrap());
 static CALL_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
-        r#"\w\s+\("#,                                   // 0: MAIN
+        r#"\w\s+\("#,                                     // 0: MAIN
         r#"_{0,2}asm_{0,2}\s+_{0,2}volatile_{0,2}\s+\("#, // 1: ASM_VOLATILE
-        r#"#\s*define|typedef|using\s+\w+\s*="#,         // 2: DEFINE/TYPEDEF/USING
+        r#"#\s*define|typedef|using\s+\w+\s*="#,          // 2: DEFINE/TYPEDEF/USING
         r#"\w\s+\((\w+::)*\*\w+\)\("#,                    // 3: FUNCTION_POINTER
         r#"\bcase\s+\("#,                                 // 4: CASE
     ])
@@ -793,8 +793,7 @@ fn check_spacing_for_function_call(
     if !elided_line.contains('(') && !elided_line.contains(')') {
         return;
     }
-    if (keywords.bits()
-        & (MatchedKeywords::IF | MatchedKeywords::FOR | MatchedKeywords::SWITCH))
+    if (keywords.bits() & (MatchedKeywords::IF | MatchedKeywords::FOR | MatchedKeywords::SWITCH))
         != 0
     {
         if let Some(captures) = IF_FOR_SWITCH_CALL_RE.captures(elided_line) {
@@ -900,19 +899,19 @@ fn check_spacing_for_function_call_base(
         }
 
         if (keywords.bits() & exception_mask) == 0 {
-        let confidence = if keywords.has_operator() && OPERATOR_NAME_RE.is_match(line) {
-            0
-        } else {
-            4
-        };
-        linter.error(
-            linenum,
-            "whitespace/parens",
-            confidence,
-            "Extra space before ( in function call",
-        );
+            let confidence = if keywords.has_operator() && OPERATOR_NAME_RE.is_match(line) {
+                0
+            } else {
+                4
+            };
+            linter.error(
+                linenum,
+                "whitespace/parens",
+                confidence,
+                "Extra space before ( in function call",
+            );
+        }
     }
-}
 
     if !EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE.is_match(fncall) {
         return;
@@ -1430,10 +1429,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         );
     }
 
-    if keywords.has_for()
-        && has_colon
-        && RANGE_FOR_COLON_SET.is_match(elided_line)
-    {
+    if keywords.has_for() && has_colon && RANGE_FOR_COLON_SET.is_match(elided_line) {
         linter.error(
             linenum,
             r#"whitespace/forcolon"#,

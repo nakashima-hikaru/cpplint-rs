@@ -1,4 +1,4 @@
-use crate::cleanse::{collapse_strings, CleansedLines, MatchedKeywords};
+use crate::cleanse::{CleansedLines, MatchedKeywords, collapse_strings};
 use crate::file_linter::FileLinter;
 use crate::line_utils;
 use crate::regex_utils;
