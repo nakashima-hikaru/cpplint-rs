@@ -31,16 +31,18 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y cmake build-essential hyperfine meson ninja-build
+                  pip install cpplint
 
             - name: Install dependencies (macOS)
               if: runner.os == 'macOS'
               run: |
                   brew install hyperfine meson ninja
+                  pip install cpplint
 
             - name: Install dependencies (Windows)
               if: runner.os == 'Windows'
               run: |
-                  pip install meson ninja
+                  pip install meson ninja cpplint
                   choco install hyperfine
 
             - name: Run Benchmarks
