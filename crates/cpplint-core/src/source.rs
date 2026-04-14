@@ -1,5 +1,8 @@
 use crate::errors::Result;
-use crate::file_reader::{self, ReadFileResult};
+use crate::file_reader::{self, RawLineScan, ReadFileResult};
+use bumpalo::Bump;
+use bumpalo::collections::Vec as BumpVec;
+use std::iter::ExactSizeIterator;
 use std::path::{Path, PathBuf};
 
 /// A source file handle that decouples lint orchestration from file-system access.
@@ -23,52 +26,136 @@ impl SourceFile {
         &self.display_name
     }
 
-    pub fn read(&self) -> Result<DecodedSource> {
-        let read_result = file_reader::read_lines(&self.path)?;
-        Ok(DecodedSource::from_read_result(self.clone(), read_result))
+    pub fn read_into<'a>(&self, arena: &'a Bump) -> Result<DecodedSource<'a>> {
+        let bytes = file_reader::read_raw_bytes(&self.path)?;
+        let RawLineScan {
+            invalid_utf8_lines,
+            null_lines,
+        } = file_reader::scan_raw_lines(&bytes);
+        let decoded = file_reader::decode_bytes(bytes)?;
+        Ok(DecodedSource::from_decoded_text(
+            arena,
+            self.clone(),
+            decoded,
+            invalid_utf8_lines,
+            null_lines,
+        ))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedSource {
+pub struct DecodedSource<'a> {
     source_file: SourceFile,
-    lines: Vec<String>,
-    crlf_lines: Vec<usize>,
+    lines: BumpVec<'a, &'a str>,
+    crlf_lines: BumpVec<'a, usize>,
     lf_lines_count: usize,
-    invalid_utf8_lines: Vec<usize>,
-    null_lines: Vec<usize>,
+    invalid_utf8_lines: BumpVec<'a, usize>,
+    null_lines: BumpVec<'a, usize>,
 }
 
-impl DecodedSource {
-    pub fn from_read_result(source_file: SourceFile, read_result: ReadFileResult) -> Self {
+impl<'a> DecodedSource<'a> {
+    fn from_decoded_text(
+        arena: &'a Bump,
+        source_file: SourceFile,
+        decoded: String,
+        invalid_utf8_lines_in: Vec<usize>,
+        null_lines_in: Vec<usize>,
+    ) -> Self {
+        let mut lines = BumpVec::new_in(arena);
+        let mut crlf_lines = BumpVec::new_in(arena);
+        let mut lf_lines_count = 0usize;
+
+        for (linenum, raw_line) in decoded.split('\n').enumerate() {
+            let line = if let Some(line) = raw_line.strip_suffix('\r') {
+                crlf_lines.push(linenum);
+                line
+            } else {
+                lf_lines_count += 1;
+                raw_line
+            };
+            lines.push(arena.alloc_str(line) as &str);
+        }
+
+        if lines.is_empty() {
+            lines.push("");
+            lf_lines_count = 1;
+        }
+
+        let mut invalid_utf8_lines = BumpVec::with_capacity_in(invalid_utf8_lines_in.len(), arena);
+        invalid_utf8_lines.extend_from_slice(&invalid_utf8_lines_in);
+
+        let mut null_lines = BumpVec::with_capacity_in(null_lines_in.len(), arena);
+        null_lines.extend_from_slice(&null_lines_in);
+
         Self {
             source_file,
-            lines: read_result.lines,
-            crlf_lines: read_result.crlf_lines,
-            lf_lines_count: read_result.lf_lines_count,
-            invalid_utf8_lines: read_result.invalid_utf8_lines,
-            null_lines: read_result.null_lines,
+            lines,
+            crlf_lines,
+            lf_lines_count,
+            invalid_utf8_lines,
+            null_lines,
         }
     }
 
-    pub fn from_lines(source_file: SourceFile, mut lines: Vec<String>) -> Self {
-        if lines.is_empty() {
-            lines.push(String::new());
+    pub fn from_read_result(
+        arena: &'a Bump,
+        source_file: SourceFile,
+        read_result: ReadFileResult,
+    ) -> Self {
+        let mut lines = BumpVec::with_capacity_in(read_result.lines.len(), arena);
+        for line in read_result.lines {
+            lines.push(arena.alloc_str(&line) as &str);
         }
 
-        let null_lines = lines
-            .iter()
-            .enumerate()
-            .filter_map(|(linenum, line)| line.contains('\0').then_some(linenum))
-            .collect();
+        let mut crlf_lines = BumpVec::with_capacity_in(read_result.crlf_lines.len(), arena);
+        crlf_lines.extend_from_slice(&read_result.crlf_lines);
+
+        let mut invalid_utf8_lines =
+            BumpVec::with_capacity_in(read_result.invalid_utf8_lines.len(), arena);
+        invalid_utf8_lines.extend_from_slice(&read_result.invalid_utf8_lines);
+
+        let mut null_lines = BumpVec::with_capacity_in(read_result.null_lines.len(), arena);
+        null_lines.extend_from_slice(&read_result.null_lines);
+
+        Self {
+            source_file,
+            lines,
+            crlf_lines,
+            lf_lines_count: read_result.lf_lines_count,
+            invalid_utf8_lines,
+            null_lines,
+        }
+    }
+
+    pub fn from_lines<I, S>(arena: &'a Bump, source_file: SourceFile, lines_in: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        I::IntoIter: ExactSizeIterator,
+        S: AsRef<str>,
+    {
+        let input = lines_in.into_iter();
+        let mut lines = BumpVec::with_capacity_in(input.len().max(1), arena);
+        let mut null_lines = BumpVec::new_in(arena);
+
+        for (linenum, line) in input.enumerate() {
+            let line = line.as_ref();
+            if line.contains('\0') {
+                null_lines.push(linenum);
+            }
+            lines.push(arena.alloc_str(line) as &str);
+        }
+
+        if lines.is_empty() {
+            lines.push("");
+        }
         let lf_lines_count = lines.len();
 
         Self {
             source_file,
             lines,
-            crlf_lines: Vec::new(),
+            crlf_lines: BumpVec::new_in(arena),
             lf_lines_count,
-            invalid_utf8_lines: Vec::new(),
+            invalid_utf8_lines: BumpVec::new_in(arena),
             null_lines,
         }
     }
@@ -101,7 +188,11 @@ impl DecodedSource {
         lf_count > 0 && !self.crlf_lines.is_empty()
     }
 
-    pub fn into_lines(self) -> Vec<String> {
+    pub fn lines(&self) -> &[&'a str] {
+        &self.lines
+    }
+
+    pub fn into_lines(self) -> BumpVec<'a, &'a str> {
         self.lines
     }
 }
@@ -112,7 +203,9 @@ mod tests {
 
     #[test]
     fn from_lines_scans_virtual_source_input() {
+        let arena = Bump::new();
         let source = DecodedSource::from_lines(
+            &arena,
             SourceFile::new(PathBuf::from("sample.cc")),
             vec!["\0".to_string(), "\u{FFFD}".to_string()],
         );

@@ -81,7 +81,7 @@ impl ErrorSuppressions {
         let inserted = self.add_suppression(category.clone(), LineRange::new(linenum, usize::MAX));
         let pending = if inserted {
             self.suppressions
-                .get(&category)
+                .get(category.as_str())
                 .and_then(|ranges| ranges.len().checked_sub(1))
                 .map(|index| (category, index))
         } else {
@@ -108,7 +108,7 @@ impl ErrorSuppressions {
             if let Some((category, index)) = open_block
                 && let Some(begin) = self
                     .suppressions
-                    .get(&category)
+                    .get(category.as_str())
                     .and_then(|ranges| ranges.get(index))
                     .map(LineRange::begin)
             {
@@ -125,17 +125,17 @@ impl ErrorSuppressions {
             .find_map(|open_block| {
                 let (category, index) = open_block.as_ref()?;
                 self.suppressions
-                    .get(category)
+                    .get(category.as_str())
                     .and_then(|ranges| ranges.get(*index))
                     .map(LineRange::begin)
             })
     }
 
-    pub fn is_suppressed(&self, category: &str, linenum: usize) -> bool {
+    pub fn is_suppressed(&self, category: crate::categories::Category, linenum: usize) -> bool {
         self.is_globally_suppressed(linenum)
             || self
                 .suppressions
-                .get(category)
+                .get(category.as_str())
                 .is_some_and(|ranges| ranges.iter().any(|range| range.contains(linenum)))
     }
 
@@ -178,8 +178,8 @@ mod tests {
         let mut suppressions = ErrorSuppressions::new();
         suppressions.add_line_suppression("build/include", 12);
 
-        assert!(suppressions.is_suppressed("build/include", 12));
-        assert!(!suppressions.is_suppressed("build/include", 11));
+        assert!(suppressions.is_suppressed(crate::categories::Category::BuildInclude, 12));
+        assert!(!suppressions.is_suppressed(crate::categories::Category::BuildInclude, 11));
     }
 
     #[test]
@@ -187,7 +187,7 @@ mod tests {
         let mut suppressions = ErrorSuppressions::new();
         suppressions.add_global_suppression("");
 
-        assert!(suppressions.is_suppressed("runtime/int", 999));
+        assert!(suppressions.is_suppressed(crate::categories::Category::RuntimeInt, 999));
         assert!(suppressions.is_globally_suppressed(999));
     }
 
@@ -196,8 +196,8 @@ mod tests {
         let mut suppressions = ErrorSuppressions::new();
         assert!(suppressions.add_suppression("build/include", LineRange::new(10, 20)));
         assert!(!suppressions.add_suppression("build/include", LineRange::new(12, 18)));
-        assert!(suppressions.is_suppressed("build/include", 15));
-        assert!(!suppressions.is_suppressed("build/include", 21));
+        assert!(suppressions.is_suppressed(crate::categories::Category::BuildInclude, 15));
+        assert!(!suppressions.is_suppressed(crate::categories::Category::BuildInclude, 21));
     }
 
     #[test]
@@ -208,9 +208,9 @@ mod tests {
         suppressions.end_block_suppression(9);
 
         assert!(!suppressions.has_open_block());
-        assert!(suppressions.is_suppressed("runtime/int", 4));
-        assert!(suppressions.is_suppressed("runtime/int", 9));
-        assert!(!suppressions.is_suppressed("runtime/int", 10));
+        assert!(suppressions.is_suppressed(crate::categories::Category::RuntimeInt, 4));
+        assert!(suppressions.is_suppressed(crate::categories::Category::RuntimeInt, 9));
+        assert!(!suppressions.is_suppressed(crate::categories::Category::RuntimeInt, 10));
     }
 
     #[test]
@@ -229,8 +229,8 @@ mod tests {
         suppressions.add_default_c_suppressions();
         suppressions.add_default_kernel_suppressions();
 
-        assert!(suppressions.is_suppressed("readability/casting", 1));
-        assert!(suppressions.is_suppressed("whitespace/tab", 1));
+        assert!(suppressions.is_suppressed(crate::categories::Category::ReadabilityCasting, 1));
+        assert!(suppressions.is_suppressed(crate::categories::Category::WhitespaceTab, 1));
     }
 
     #[test]
@@ -240,7 +240,7 @@ mod tests {
         suppressions.start_block_suppression("runtime/int", 2);
         suppressions.clear();
 
-        assert!(!suppressions.is_suppressed("build/include", 1));
+        assert!(!suppressions.is_suppressed(crate::categories::Category::BuildInclude, 1));
         assert!(!suppressions.has_open_block());
         assert_eq!(suppressions.get_open_block_start(), None);
     }

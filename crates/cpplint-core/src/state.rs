@@ -1,6 +1,7 @@
 use crate::diagnostics::{Diagnostic, Note, NoteStream, ProcessedFile};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
@@ -358,7 +359,7 @@ impl LintSession {
         self.inner.lock().error_count
     }
 
-    pub fn increment_error_count(&self, category: &str) {
+    pub fn increment_error_count(&self, category: crate::categories::Category) {
         let mut inner = self.inner.lock();
         inner.error_count += 1;
         *inner
@@ -372,7 +373,7 @@ impl LintSession {
         file_index: usize,
         filename: &str,
         linenum: usize,
-        category: &str,
+        category: crate::categories::Category,
         confidence: i32,
         message: &str,
     ) {
@@ -384,11 +385,11 @@ impl LintSession {
             .or_insert(0) += 1;
         inner.diagnostics.push(Diagnostic {
             file_index,
-            filename: filename.to_string(),
+            filename: Arc::from(filename),
             linenum: linenum + 1,
-            category: category.to_string(),
+            category,
             confidence,
-            message: message.to_string(),
+            message: Arc::from(message),
         });
     }
 
@@ -397,7 +398,7 @@ impl LintSession {
         file_index: usize,
         filename: &str,
         display_linenum: usize,
-        category: &str,
+        category: crate::categories::Category,
         confidence: i32,
         message: &str,
     ) {
@@ -409,23 +410,33 @@ impl LintSession {
             .or_insert(0) += 1;
         inner.diagnostics.push(Diagnostic {
             file_index,
-            filename: filename.to_string(),
+            filename: Arc::from(filename),
             linenum: display_linenum,
-            category: category.to_string(),
+            category,
             confidence,
-            message: message.to_string(),
+            message: Arc::from(message),
         });
     }
 
-    pub fn record_info(&self, file_index: usize, order: usize, message: impl Into<String>) {
-        self.record_note(file_index, order, NoteStream::Stdout, message.into());
+    pub fn record_info(&self, file_index: usize, order: usize, message: impl AsRef<str>) {
+        self.record_note(
+            file_index,
+            order,
+            NoteStream::Stdout,
+            Arc::from(message.as_ref()),
+        );
     }
 
-    pub fn record_raw_error(&self, file_index: usize, order: usize, message: impl Into<String>) {
-        self.record_note(file_index, order, NoteStream::Stderr, message.into());
+    pub fn record_raw_error(&self, file_index: usize, order: usize, message: impl AsRef<str>) {
+        self.record_note(
+            file_index,
+            order,
+            NoteStream::Stderr,
+            Arc::from(message.as_ref()),
+        );
     }
 
-    fn record_note(&self, file_index: usize, order: usize, stream: NoteStream, text: String) {
+    fn record_note(&self, file_index: usize, order: usize, stream: NoteStream, text: Arc<str>) {
         self.inner.lock().notes.push(Note {
             file_index,
             order,
@@ -437,7 +448,7 @@ impl LintSession {
     pub fn record_processed_file(&self, file_index: usize, filename: &str, had_error: bool) {
         self.inner.lock().processed_files.push(ProcessedFile {
             file_index,
-            filename: filename.to_string(),
+            filename: Arc::from(filename),
             had_error,
         });
     }
@@ -451,8 +462,11 @@ impl LintSession {
         inner.processed_files.clear();
     }
 
-    pub fn has_error(&self, category: &str) -> bool {
-        self.inner.lock().errors_by_category.contains_key(category)
+    pub fn has_error(&self, category: crate::categories::Category) -> bool {
+        self.inner
+            .lock()
+            .errors_by_category
+            .contains_key(category.as_str())
     }
 
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
@@ -524,9 +538,9 @@ mod tests {
     #[test]
     fn test_increment_error() {
         let state = CppLintState::new();
-        state.increment_error_count("build/include");
-        state.increment_error_count("build/include");
-        state.increment_error_count("readability/braces");
+        state.increment_error_count(crate::categories::Category::BuildInclude);
+        state.increment_error_count(crate::categories::Category::BuildInclude);
+        state.increment_error_count(crate::categories::Category::ReadabilityBraces);
         assert_eq!(state.error_count(), 3);
     }
 
@@ -591,12 +605,19 @@ mod tests {
     #[test]
     fn test_record_diagnostic_tracks_messages() {
         let state = CppLintState::new();
-        state.record_diagnostic(1, "foo.cc", 4, "whitespace/tab", 1, "Tab found");
+        state.record_diagnostic(
+            1,
+            "foo.cc",
+            4,
+            crate::categories::Category::WhitespaceTab,
+            1,
+            "Tab found",
+        );
         state.record_info(1, 0, "Done processing foo.cc\n");
         state.record_processed_file(1, "foo.cc", true);
 
         assert_eq!(state.error_count(), 1);
-        assert!(state.has_error("whitespace/tab"));
+        assert!(state.has_error(crate::categories::Category::WhitespaceTab));
         assert_eq!(state.diagnostics()[0].linenum, 5);
         assert_eq!(state.notes().len(), 1);
         assert_eq!(state.processed_files().len(), 1);
@@ -617,7 +638,14 @@ mod tests {
         assert_eq!(state.output_format(), OutputFormat::JUnit);
         assert_eq!(state.num_threads(), 8);
 
-        state.record_diagnostic(0, "demo.cc", 0, "whitespace/tab", 1, "Tab found");
+        state.record_diagnostic(
+            0,
+            "demo.cc",
+            0,
+            crate::categories::Category::WhitespaceTab,
+            1,
+            "Tab found",
+        );
         state.record_info(0, 0, "Done processing demo.cc\n");
         let snapshot = state.into_snapshot();
 

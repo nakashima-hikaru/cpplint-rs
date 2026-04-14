@@ -5,6 +5,12 @@ use std::io::{self, Cursor, Read};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RawLineScan {
+    pub invalid_utf8_lines: Vec<usize>,
+    pub null_lines: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadFileResult {
     pub lines: Vec<String>,
     pub crlf_lines: Vec<usize>,
@@ -13,14 +19,17 @@ pub struct ReadFileResult {
     pub null_lines: Vec<usize>,
 }
 
-pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
+pub(crate) fn read_raw_bytes(path: &Path) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     if path == Path::new("-") {
         io::stdin().read_to_end(&mut bytes)?;
     } else {
         File::open(path)?.read_to_end(&mut bytes)?;
     }
+    Ok(bytes)
+}
 
+pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     let mut invalid_utf8_lines = Vec::new();
     let mut null_lines = Vec::new();
     for (linenum, raw_line) in bytes.split(|&byte| byte == b'\n').enumerate() {
@@ -33,12 +42,28 @@ pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
         }
     }
 
+    RawLineScan {
+        invalid_utf8_lines,
+        null_lines,
+    }
+}
+
+pub(crate) fn decode_bytes(bytes: Vec<u8>) -> Result<String> {
     let mut decoded_bytes = Vec::new();
     DecodeReaderBytesBuilder::new()
         .bom_sniffing(true)
         .build(Cursor::new(bytes))
         .read_to_end(&mut decoded_bytes)?;
-    let decoded = String::from_utf8_lossy(&decoded_bytes).into_owned();
+    Ok(String::from_utf8_lossy(&decoded_bytes).into_owned())
+}
+
+pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
+    let bytes = read_raw_bytes(path)?;
+    let RawLineScan {
+        invalid_utf8_lines,
+        null_lines,
+    } = scan_raw_lines(&bytes);
+    let decoded = decode_bytes(bytes)?;
 
     let mut lines = Vec::new();
     let mut crlf_lines = Vec::new();

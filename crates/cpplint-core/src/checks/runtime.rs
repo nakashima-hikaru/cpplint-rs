@@ -1,9 +1,12 @@
+use crate::categories::Category;
 use crate::cleanse::CleansedLines;
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 use std::sync::LazyLock;
 
 const BASIC_CAST_NEEDLES: [&str; 12] = [
@@ -118,8 +121,7 @@ static ENDIF_TEXT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*#\s*endif\s*[^/\s]+"#).unwrap());
 static CONST_STRING_MEMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*const\s*string\s*&\s*\w+\s*;"#).unwrap());
-static MAKE_PAIR_TEMPLATE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bmake_pair\s*<"#).unwrap());
+
 static STRING_PTR_OR_REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bstring\b(\s+const)?\s*[\*\&]\s*(const\s+)?\w"#).unwrap());
 static GLOBAL_STRING_CTOR_TAIL_RE: LazyLock<Regex> =
@@ -137,13 +139,6 @@ static NON_CONST_REF_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"\b(?:swap|operator<<|operator>>)\s*\("#, // 0: EXEMPT
         r#"^\s*(?:[\w:<>]+\s*(?:::\s*[\w:<>]+)*\s*[&*]?\s+)+(?:operator[^\s(]+|[A-Za-z_~]\w*)\s*\("#, // 1: FUNCTION_DECL
-    ])
-    .unwrap()
-});
-static CONST_REF_SET: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([
-        r#"^\s*const\b.*&"#, // 0: PREFIX
-        r#"\bconst\s*&"#,    // 1: INLINE
     ])
     .unwrap()
 });
@@ -179,40 +174,164 @@ static THREADSAFE_FN_AC: LazyLock<AhoCorasick> =
 static C_INTEGER_TYPES_NEEDLES: [&str; 3] = ["port", "short", "long"];
 static C_INTEGER_TYPES_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(C_INTEGER_TYPES_NEEDLES).unwrap());
+const RUNTIME_CHECK_NEEDLES: &[&str] = &[
+    "explicit",
+    "register",
+    "static",
+    "extern",
+    "typedef",
+    "class",
+    "struct",
+    "#endif",
+    "memset",
+    "VLOG",
+    "make_pair",
+    "strcpy",
+    "strcat",
+    "snprintf",
+    "sprintf",
+    "printf",
+    "port",
+    "short",
+    "long",
+    "string",
+    "asctime",
+    "ctime",
+    "getgrgid",
+    "getgrnam",
+    "getlogin",
+    "getpwnam",
+    "getpwuid",
+    "gmtime",
+    "localtime",
+    "rand",
+    "strtok",
+    "ttyname",
+];
 
-pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+static RUNTIME_CHECK_AC: LazyLock<AhoCorasick> =
+    LazyLock::new(|| AhoCorasick::new(RUNTIME_CHECK_NEEDLES).unwrap());
+
+const RT_PAREN_BIT: u16 = 1 << 0;
+const RT_AMP_BIT: u16 = 1 << 1;
+const RT_PLUS_MINUS_BIT: u16 = 1 << 2;
+const RT_ANGLE_QUESTION_BIT: u16 = 1 << 3;
+const RT_HASH_BIT: u16 = 1 << 4;
+
+static RUNTIME_LUT: [u16; 256] = {
+    let mut lut = [0; 256];
+    lut[b'(' as usize] |= RT_PAREN_BIT;
+    lut[b')' as usize] |= RT_PAREN_BIT;
+    lut[b'&' as usize] |= RT_AMP_BIT;
+    lut[b'+' as usize] |= RT_PLUS_MINUS_BIT;
+    lut[b'-' as usize] |= RT_PLUS_MINUS_BIT;
+    lut[b'<' as usize] |= RT_ANGLE_QUESTION_BIT;
+    lut[b'>' as usize] |= RT_ANGLE_QUESTION_BIT;
+    lut[b'?' as usize] |= RT_ANGLE_QUESTION_BIT;
+    lut[b'#' as usize] |= RT_HASH_BIT;
+    lut
+};
+
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
-    check_casts(linter, clean_lines, elided_line, linenum);
-    check_explicit_constructors(linter, clean_lines, elided_line, linenum);
-    check_invalid_increment(linter, elided_line, linenum);
-    check_deprecated_min_max_operators(linter, elided_line, linenum);
-    check_storage_class_specifier(linter, elided_line, linenum);
-    check_forward_decl(linter, elided_line, linenum);
-    check_endif_comment(linter, elided_line, linenum);
+
+    let bytes = elided_line.as_bytes();
+    let mut mask = 0u16;
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
+            mask |= RT_PAREN_BIT;
+        }
+        if chunk.simd_eq(u8x32::splat(b'&')).any() {
+            mask |= RT_AMP_BIT;
+        }
+        if (chunk.simd_eq(u8x32::splat(b'+')) | chunk.simd_eq(u8x32::splat(b'-'))).any() {
+            mask |= RT_PLUS_MINUS_BIT;
+        }
+        if (chunk.simd_eq(u8x32::splat(b'<'))
+            | chunk.simd_eq(u8x32::splat(b'>'))
+            | chunk.simd_eq(u8x32::splat(b'?')))
+        .any()
+        {
+            mask |= RT_ANGLE_QUESTION_BIT;
+        }
+        if chunk.simd_eq(u8x32::splat(b'#')).any() {
+            mask |= RT_HASH_BIT;
+        }
+        i += 32;
+    }
+    for &b in &bytes[i..] {
+        mask |= RUNTIME_LUT[b as usize];
+    }
+
+    let has_paren = (mask & RT_PAREN_BIT) != 0;
+    let has_ampersand = (mask & RT_AMP_BIT) != 0;
+    let has_plus_minus = (mask & RT_PLUS_MINUS_BIT) != 0;
+    let has_angle_question = (mask & RT_ANGLE_QUESTION_BIT) != 0;
+    let has_hash = (mask & RT_HASH_BIT) != 0;
+
+    // Keyword based skip
+    let has_keyword = RUNTIME_CHECK_AC.is_match(elided_line);
+
+    if has_paren || has_ampersand || has_keyword {
+        check_casts(linter, clean_lines, elided_line, linenum);
+    }
+    if has_paren || has_keyword {
+        check_explicit_constructors(linter, clean_lines, elided_line, linenum);
+    }
+    if has_plus_minus {
+        check_invalid_increment(linter, elided_line, linenum);
+    }
+    if has_angle_question {
+        check_deprecated_min_max_operators(linter, elided_line, linenum);
+    }
+    if has_keyword {
+        check_storage_class_specifier(linter, elided_line, linenum);
+        check_forward_decl(linter, elided_line, linenum);
+    }
+    if has_hash && has_keyword {
+        check_endif_comment(linter, elided_line, linenum);
+    }
+
     check_const_string_member(linter, elided_line, linenum);
-    check_memset(linter, elided_line, linenum);
-    check_threadsafe_functions(linter, elided_line, linenum);
-    check_vlog_arguments(linter, elided_line, linenum);
-    check_make_pair_uses_deduction(linter, elided_line, linenum);
-    check_global_strings(linter, elided_line, linenum);
+
+    if has_keyword {
+        check_memset(linter, elided_line, linenum);
+        check_threadsafe_functions(linter, elided_line, linenum);
+        check_vlog_arguments(linter, elided_line, linenum);
+        check_make_pair_uses_deduction(linter, elided_line, linenum);
+        check_global_strings(linter, elided_line, linenum);
+    } else if elided_line.contains("string") {
+        check_global_strings(linter, elided_line, linenum);
+    }
+
     check_init_with_self(linter, clean_lines, linenum);
-    check_printf(linter, elided_line, linenum);
+
+    if has_keyword {
+        check_printf(linter, elided_line, linenum);
+    }
     check_printf_format(linter, line, linenum);
-    check_unary_operator_ampersand(linter, elided_line, linenum);
-    check_c_integer_types(
-        linter,
-        elided_line,
-        clean_lines.raw_lines[linenum].as_str(),
-        linenum,
-    );
-    check_non_const_references(linter, elided_line, linenum);
+
+    if has_ampersand {
+        check_unary_operator_ampersand(linter, elided_line, linenum);
+    }
+
+    if has_keyword {
+        check_c_integer_types(linter, elided_line, clean_lines.raw_lines[linenum], linenum);
+    }
+
+    if has_ampersand {
+        check_non_const_references(linter, elided_line, linenum);
+    }
     check_variable_length_arrays(linter, elided_line, linenum);
 }
 
 fn check_casts(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -242,7 +361,7 @@ fn check_casts(
                 {
                     linter.error(
                         linenum,
-                        "readability/casting",
+                        Category::ReadabilityCasting,
                         4,
                         &format!(
                             "Using deprecated casting style.  Use static_cast<{}>(...) instead",
@@ -297,7 +416,7 @@ fn check_casts(
     if address_of_cast {
         linter.error(
             linenum,
-            "runtime/casting",
+            Category::RuntimeCasting,
             4,
             "Are you taking an address of a cast?  This is dangerous: could be a temp var.  Take the address before doing the cast, rather than after",
         );
@@ -313,7 +432,7 @@ fn contains_single_ampersand_cast(re: &Regex, line: &str) -> bool {
 
 fn check_explicit_constructors(
     linter: &mut FileLinter,
-    _clean_lines: &CleansedLines,
+    _clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -364,21 +483,25 @@ fn check_explicit_constructors(
         } else {
             "Single-parameter constructors should be marked explicit."
         };
-        linter.error(linenum, "runtime/explicit", 4, message);
+        linter.error(linenum, Category::RuntimeExplicit, 4, message);
     }
 }
 
-fn expecting_function_args(clean_lines: &CleansedLines, elided_line: &str, linenum: usize) -> bool {
+fn expecting_function_args(
+    clean_lines: &CleansedLines<'_>,
+    elided_line: &str,
+    linenum: usize,
+) -> bool {
     EXPECTING_MOCK_RE.is_match(elided_line)
         || (linenum >= 2
-            && (EXPECTING_MOCK2_RE.is_match(&clean_lines.elided[linenum - 1])
-                || EXPECTING_MOCK3_RE.is_match(&clean_lines.elided[linenum - 2])
-                || EXPECTING_STD_FUNCTION_RE.is_match(&clean_lines.elided[linenum - 1])))
+            && (EXPECTING_MOCK2_RE.is_match(clean_lines.elided[linenum - 1])
+                || EXPECTING_MOCK3_RE.is_match(clean_lines.elided[linenum - 2])
+                || EXPECTING_STD_FUNCTION_RE.is_match(clean_lines.elided[linenum - 1])))
 }
 
 fn check_c_style_cast(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
     cast_type: &str,
@@ -408,7 +531,7 @@ fn check_c_style_cast(
 #[allow(clippy::too_many_arguments)]
 fn check_c_style_cast_internal(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
     cast_type: &str,
@@ -431,7 +554,7 @@ fn check_c_style_cast_internal(
         }
         let mut joined_context = String::with_capacity(context_len);
         for idx in min_line + 1..linenum {
-            joined_context.push_str(&clean_lines.elided[idx]);
+            joined_context.push_str(clean_lines.elided[idx]);
         }
         joined_context.push_str(local_context);
         if CAST_MACRO_CONTEXT_RE.is_match(&joined_context) {
@@ -454,7 +577,7 @@ fn check_c_style_cast_internal(
 
     linter.error(
         linenum,
-        "readability/casting",
+        Category::ReadabilityCasting,
         4,
         &format!(
             "Using C-style cast.  Use {}<{}>(...) instead",
@@ -558,6 +681,28 @@ fn strip_keyword_prefix<'a>(s: &'a str, keyword: &str) -> Option<&'a str> {
         .next()
         .is_none_or(|ch| ch.is_whitespace())
         .then_some(rest)
+}
+
+fn is_const_reference(s: &str) -> bool {
+    let s = s.trim();
+    if s.ends_with("const&") || s.ends_with("const &") {
+        return true;
+    }
+    if !s.starts_with("const") {
+        return false;
+    }
+    // Starts with const. Check if there are any * at top level.
+    let mut depth = 0usize;
+    for ch in s.chars() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            '*' if depth == 0 => return false,
+            '&' if depth == 0 && !s.ends_with(ch) => return false, // Handles const T& & (invalid but good were cautious)
+            _ => {}
+        }
+    }
+    true
 }
 
 fn strip_cv_prefix(mut s: &str) -> &str {
@@ -669,7 +814,7 @@ fn check_invalid_increment(linter: &mut FileLinter, elided_line: &str, linenum: 
     if POINTER_INCREMENT_RE.is_match(elided_line) {
         linter.error(
             linenum,
-            "runtime/invalid_increment",
+            Category::RuntimeInvalidIncrement,
             5,
             "Changing pointer instead of value (or unused value of operator*).",
         );
@@ -683,7 +828,7 @@ fn check_deprecated_min_max_operators(linter: &mut FileLinter, elided_line: &str
     if MIN_MAX_RE.is_match(elided_line) {
         linter.error(
             linenum,
-            "build/deprecated",
+            Category::BuildDeprecated,
             3,
             ">? and <? (max and min) operators are non-standard and deprecated.",
         );
@@ -706,7 +851,7 @@ fn check_storage_class_specifier(linter: &mut FileLinter, elided_line: &str, lin
                 {
                     linter.error(
                         linenum,
-                        "build/storage_class",
+                        Category::BuildStorageClass,
                         5,
                         "Storage-class specifier (static, extern, typedef, etc) should be at the beginning of the declaration.",
                     );
@@ -724,7 +869,7 @@ fn check_forward_decl(linter: &mut FileLinter, elided_line: &str, linenum: usize
     if FORWARD_DECL_INNER_RE.is_match(elided_line) {
         linter.error(
             linenum,
-            "build/forward_decl",
+            Category::BuildForwardDecl,
             5,
             "Inner-style forward declarations are invalid.  Remove this line.",
         );
@@ -738,7 +883,7 @@ fn check_endif_comment(linter: &mut FileLinter, elided_line: &str, linenum: usiz
     if ENDIF_TEXT_RE.is_match(elided_line) {
         linter.error(
             linenum,
-            "build/endif_comment",
+            Category::BuildEndifComment,
             5,
             "Uncommented text after #endif is non-standard.  Use a comment.",
         );
@@ -752,7 +897,7 @@ fn check_const_string_member(linter: &mut FileLinter, elided_line: &str, linenum
     if CONST_STRING_MEMBER_RE.is_match(elided_line) {
         linter.error(
             linenum,
-            "runtime/member_string_references",
+            Category::RuntimeMemberStringReferences,
             2,
             "const string& members are dangerous. It is much better to use alternatives, such as pointers or simple constants.",
         );
@@ -773,7 +918,7 @@ fn check_memset(linter: &mut FileLinter, line: &str, linenum: usize) {
     }
     linter.error(
         linenum,
-        "runtime/memset",
+        Category::RuntimeMemset,
         4,
         &format!(r#"Did you mean "memset({}, 0, {})"?"#, target, size),
     );
@@ -789,7 +934,7 @@ fn check_threadsafe_functions(linter: &mut FileLinter, elided_line: &str, linenu
     let funcname = captures.get(1).map(|m| m.as_str()).unwrap_or("");
     linter.error(
         linenum,
-        "runtime/threadsafe_fn",
+        Category::RuntimeThreadsafeFn,
         2,
         &format!(
             "Consider using {}_r(...) instead of {}(...) for improved thread safety.",
@@ -805,7 +950,7 @@ fn check_vlog_arguments(linter: &mut FileLinter, line: &str, linenum: usize) {
     if VLOG_AC.is_match(line) {
         linter.error(
             linenum,
-            "runtime/vlog",
+            Category::RuntimeVlog,
             5,
             "VLOG() should be used with numeric verbosity level.  Use LOG() if you want symbolic severity levels.",
         );
@@ -813,16 +958,46 @@ fn check_vlog_arguments(linter: &mut FileLinter, line: &str, linenum: usize) {
 }
 
 fn check_make_pair_uses_deduction(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
-    if !elided_line.contains("make_pair") {
-        return;
-    }
-    if MAKE_PAIR_TEMPLATE_RE.is_match(elided_line) {
-        linter.error(
-            linenum,
-            "build/explicit_make_pair",
-            4,
-            "For C++11-compatibility, omit template arguments from make_pair OR use pair directly OR if appropriate, construct a pair directly",
-        );
+    const NEEDLE: &str = "make_pair";
+    let mut current_pos = 0;
+
+    while let Some(start_offset) = elided_line[current_pos..].find(NEEDLE) {
+        let match_start = current_pos + start_offset;
+        let match_end = match_start + NEEDLE.len();
+
+        let is_word_boundary_start = match match_start
+            .checked_sub(1)
+            .and_then(|i| elided_line.as_bytes().get(i))
+        {
+            Some(&b) => !b.is_ascii_alphanumeric() && b != b'_',
+            None => true,
+        };
+        let is_word_boundary_end = match elided_line.as_bytes().get(match_end) {
+            Some(&b) => !b.is_ascii_alphanumeric() && b != b'_',
+            None => true,
+        };
+
+        if is_word_boundary_start && is_word_boundary_end {
+            let mut bracket_start = match_end;
+            while elided_line
+                .as_bytes()
+                .get(bracket_start)
+                .is_some_and(|&b| b.is_ascii_whitespace())
+            {
+                bracket_start += 1;
+            }
+
+            if elided_line.as_bytes().get(bracket_start) == Some(&b'<') {
+                linter.error(
+                    linenum,
+                    Category::BuildExplicitMakePair,
+                    4,
+                    "For C++11-compatibility, omit template arguments from make_pair OR use pair directly OR if appropriate, construct a pair directly",
+                );
+                return;
+            }
+        }
+        current_pos = match_end;
     }
 }
 
@@ -851,7 +1026,7 @@ fn check_global_strings(linter: &mut FileLinter, line: &str, linenum: usize) {
     if line.contains("const") {
         linter.error(
             linenum,
-            "runtime/string",
+            Category::RuntimeString,
             4,
             &format!(
                 "For a static/global string constant, use a C style string instead: \"{}char{} {}[]\".",
@@ -861,19 +1036,19 @@ fn check_global_strings(linter: &mut FileLinter, line: &str, linenum: usize) {
     } else {
         linter.error(
             linenum,
-            "runtime/string",
+            Category::RuntimeString,
             4,
             "Static/global string variables are not permitted.",
         );
     }
 }
 
-fn check_init_with_self(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+fn check_init_with_self(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let line = &clean_lines.elided[linenum];
     if has_self_initializer(line) {
         linter.error(
             linenum,
-            "runtime/init",
+            Category::RuntimeInit,
             4,
             "You seem to be initializing a member variable with itself.",
         );
@@ -904,7 +1079,7 @@ fn check_init_with_self(linter: &mut FileLinter, clean_lines: &CleansedLines, li
         if has_self_initializer(&initializer) {
             linter.error(
                 linenum,
-                "runtime/init",
+                Category::RuntimeInit,
                 4,
                 "You seem to be initializing a member variable with itself.",
             );
@@ -974,7 +1149,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
         if before_ok {
             linter.error(
                 linenum,
-                "runtime/printf",
+                Category::RuntimePrintf,
                 4,
                 &format!("Almost always, snprintf is better than {}", func),
             );
@@ -988,7 +1163,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
             if size != "0" && !size.is_empty() {
                 linter.error(
                     linenum,
-                    "runtime/printf",
+                    Category::RuntimePrintf,
                     3,
                     &format!(
                         "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
@@ -1001,7 +1176,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
         if SPRINTF_RE.is_match(line) {
             linter.error(
                 linenum,
-                "runtime/printf",
+                Category::RuntimePrintf,
                 5,
                 "Never use sprintf. Use snprintf instead.",
             );
@@ -1015,7 +1190,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
         if matches.matched(0) {
             linter.error(
                 linenum,
-                "runtime/printf_format",
+                Category::RuntimePrintfFormat,
                 3,
                 "%q in format strings is deprecated.  Use %ll instead.",
             );
@@ -1024,7 +1199,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
         if matches.matched(1) {
             linter.error(
                 linenum,
-                "runtime/printf_format",
+                Category::RuntimePrintfFormat,
                 2,
                 "%N$ formats are unconventional.  Try rewriting to avoid them.",
             );
@@ -1054,7 +1229,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
     if printf_unescape {
         linter.error(
             linenum,
-            "runtime/printf_format",
+            Category::RuntimePrintfFormat,
             3,
             "%, [, (, and { are undefined character escapes.  Unescape them.",
         );
@@ -1068,7 +1243,7 @@ fn check_unary_operator_ampersand(linter: &mut FileLinter, line: &str, linenum: 
     if UNARY_OPERATOR_AMPERSAND_RE.is_match(line) {
         linter.error(
             linenum,
-            "runtime/operator",
+            Category::RuntimeOperator,
             4,
             "Unary operator& is dangerous.  Do not use it.",
         );
@@ -1077,7 +1252,8 @@ fn check_unary_operator_ampersand(linter: &mut FileLinter, line: &str, linenum: 
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, linenum: usize) {
-    if !C_INTEGER_TYPES_AC.is_match(raw_line) {
+    // Check elided line first as it's generally more accurate and often shorter.
+    if !C_INTEGER_TYPES_AC.is_match(line) {
         return;
     }
 
@@ -1103,7 +1279,7 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
         if !string_utils::contains_word(line, "unsigned short port") {
             linter.error(
                 linenum,
-                "runtime/int",
+                Category::RuntimeInt,
                 4,
                 "Use \"unsigned short\" for ports, not \"short\"",
             );
@@ -1145,7 +1321,7 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
 
     linter.error(
         linenum,
-        "runtime/int",
+        Category::RuntimeInt,
         4,
         &format!("Use int16_t/int64_t/etc, rather than the C type {}", ty),
     );
@@ -1186,20 +1362,19 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
     }
 
     for arg in split_args(args) {
-        if !arg.contains('&') || arg.contains("&&") {
+        let normalized = normalize_template_spacing(arg);
+        let type_only = strip_trailing_param_name(normalized.as_ref());
+        if !type_only.ends_with('&') || type_only.ends_with("&&") {
             continue;
         }
 
-        let normalized = normalize_template_spacing(arg);
-        let normalized = normalized.as_ref();
-        let is_const_ref = !normalized.contains('*') && CONST_REF_SET.is_match(normalized);
-        if is_const_ref {
+        if is_const_reference(type_only) {
             continue;
         }
 
         linter.error(
             linenum,
-            "runtime/references",
+            Category::RuntimeReferences,
             2,
             &format!(
                 "Is this a non-const reference? If so, make const or use a pointer: {}",
@@ -1255,7 +1430,7 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
 
         linter.error(
             linenum,
-            "runtime/arrays",
+            Category::RuntimeArrays,
             1,
             "Do not use variable-length arrays.  Use an appropriately named ('k' followed by CamelCase) compile-time constant for the size.",
         );

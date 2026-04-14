@@ -73,7 +73,7 @@ fn test_blank_line_at_eof() {
         "int main() {}".to_string(),
     ]);
     assert!(state.error_count() >= 1);
-    assert!(state.has_error("whitespace/ending_newline"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceEndingNewline));
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn test_nul_byte_lines() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 2);
-    assert!(state.has_error("readability/nul"));
+    assert!(state.has_error(cpplint_core::categories::Category::ReadabilityNul));
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_tab_check() {
         "	int x = 0;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/tab"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceTab));
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn test_c_style_cast() {
         "int x = (int)1.0;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("readability/casting"));
+    assert!(state.has_error(cpplint_core::categories::Category::ReadabilityCasting));
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn test_brace_placement() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/braces"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceBraces));
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn test_extra_space_before_bracket() {
         "int x [10];".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/braces"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceBraces));
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn test_range_for_spacing() {
         "for (auto x:collection) {}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/forcolon"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceForcolon));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn test_operator_spacing() {
         "int x=0;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/operators"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceOperators));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn test_header_guard_nolint_is_respected() {
             "// NOLINT(build/header_guard)".to_string(),
         ],
     );
-    assert!(!state.has_error("build/header_guard"));
+    assert!(!state.has_error(cpplint_core::categories::Category::BuildHeaderGuard));
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn test_header_guard_uses_parent_directories() {
             "#endif  // FOO_BAR_BAZ_H_".to_string(),
         ],
     );
-    assert!(!state.has_error("build/header_guard"));
+    assert!(!state.has_error(cpplint_core::categories::Category::BuildHeaderGuard));
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn test_operator_assignment_overload_is_not_flagged() {
         "T& operator=(const T& t);".to_string(),
         "".to_string(),
     ]);
-    assert!(!state.has_error("whitespace/operators"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceOperators));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn test_header_guard_requires_endif_comment() {
             "#endif".to_string(),
         ],
     );
-    assert!(state.has_error("build/header_guard"));
+    assert!(state.has_error(cpplint_core::categories::Category::BuildHeaderGuard));
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn test_header_guard_checks_hxx_files() {
             "#endif  // TEST_HXX_".to_string(),
         ],
     );
-    assert!(!state.has_error("build/header_guard"));
+    assert!(!state.has_error(cpplint_core::categories::Category::BuildHeaderGuard));
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn test_comparison_operator_spacing() {
         "if (foo>bar) return;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/operators"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceOperators));
 }
 
 #[test]
@@ -231,7 +231,7 @@ fn test_unary_operator_spacing() {
         "~ flag;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/operators"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceOperators));
 }
 
 #[test]
@@ -243,7 +243,7 @@ fn test_control_statement_paren_spacing() {
         "while(true) continue;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/parens"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn test_mismatching_spaces_inside_control_parens() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/parens"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -269,7 +269,7 @@ fn test_extra_spaces_inside_control_parens() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/parens"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -282,8 +282,8 @@ fn test_comma_and_semicolon_spacing() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/comma"));
-    assert!(state.has_error("whitespace/semicolon"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceComma));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceSemicolon));
 }
 
 #[test]
@@ -296,7 +296,7 @@ fn test_function_call_paren_spacing() {
         "     );".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/parens"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -310,8 +310,8 @@ fn test_spacing_before_else_and_semicolon_rules() {
         "func() ;".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/braces"));
-    assert!(state.has_error("whitespace/semicolon"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceBraces));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceSemicolon));
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn test_comment_spacing_rules() {
         "int b = 0;  //comment".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/comments"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceComments));
 }
 
 #[test]
@@ -334,8 +334,8 @@ fn test_todo_spacing_and_username_rules() {
         "int c = 0;  // TODO(me):test".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/todo"));
-    assert!(state.has_error("readability/todo"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceTodo));
+    assert!(state.has_error(cpplint_core::categories::Category::ReadabilityTodo));
 }
 
 #[test]
@@ -348,9 +348,9 @@ fn test_comment_spacing_pass_cases() {
         "    bar);".to_string(),
         "".to_string(),
     ]);
-    assert!(!state.has_error("whitespace/comments"));
-    assert!(!state.has_error("whitespace/todo"));
-    assert!(!state.has_error("readability/todo"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceComments));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceTodo));
+    assert!(!state.has_error(cpplint_core::categories::Category::ReadabilityTodo));
 }
 
 #[test]
@@ -373,7 +373,7 @@ fn test_blank_line_pass_cases() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(!state.has_error("whitespace/blank_line"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceBlankLine));
 }
 
 #[test]
@@ -392,7 +392,7 @@ fn test_blank_line_block_start() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/blank_line"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceBlankLine));
 }
 
 #[test]
@@ -422,7 +422,7 @@ fn test_blank_line_block_end_and_after_section() {
         "};".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("whitespace/blank_line"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceBlankLine));
 }
 
 #[test]
@@ -439,7 +439,7 @@ fn test_function_call_before_parens_pass_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 0);
-    assert!(!state.has_error("whitespace/parens"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn test_function_call_before_parens_fail_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 3);
-    assert!(state.has_error("whitespace/parens"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -471,7 +471,7 @@ fn test_function_call_closing_parens_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 4);
-    assert!(state.has_error("whitespace/parens"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
 }
 
 #[test]
@@ -490,7 +490,7 @@ fn test_section_spacing_pass_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 0);
-    assert!(!state.has_error("whitespace/blank_line"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceBlankLine));
 }
 
 #[test]
@@ -514,7 +514,7 @@ fn test_section_spacing_fail_cases() {
 
     let state = run_lint(lines);
     assert_eq!(state.error_count(), 3);
-    assert!(state.has_error("whitespace/blank_line"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceBlankLine));
 }
 
 #[test]
@@ -562,7 +562,7 @@ fn test_include_checks_representative_cases() {
         "#include \"lua.h\"".to_string(),
         "".to_string(),
     ]);
-    assert!(!subdir_pass.has_error("build/include_subdir"));
+    assert!(!subdir_pass.has_error(cpplint_core::categories::Category::BuildIncludeSubdir));
 
     let subdir_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -571,7 +571,7 @@ fn test_include_checks_representative_cases() {
         "".to_string(),
     ]);
     assert_eq!(subdir_fail.error_count(), 2);
-    assert!(subdir_fail.has_error("build/include_subdir"));
+    assert!(subdir_fail.has_error(cpplint_core::categories::Category::BuildIncludeSubdir));
 
     let duplication = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -580,7 +580,7 @@ fn test_include_checks_representative_cases() {
         "".to_string(),
     ]);
     assert_eq!(duplication.error_count(), 1);
-    assert!(duplication.has_error("build/include"));
+    assert!(duplication.has_error(cpplint_core::categories::Category::BuildInclude));
 
     let other_pkg_c = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -588,7 +588,7 @@ fn test_include_checks_representative_cases() {
         "".to_string(),
     ]);
     assert_eq!(other_pkg_c.error_count(), 1);
-    assert!(other_pkg_c.has_error("build/include"));
+    assert!(other_pkg_c.has_error(cpplint_core::categories::Category::BuildInclude));
 
     let order_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -597,7 +597,7 @@ fn test_include_checks_representative_cases() {
         "".to_string(),
     ]);
     assert_eq!(order_fail.error_count(), 1);
-    assert!(order_fail.has_error("build/include_order"));
+    assert!(order_fail.has_error(cpplint_core::categories::Category::BuildIncludeOrder));
 
     let order_fail_with_macro = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -622,7 +622,7 @@ fn test_include_checks_representative_cases() {
         "+build/include_alpha",
     );
     assert_eq!(alpha_fail.error_count(), 1);
-    assert!(alpha_fail.has_error("build/include_alpha"));
+    assert!(alpha_fail.has_error(cpplint_core::categories::Category::BuildIncludeAlpha));
 
     let alpha_pass_inl = run_lint_with_filter(
         "test.cpp",
@@ -654,7 +654,7 @@ fn test_include_checks_representative_cases() {
         "".to_string(),
     ]);
     assert_eq!(iwyu_fail.error_count(), 1);
-    assert!(iwyu_fail.has_error("build/include_what_you_use"));
+    assert!(iwyu_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let iwyu_vector_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -674,7 +674,7 @@ fn test_include_checks_representative_cases() {
         "".to_string(),
     ]);
     assert_eq!(iwyu_vector_fail.error_count(), 1);
-    assert!(iwyu_vector_fail.has_error("build/include_what_you_use"));
+    assert!(iwyu_vector_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let iwyu_iostream_pass = run_lint_with_filename(
         "foo.cc",
@@ -700,7 +700,9 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_fail.error_count(), 1);
-    assert!(iwyu_iostream_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_cerr_fail = run_lint_with_filename(
         "foo.cc",
@@ -713,7 +715,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_cerr_fail.error_count(), 1);
-    assert!(iwyu_iostream_cerr_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_cerr_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_cin_fail = run_lint_with_filename(
         "foo.cc",
@@ -726,7 +731,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_cin_fail.error_count(), 1);
-    assert!(iwyu_iostream_cin_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_cin_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_clog_fail = run_lint_with_filename(
         "foo.cc",
@@ -739,7 +747,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_clog_fail.error_count(), 1);
-    assert!(iwyu_iostream_clog_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_clog_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_wcout_fail = run_lint_with_filename(
         "foo.cc",
@@ -752,7 +763,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_wcout_fail.error_count(), 1);
-    assert!(iwyu_iostream_wcout_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_wcout_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_wcin_fail = run_lint_with_filename(
         "foo.cc",
@@ -765,7 +779,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_wcin_fail.error_count(), 1);
-    assert!(iwyu_iostream_wcin_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_wcin_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_wcerr_fail = run_lint_with_filename(
         "foo.cc",
@@ -778,7 +795,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_wcerr_fail.error_count(), 1);
-    assert!(iwyu_iostream_wcerr_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_wcerr_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_iostream_wclog_fail = run_lint_with_filename(
         "foo.cc",
@@ -791,7 +811,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_iostream_wclog_fail.error_count(), 1);
-    assert!(iwyu_iostream_wclog_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_iostream_wclog_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstring_memcpy_fail = run_lint_with_filename(
         "foo.cc",
@@ -1055,7 +1078,7 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fail.has_error("build/include_what_you_use"));
+    assert!(iwyu_cstdio_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let iwyu_cstdio_printf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1068,7 +1091,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_printf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_printf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_printf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fopen_fail = run_lint_with_filename(
         "foo.cc",
@@ -1081,7 +1107,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fopen_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fopen_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fopen_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fclose_fail = run_lint_with_filename(
         "foo.cc",
@@ -1094,7 +1123,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fclose_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fclose_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fclose_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fgets_fail = run_lint_with_filename(
         "foo.cc",
@@ -1107,7 +1139,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fgets_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fgets_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fgets_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fgetc_fail = run_lint_with_filename(
         "foo.cc",
@@ -1120,7 +1155,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fgetc_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fgetc_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fgetc_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_perror_fail = run_lint_with_filename(
         "foo.cc",
@@ -1133,7 +1171,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_perror_fail.error_count(), 1);
-    assert!(iwyu_cstdio_perror_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_perror_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fprintf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1146,7 +1187,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fprintf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fprintf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fprintf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_getc_fail = run_lint_with_filename(
         "foo.cc",
@@ -1159,7 +1203,9 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_getc_fail.error_count(), 1);
-    assert!(iwyu_cstdio_getc_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_getc_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_putc_fail = run_lint_with_filename(
         "foo.cc",
@@ -1172,7 +1218,9 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_putc_fail.error_count(), 1);
-    assert!(iwyu_cstdio_putc_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_putc_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_puts_fail = run_lint_with_filename(
         "foo.cc",
@@ -1185,7 +1233,9 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_puts_fail.error_count(), 1);
-    assert!(iwyu_cstdio_puts_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_puts_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fputs_fail = run_lint_with_filename(
         "foo.cc",
@@ -1198,7 +1248,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fputs_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fputs_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fputs_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_scanf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1211,7 +1264,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_scanf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_scanf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_scanf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_tmpfile_fail = run_lint_with_filename(
         "foo.cc",
@@ -1236,7 +1292,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_tmpnam_fail.error_count(), 1);
-    assert!(iwyu_cstdio_tmpnam_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_tmpnam_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_vfprintf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1249,7 +1308,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_vfprintf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_vfprintf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_vfprintf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_vprintf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1262,7 +1324,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_vprintf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_vprintf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_vprintf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_getchar_fail = run_lint_with_filename(
         "foo.cc",
@@ -1287,7 +1352,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_putchar_fail.error_count(), 1);
-    assert!(iwyu_cstdio_putchar_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_putchar_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_vfscanf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1300,7 +1368,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_vfscanf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_vfscanf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_vfscanf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_vscanf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1313,7 +1384,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_vscanf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_vscanf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_vscanf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fflush_fail = run_lint_with_filename(
         "foo.cc",
@@ -1326,7 +1400,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fflush_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fflush_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fflush_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fputc_fail = run_lint_with_filename(
         "foo.cc",
@@ -1339,7 +1416,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fputc_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fputc_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fputc_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_rewind_fail = run_lint_with_filename(
         "foo.cc",
@@ -1352,7 +1432,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_rewind_fail.error_count(), 1);
-    assert!(iwyu_cstdio_rewind_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_rewind_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_ungetc_fail = run_lint_with_filename(
         "foo.cc",
@@ -1365,7 +1448,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_ungetc_fail.error_count(), 1);
-    assert!(iwyu_cstdio_ungetc_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_ungetc_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fread_fail = run_lint_with_filename(
         "foo.cc",
@@ -1378,7 +1464,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fread_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fread_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fread_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fwrite_fail = run_lint_with_filename(
         "foo.cc",
@@ -1391,7 +1480,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fwrite_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fwrite_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fwrite_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_freopen_fail = run_lint_with_filename(
         "foo.cc",
@@ -1404,7 +1496,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_freopen_fail.error_count(), 1);
-    assert!(iwyu_cstdio_freopen_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_freopen_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_ftell_fail = run_lint_with_filename(
         "foo.cc",
@@ -1417,7 +1512,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_ftell_fail.error_count(), 1);
-    assert!(iwyu_cstdio_ftell_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_ftell_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fseek_fail = run_lint_with_filename(
         "foo.cc",
@@ -1430,7 +1528,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fseek_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fseek_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fseek_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_feof_fail = run_lint_with_filename(
         "foo.cc",
@@ -1443,7 +1544,9 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_feof_fail.error_count(), 1);
-    assert!(iwyu_cstdio_feof_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_feof_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_ferror_fail = run_lint_with_filename(
         "foo.cc",
@@ -1456,7 +1559,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_ferror_fail.error_count(), 1);
-    assert!(iwyu_cstdio_ferror_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_ferror_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_remove_fail = run_lint_with_filename(
         "foo.cc",
@@ -1493,7 +1599,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_clearerr_fail.error_count(), 1);
-    assert!(iwyu_cstdio_clearerr_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_clearerr_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fgetpos_fail = run_lint_with_filename(
         "foo.cc",
@@ -1506,7 +1615,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fgetpos_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fgetpos_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fgetpos_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fsetpos_fail = run_lint_with_filename(
         "foo.cc",
@@ -1519,7 +1631,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fsetpos_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fsetpos_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fsetpos_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_setbuf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1532,7 +1647,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_setbuf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_setbuf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_setbuf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_setvbuf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1545,7 +1663,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_setvbuf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_setvbuf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_setvbuf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_fscanf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1558,7 +1679,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_fscanf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_fscanf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_fscanf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_sscanf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1571,7 +1695,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_sscanf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_sscanf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_sscanf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_snprintf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1584,7 +1711,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_snprintf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_snprintf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_snprintf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_sprintf_fail = run_lint_with_filter(
         "foo.cc",
@@ -1598,7 +1728,10 @@ fn test_include_checks_representative_cases() {
         "-runtime/printf",
     );
     assert_eq!(iwyu_cstdio_sprintf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_sprintf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_sprintf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_vsnprintf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1611,7 +1744,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_vsnprintf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_vsnprintf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_vsnprintf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 
     let iwyu_cstdio_vsscanf_fail = run_lint_with_filename(
         "foo.cc",
@@ -1624,7 +1760,10 @@ fn test_include_checks_representative_cases() {
         ],
     );
     assert_eq!(iwyu_cstdio_vsscanf_fail.error_count(), 1);
-    assert!(iwyu_cstdio_vsscanf_fail.has_error("build/include_what_you_use"));
+    assert!(
+        iwyu_cstdio_vsscanf_fail
+            .has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse)
+    );
 }
 
 #[test]
@@ -1649,7 +1788,9 @@ fn test_redundant_virtual_and_override_cases() {
         "".to_string(),
     ]);
     assert_eq!(virtual_override_fail.error_count(), 1);
-    assert!(virtual_override_fail.has_error("readability/inheritance"));
+    assert!(
+        virtual_override_fail.has_error(cpplint_core::categories::Category::ReadabilityInheritance)
+    );
 
     let multiline_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1660,7 +1801,7 @@ fn test_redundant_virtual_and_override_cases() {
         "".to_string(),
     ]);
     assert_eq!(multiline_fail.error_count(), 1);
-    assert!(multiline_fail.has_error("readability/inheritance"));
+    assert!(multiline_fail.has_error(cpplint_core::categories::Category::ReadabilityInheritance));
 
     let override_final_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1670,7 +1811,9 @@ fn test_redundant_virtual_and_override_cases() {
         "".to_string(),
     ]);
     assert_eq!(override_final_fail.error_count(), 1);
-    assert!(override_final_fail.has_error("readability/inheritance"));
+    assert!(
+        override_final_fail.has_error(cpplint_core::categories::Category::ReadabilityInheritance)
+    );
 }
 
 #[test]
@@ -1712,7 +1855,7 @@ fn test_function_size_cases() {
         0,
     );
     assert_eq!(fail_state.error_count(), 1);
-    assert!(fail_state.has_error("readability/fn_size"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::ReadabilityFnSize));
 
     let no_start_fail = run_lint_with_filters_and_verbose(
         "foo.cc",
@@ -1726,7 +1869,7 @@ fn test_function_size_cases() {
         0,
     );
     assert_eq!(no_start_fail.error_count(), 1);
-    assert!(no_start_fail.has_error("readability/fn_size"));
+    assert!(no_start_fail.has_error(cpplint_core::categories::Category::ReadabilityFnSize));
 
     let test_func_pass = run_lint_with_filters_and_verbose(
         "foo.cc",
@@ -1755,7 +1898,7 @@ fn test_function_size_cases() {
         0,
     );
     assert_eq!(test_func_fail.error_count(), 1);
-    assert!(test_func_fail.has_error("readability/fn_size"));
+    assert!(test_func_fail.has_error(cpplint_core::categories::Category::ReadabilityFnSize));
 
     let test_prefix_pass = run_lint_with_filters_and_verbose(
         "foo.cc",
@@ -1790,7 +1933,7 @@ fn test_function_size_cases() {
         0,
     );
     assert_eq!(test_prefix_fail.error_count(), 1);
-    assert!(test_prefix_fail.has_error("readability/fn_size"));
+    assert!(test_prefix_fail.has_error(cpplint_core::categories::Category::ReadabilityFnSize));
 }
 
 #[test]
@@ -1816,7 +1959,7 @@ fn test_explicit_single_parameter_constructor_cases() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 1);
-    assert!(fail_state.has_error("runtime/explicit"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::RuntimeExplicit));
 
     let callable_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1827,7 +1970,7 @@ fn test_explicit_single_parameter_constructor_cases() {
         "".to_string(),
     ]);
     assert_eq!(callable_fail.error_count(), 1);
-    assert!(callable_fail.has_error("runtime/explicit"));
+    assert!(callable_fail.has_error(cpplint_core::categories::Category::RuntimeExplicit));
 
     let template_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1839,7 +1982,7 @@ fn test_explicit_single_parameter_constructor_cases() {
         "".to_string(),
     ]);
     assert_eq!(template_fail.error_count(), 1);
-    assert!(template_fail.has_error("runtime/explicit"));
+    assert!(template_fail.has_error(cpplint_core::categories::Category::RuntimeExplicit));
 }
 
 #[test]
@@ -1859,7 +2002,10 @@ fn test_invalid_increment_and_deprecated_operator_cases() {
         "".to_string(),
     ]);
     assert_eq!(invalid_increment_fail.error_count(), 2);
-    assert!(invalid_increment_fail.has_error("runtime/invalid_increment"));
+    assert!(
+        invalid_increment_fail
+            .has_error(cpplint_core::categories::Category::RuntimeInvalidIncrement)
+    );
 
     let deprecated_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1867,7 +2013,7 @@ fn test_invalid_increment_and_deprecated_operator_cases() {
         "".to_string(),
     ]);
     assert_eq!(deprecated_pass.error_count(), 1);
-    assert!(deprecated_pass.has_error("build/include_what_you_use"));
+    assert!(deprecated_pass.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let deprecated_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1876,7 +2022,7 @@ fn test_invalid_increment_and_deprecated_operator_cases() {
         "".to_string(),
     ]);
     assert_eq!(deprecated_fail.error_count(), 2);
-    assert!(deprecated_fail.has_error("build/deprecated"));
+    assert!(deprecated_fail.has_error(cpplint_core::categories::Category::BuildDeprecated));
 }
 
 #[test]
@@ -1896,7 +2042,7 @@ fn test_storage_class_and_forward_decl_cases() {
         "".to_string(),
     ]);
     assert_eq!(storage_fail.error_count(), 2);
-    assert!(storage_fail.has_error("build/storage_class"));
+    assert!(storage_fail.has_error(cpplint_core::categories::Category::BuildStorageClass));
 
     let forward_decl_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1912,7 +2058,7 @@ fn test_storage_class_and_forward_decl_cases() {
         "".to_string(),
     ]);
     assert_eq!(forward_decl_fail.error_count(), 1);
-    assert!(forward_decl_fail.has_error("build/forward_decl"));
+    assert!(forward_decl_fail.has_error(cpplint_core::categories::Category::BuildForwardDecl));
 }
 
 #[test]
@@ -1932,7 +2078,7 @@ fn test_endif_comment_and_member_string_reference_cases() {
         "".to_string(),
     ]);
     assert_eq!(endif_fail.error_count(), 1);
-    assert!(endif_fail.has_error("build/endif_comment"));
+    assert!(endif_fail.has_error(cpplint_core::categories::Category::BuildEndifComment));
 
     let member_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1943,7 +2089,7 @@ fn test_endif_comment_and_member_string_reference_cases() {
         "".to_string(),
     ]);
     assert_eq!(member_pass.error_count(), 1);
-    assert!(member_pass.has_error("build/include_what_you_use"));
+    assert!(member_pass.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let member_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1954,8 +2100,10 @@ fn test_endif_comment_and_member_string_reference_cases() {
         "".to_string(),
     ]);
     assert_eq!(member_fail.error_count(), 2);
-    assert!(member_fail.has_error("build/include_what_you_use"));
-    assert!(member_fail.has_error("runtime/member_string_references"));
+    assert!(member_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
+    assert!(
+        member_fail.has_error(cpplint_core::categories::Category::RuntimeMemberStringReferences)
+    );
 }
 
 #[test]
@@ -1976,7 +2124,7 @@ fn test_memset_and_threadsafe_function_cases() {
         "".to_string(),
     ]);
     assert_eq!(memset_fail.error_count(), 1);
-    assert!(memset_fail.has_error("runtime/memset"));
+    assert!(memset_fail.has_error(cpplint_core::categories::Category::RuntimeMemset));
 
     let threadsafe_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -1994,7 +2142,7 @@ fn test_memset_and_threadsafe_function_cases() {
         "".to_string(),
     ]);
     assert_eq!(threadsafe_fail.error_count(), 2);
-    assert!(threadsafe_fail.has_error("runtime/threadsafe_fn"));
+    assert!(threadsafe_fail.has_error(cpplint_core::categories::Category::RuntimeThreadsafeFn));
 }
 
 #[test]
@@ -2013,7 +2161,7 @@ fn test_vlog_and_explicit_make_pair_cases() {
         "".to_string(),
     ]);
     assert_eq!(vlog_fail.error_count(), 2);
-    assert!(vlog_fail.has_error("runtime/vlog"));
+    assert!(vlog_fail.has_error(cpplint_core::categories::Category::RuntimeVlog));
 
     let make_pair_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2021,7 +2169,7 @@ fn test_vlog_and_explicit_make_pair_cases() {
         "".to_string(),
     ]);
     assert_eq!(make_pair_pass.error_count(), 1);
-    assert!(make_pair_pass.has_error("build/include_what_you_use"));
+    assert!(make_pair_pass.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let make_pair_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2029,8 +2177,8 @@ fn test_vlog_and_explicit_make_pair_cases() {
         "".to_string(),
     ]);
     assert_eq!(make_pair_fail.error_count(), 2);
-    assert!(make_pair_fail.has_error("build/include_what_you_use"));
-    assert!(make_pair_fail.has_error("build/explicit_make_pair"));
+    assert!(make_pair_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
+    assert!(make_pair_fail.has_error(cpplint_core::categories::Category::BuildExplicitMakePair));
 }
 
 #[test]
@@ -2050,7 +2198,7 @@ fn test_unapproved_cxx_headers_cases() {
         "".to_string(),
     ]);
     assert_eq!(cxx11_fail.error_count(), 2);
-    assert!(cxx11_fail.has_error("build/c++11"));
+    assert!(cxx11_fail.has_error(cpplint_core::categories::Category::BuildCpp11));
 
     let cxx17_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2058,7 +2206,7 @@ fn test_unapproved_cxx_headers_cases() {
         "".to_string(),
     ]);
     assert_eq!(cxx17_fail.error_count(), 1);
-    assert!(cxx17_fail.has_error("build/c++17"));
+    assert!(cxx17_fail.has_error(cpplint_core::categories::Category::BuildCpp17));
 }
 
 #[test]
@@ -2072,7 +2220,7 @@ fn test_global_string_cases() {
         "".to_string(),
     ]);
     assert_eq!(pass_state.error_count(), 1);
-    assert!(pass_state.has_error("build/include_what_you_use"));
+    assert!(pass_state.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let global_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2081,8 +2229,8 @@ fn test_global_string_cases() {
         "".to_string(),
     ]);
     assert_eq!(global_fail.error_count(), 3);
-    assert!(global_fail.has_error("build/include_what_you_use"));
-    assert!(global_fail.has_error("runtime/string"));
+    assert!(global_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
+    assert!(global_fail.has_error(cpplint_core::categories::Category::RuntimeString));
 
     let const_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2090,8 +2238,8 @@ fn test_global_string_cases() {
         "".to_string(),
     ]);
     assert_eq!(const_fail.error_count(), 2);
-    assert!(const_fail.has_error("build/include_what_you_use"));
-    assert!(const_fail.has_error("runtime/string"));
+    assert!(const_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
+    assert!(const_fail.has_error(cpplint_core::categories::Category::RuntimeString));
 
     let multiline_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2100,8 +2248,8 @@ fn test_global_string_cases() {
         "".to_string(),
     ]);
     assert_eq!(multiline_fail.error_count(), 2);
-    assert!(multiline_fail.has_error("build/include_what_you_use"));
-    assert!(multiline_fail.has_error("runtime/string"));
+    assert!(multiline_fail.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
+    assert!(multiline_fail.has_error(cpplint_core::categories::Category::RuntimeString));
 }
 
 #[test]
@@ -2120,7 +2268,7 @@ fn test_selfinit_and_printf_format_cases() {
         "".to_string(),
     ]);
     assert_eq!(selfinit_fail.error_count(), 2);
-    assert!(selfinit_fail.has_error("runtime/init"));
+    assert!(selfinit_fail.has_error(cpplint_core::categories::Category::RuntimeInit));
 
     let printf_pass = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2140,7 +2288,7 @@ fn test_selfinit_and_printf_format_cases() {
         "".to_string(),
     ]);
     assert_eq!(printf_fail.error_count(), 3);
-    assert!(printf_fail.has_error("runtime/printf_format"));
+    assert!(printf_fail.has_error(cpplint_core::categories::Category::RuntimePrintfFormat));
 }
 
 #[test]
@@ -2161,7 +2309,7 @@ fn test_printf_cases() {
         "".to_string(),
     ]);
     assert_eq!(snprintf_fail.error_count(), 1);
-    assert!(snprintf_fail.has_error("runtime/printf"));
+    assert!(snprintf_fail.has_error(cpplint_core::categories::Category::RuntimePrintf));
 
     let sprintf_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2170,7 +2318,7 @@ fn test_printf_cases() {
         "".to_string(),
     ]);
     assert_eq!(sprintf_fail.error_count(), 1);
-    assert!(sprintf_fail.has_error("runtime/printf"));
+    assert!(sprintf_fail.has_error(cpplint_core::categories::Category::RuntimePrintf));
 
     let strfunc_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2181,7 +2329,7 @@ fn test_printf_cases() {
         "".to_string(),
     ]);
     assert_eq!(strfunc_fail.error_count(), 2);
-    assert!(strfunc_fail.has_error("runtime/printf"));
+    assert!(strfunc_fail.has_error(cpplint_core::categories::Category::RuntimePrintf));
 }
 
 #[test]
@@ -2205,7 +2353,7 @@ fn test_deprecated_operator_ampersand_case() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 1);
-    assert!(fail_state.has_error("runtime/operator"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::RuntimeOperator));
 }
 
 #[test]
@@ -2225,7 +2373,7 @@ fn test_runtime_int_cases() {
         "".to_string(),
     ]);
     assert_eq!(port_fail.error_count(), 1);
-    assert!(port_fail.has_error("runtime/int"));
+    assert!(port_fail.has_error(cpplint_core::categories::Category::RuntimeInt));
 
     let decl_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2235,7 +2383,7 @@ fn test_runtime_int_cases() {
         "".to_string(),
     ]);
     assert_eq!(decl_fail.error_count(), 3);
-    assert!(decl_fail.has_error("runtime/int"));
+    assert!(decl_fail.has_error(cpplint_core::categories::Category::RuntimeInt));
 }
 
 #[test]
@@ -2247,7 +2395,7 @@ fn test_runtime_references_cases() {
         "".to_string(),
     ]);
     assert_eq!(pass_state.error_count(), 1);
-    assert!(pass_state.has_error("build/include_what_you_use"));
+    assert!(pass_state.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 
     let fail_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2256,7 +2404,7 @@ fn test_runtime_references_cases() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 3);
-    assert!(fail_state.has_error("runtime/references"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::RuntimeReferences));
 }
 
 #[test]
@@ -2280,7 +2428,7 @@ fn test_runtime_arrays_cases() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 3);
-    assert!(fail_state.has_error("runtime/arrays"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::RuntimeArrays));
 }
 
 #[test]
@@ -2302,8 +2450,10 @@ fn test_namespace_using_and_header_namespace_cases() {
         "".to_string(),
     ]);
     assert_eq!(namespace_using_fail.error_count(), 3);
-    assert!(namespace_using_fail.has_error("build/namespaces"));
-    assert!(namespace_using_fail.has_error("build/namespaces_literals"));
+    assert!(namespace_using_fail.has_error(cpplint_core::categories::Category::BuildNamespaces));
+    assert!(
+        namespace_using_fail.has_error(cpplint_core::categories::Category::BuildNamespacesLiterals)
+    );
 
     let header_namespace_pass = run_lint_with_filename(
         "test.cc",
@@ -2325,7 +2475,9 @@ fn test_namespace_using_and_header_namespace_cases() {
         ],
     );
     assert_eq!(header_namespace_fail.error_count(), 1);
-    assert!(header_namespace_fail.has_error("build/namespaces_headers"));
+    assert!(
+        header_namespace_fail.has_error(cpplint_core::categories::Category::BuildNamespacesHeaders)
+    );
 }
 
 #[test]
@@ -2356,7 +2508,7 @@ fn test_alt_tokens_cases() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 11);
-    assert!(fail_state.has_error("readability/alt_tokens"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::ReadabilityAltTokens));
 
     let multiple_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2364,7 +2516,7 @@ fn test_alt_tokens_cases() {
         "".to_string(),
     ]);
     assert_eq!(multiple_fail.error_count(), 3);
-    assert!(multiple_fail.has_error("readability/alt_tokens"));
+    assert!(multiple_fail.has_error(cpplint_core::categories::Category::ReadabilityAltTokens));
 }
 
 #[test]
@@ -2393,7 +2545,7 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(no_end_fail.error_count(), 1);
-    assert!(no_end_fail.has_error("readability/nolint"));
+    assert!(no_end_fail.has_error(cpplint_core::categories::Category::ReadabilityNolint));
 
     let no_begin_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2401,7 +2553,7 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(no_begin_fail.error_count(), 1);
-    assert!(no_begin_fail.has_error("readability/nolint"));
+    assert!(no_begin_fail.has_error(cpplint_core::categories::Category::ReadabilityNolint));
 
     let block_defined_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2411,7 +2563,7 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(block_defined_fail.error_count(), 1);
-    assert!(block_defined_fail.has_error("readability/nolint"));
+    assert!(block_defined_fail.has_error(cpplint_core::categories::Category::ReadabilityNolint));
 
     let end_with_category_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2420,7 +2572,9 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(end_with_category_fail.error_count(), 1);
-    assert!(end_with_category_fail.has_error("readability/nolint"));
+    assert!(
+        end_with_category_fail.has_error(cpplint_core::categories::Category::ReadabilityNolint)
+    );
 
     let unknown_category_fail = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2428,7 +2582,7 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(unknown_category_fail.error_count(), 1);
-    assert!(unknown_category_fail.has_error("readability/nolint"));
+    assert!(unknown_category_fail.has_error(cpplint_core::categories::Category::ReadabilityNolint));
 
     let line_suppress_one = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2436,7 +2590,7 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(line_suppress_one.error_count(), 1);
-    assert!(line_suppress_one.has_error("readability/casting"));
+    assert!(line_suppress_one.has_error(cpplint_core::categories::Category::ReadabilityCasting));
 
     let next_line_suppress = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2446,8 +2600,8 @@ fn test_nolint_cases() {
         "".to_string(),
     ]);
     assert_eq!(next_line_suppress.error_count(), 2);
-    assert!(next_line_suppress.has_error("readability/casting"));
-    assert!(next_line_suppress.has_error("runtime/int"));
+    assert!(next_line_suppress.has_error(cpplint_core::categories::Category::ReadabilityCasting));
+    assert!(next_line_suppress.has_error(cpplint_core::categories::Category::RuntimeInt));
 }
 
 #[test]
@@ -2464,7 +2618,7 @@ fn test_global_suppression_cases() {
         &["-build/include_what_you_use"],
     );
     assert_eq!(lint_c_file.error_count(), 2);
-    assert!(lint_c_file.has_error("runtime/int"));
+    assert!(lint_c_file.has_error(cpplint_core::categories::Category::RuntimeInt));
 
     let vim_mode_c = run_lint_with_filters(
         "test.cpp",
@@ -2478,7 +2632,7 @@ fn test_global_suppression_cases() {
         &["-build/include_what_you_use"],
     );
     assert_eq!(vim_mode_c.error_count(), 2);
-    assert!(vim_mode_c.has_error("runtime/int"));
+    assert!(vim_mode_c.has_error(cpplint_core::categories::Category::RuntimeInt));
 
     let lint_kernel_file = run_lint_with_filters(
         "test.cpp",
@@ -2492,8 +2646,8 @@ fn test_global_suppression_cases() {
         &["-build/include_what_you_use"],
     );
     assert_eq!(lint_kernel_file.error_count(), 2);
-    assert!(lint_kernel_file.has_error("readability/casting"));
-    assert!(lint_kernel_file.has_error("runtime/int"));
+    assert!(lint_kernel_file.has_error(cpplint_core::categories::Category::ReadabilityCasting));
+    assert!(lint_kernel_file.has_error(cpplint_core::categories::Category::RuntimeInt));
 }
 
 #[test]
@@ -2511,7 +2665,7 @@ fn test_runtime_casting_cases() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 1);
-    assert!(fail_state.has_error("runtime/casting"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::RuntimeCasting));
 }
 
 #[test]
@@ -2527,7 +2681,7 @@ fn test_indent_odd_pass_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 0);
-    assert!(!state.has_error("whitespace/indent"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceIndent));
 }
 
 #[test]
@@ -2540,7 +2694,7 @@ fn test_indent_odd_fail_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 3);
-    assert!(state.has_error("whitespace/indent"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceIndent));
 }
 
 #[test]
@@ -2552,7 +2706,7 @@ fn test_end_of_line_spacing() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 2);
-    assert!(state.has_error("whitespace/end_of_line"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceEndOfLine));
 }
 
 #[test]
@@ -2575,7 +2729,7 @@ fn test_line_length_pass_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 0);
-    assert!(!state.has_error("whitespace/line_length"));
+    assert!(!state.has_error(cpplint_core::categories::Category::WhitespaceLineLength));
 }
 
 #[test]
@@ -2598,7 +2752,7 @@ fn test_line_length_fail_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 6);
-    assert!(state.has_error("whitespace/line_length"));
+    assert!(state.has_error(cpplint_core::categories::Category::WhitespaceLineLength));
 }
 
 #[test]
@@ -2610,7 +2764,7 @@ fn test_multiple_commands_pass_and_fail() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(!pass_state.has_error("whitespace/newline"));
+    assert!(!pass_state.has_error(cpplint_core::categories::Category::WhitespaceNewline));
 
     let fail_state = run_lint_with_verbose(
         "test.cpp",
@@ -2622,7 +2776,7 @@ fn test_multiple_commands_pass_and_fail() {
         0,
     );
     assert_eq!(fail_state.error_count(), 1);
-    assert!(fail_state.has_error("whitespace/newline"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::WhitespaceNewline));
 }
 
 #[test]
@@ -2633,7 +2787,10 @@ fn test_empty_block_body_cases() {
         "".to_string(),
     ]);
     assert_eq!(conditional_state.error_count(), 1);
-    assert!(conditional_state.has_error("whitespace/empty_conditional_body"));
+    assert!(
+        conditional_state
+            .has_error(cpplint_core::categories::Category::WhitespaceEmptyConditionalBody)
+    );
 
     let loop_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2642,7 +2799,7 @@ fn test_empty_block_body_cases() {
         "".to_string(),
     ]);
     assert_eq!(loop_state.error_count(), 2);
-    assert!(loop_state.has_error("whitespace/empty_loop_body"));
+    assert!(loop_state.has_error(cpplint_core::categories::Category::WhitespaceEmptyLoopBody));
 
     let empty_if_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2652,7 +2809,7 @@ fn test_empty_block_body_cases() {
         "".to_string(),
     ]);
     assert_eq!(empty_if_state.error_count(), 1);
-    assert!(empty_if_state.has_error("whitespace/empty_if_body"));
+    assert!(empty_if_state.has_error(cpplint_core::categories::Category::WhitespaceEmptyIfBody));
 }
 
 #[test]
@@ -2671,7 +2828,7 @@ fn test_namespace_indentation_pass_and_fail() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(!pass_state.has_error("whitespace/indent_namespace"));
+    assert!(!pass_state.has_error(cpplint_core::categories::Category::WhitespaceIndentNamespace));
 
     let fail_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2688,7 +2845,7 @@ fn test_namespace_indentation_pass_and_fail() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 1);
-    assert!(fail_state.has_error("whitespace/indent_namespace"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::WhitespaceIndentNamespace));
 
     let indented_namespace_decl_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2699,7 +2856,10 @@ fn test_namespace_indentation_pass_and_fail() {
         "#endif".to_string(),
         "".to_string(),
     ]);
-    assert!(indented_namespace_decl_state.has_error("whitespace/indent_namespace"));
+    assert!(
+        indented_namespace_decl_state
+            .has_error(cpplint_core::categories::Category::WhitespaceIndentNamespace)
+    );
 }
 
 #[test]
@@ -2717,7 +2877,7 @@ fn test_trailing_semicolon_pass_and_fail() {
         "};".to_string(),
         "".to_string(),
     ]);
-    assert!(!pass_state.has_error("readability/braces"));
+    assert!(!pass_state.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 
     let fail_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2731,7 +2891,7 @@ fn test_trailing_semicolon_pass_and_fail() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 5);
-    assert!(fail_state.has_error("readability/braces"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -2745,7 +2905,9 @@ fn test_multiline_comment_cases() {
         "".to_string(),
     ]);
     assert_eq!(complex_state.error_count(), 1);
-    assert!(complex_state.has_error("readability/multiline_comment"));
+    assert!(
+        complex_state.has_error(cpplint_core::categories::Category::ReadabilityMultilineComment)
+    );
 
     let unclosed_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2753,7 +2915,9 @@ fn test_multiline_comment_cases() {
         "".to_string(),
     ]);
     assert_eq!(unclosed_state.error_count(), 2);
-    assert!(unclosed_state.has_error("readability/multiline_comment"));
+    assert!(
+        unclosed_state.has_error(cpplint_core::categories::Category::ReadabilityMultilineComment)
+    );
 }
 
 #[test]
@@ -2771,7 +2935,7 @@ fn test_brace_else_indent_cases() {
         ],
         4,
     );
-    assert!(state1.has_error("readability/braces"));
+    assert!(state1.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 
     let state2 = run_lint_with_verbose(
         "test.cpp",
@@ -2786,7 +2950,7 @@ fn test_brace_else_indent_cases() {
         ],
         4,
     );
-    assert!(state2.has_error("readability/braces"));
+    assert!(state2.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -2798,7 +2962,7 @@ fn test_multiline_string_cases() {
         "".to_string(),
     ]);
     assert_eq!(pass_state.error_count(), 0);
-    assert!(!pass_state.has_error("readability/multiline_string"));
+    assert!(!pass_state.has_error(cpplint_core::categories::Category::ReadabilityMultilineString));
 
     let fail_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2807,7 +2971,7 @@ fn test_multiline_string_cases() {
         "".to_string(),
     ]);
     assert_eq!(fail_state.error_count(), 2);
-    assert!(fail_state.has_error("readability/multiline_string"));
+    assert!(fail_state.has_error(cpplint_core::categories::Category::ReadabilityMultilineString));
 }
 
 #[test]
@@ -2825,7 +2989,7 @@ fn test_brace_else_one_side_cases() {
         "".to_string(),
     ]);
     assert_eq!(state.error_count(), 1);
-    assert!(state.has_error("readability/braces"));
+    assert!(state.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -2845,7 +3009,7 @@ fn test_brace_linefeed_cases() {
         "".to_string(),
     ]);
     assert_eq!(if_state.error_count(), 1);
-    assert!(if_state.has_error("whitespace/braces"));
+    assert!(if_state.has_error(cpplint_core::categories::Category::WhitespaceBraces));
 
     let elseif_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2862,7 +3026,7 @@ fn test_brace_linefeed_cases() {
         "".to_string(),
     ]);
     assert_eq!(elseif_state.error_count(), 1);
-    assert!(elseif_state.has_error("whitespace/braces"));
+    assert!(elseif_state.has_error(cpplint_core::categories::Category::WhitespaceBraces));
 
     let else_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2879,7 +3043,7 @@ fn test_brace_linefeed_cases() {
         "".to_string(),
     ]);
     assert_eq!(else_state.error_count(), 1);
-    assert!(else_state.has_error("whitespace/braces"));
+    assert!(else_state.has_error(cpplint_core::categories::Category::WhitespaceBraces));
 }
 
 #[test]
@@ -2898,7 +3062,7 @@ fn test_else_same_line_and_one_side_cases() {
         "".to_string(),
     ]);
     assert_eq!(newline_state.error_count(), 1);
-    assert!(newline_state.has_error("whitespace/newline"));
+    assert!(newline_state.has_error(cpplint_core::categories::Category::WhitespaceNewline));
 
     let one_side_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2913,7 +3077,7 @@ fn test_else_same_line_and_one_side_cases() {
         "".to_string(),
     ]);
     assert_eq!(one_side_state.error_count(), 1);
-    assert!(one_side_state.has_error("readability/braces"));
+    assert!(one_side_state.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -2924,7 +3088,7 @@ fn test_controlled_statements_in_braces_cases() {
         "".to_string(),
     ]);
     assert_eq!(if_state.error_count(), 1);
-    assert!(if_state.has_error("whitespace/newline"));
+    assert!(if_state.has_error(cpplint_core::categories::Category::WhitespaceNewline));
 
     let else_state = run_lint(vec![
         "// Copyright 2026".to_string(),
@@ -2934,7 +3098,7 @@ fn test_controlled_statements_in_braces_cases() {
         "".to_string(),
     ]);
     assert_eq!(else_state.error_count(), 1);
-    assert!(else_state.has_error("whitespace/newline"));
+    assert!(else_state.has_error(cpplint_core::categories::Category::WhitespaceNewline));
 }
 
 #[test]
@@ -2947,7 +3111,7 @@ fn test_brace_if_multiline_case() {
         "".to_string(),
     ]);
     assert_eq!(state1.error_count(), 1);
-    assert!(state1.has_error("readability/braces"));
+    assert!(state1.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -2963,8 +3127,8 @@ fn test_brace_if_multiline_same_line_case() {
         0,
     );
     assert_eq!(state2.error_count(), 2);
-    assert!(state2.has_error("readability/braces"));
-    assert!(state2.has_error("whitespace/newline"));
+    assert!(state2.has_error(cpplint_core::categories::Category::ReadabilityBraces));
+    assert!(state2.has_error(cpplint_core::categories::Category::WhitespaceNewline));
 }
 
 #[test]
@@ -2979,7 +3143,7 @@ fn test_brace_else_multiline_case() {
         "".to_string(),
     ]);
     assert_eq!(state3.error_count(), 1);
-    assert!(state3.has_error("readability/braces"));
+    assert!(state3.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -3000,7 +3164,7 @@ fn test_brace_else_macro_multiline_cases() {
         "int terminator;".to_string(),
         "".to_string(),
     ]);
-    assert!(after_block_state.has_error("readability/braces"));
+    assert!(after_block_state.has_error(cpplint_core::categories::Category::ReadabilityBraces));
 }
 
 #[test]
@@ -3024,7 +3188,7 @@ fn test_namespace_termination_comment_missing_in_macro_case() {
             .to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("readability/namespace"));
+    assert!(state.has_error(cpplint_core::categories::Category::ReadabilityNamespace));
 }
 
 #[test]
@@ -3036,5 +3200,5 @@ fn test_distributions_line_246() {
         "}".to_string(),
         "".to_string(),
     ]);
-    assert!(state.has_error("build/include_what_you_use"));
+    assert!(state.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 }

@@ -200,11 +200,11 @@ impl RuleRegistry {
         categories::ERROR_CATEGORIES
     }
 
-    pub fn run_raw_source(&self, linter: &mut FileLinter<'_>, raw_lines: &[String]) {
+    pub fn run_raw_source<S: AsRef<str>>(&self, linter: &mut FileLinter<'_>, raw_lines: &[S]) {
         copyright::check(linter, raw_lines);
     }
 
-    pub fn run_file_structure(&self, linter: &mut FileLinter<'_>, clean_lines: &CleansedLines) {
+    pub fn run_file_structure(&self, linter: &mut FileLinter<'_>, clean_lines: &CleansedLines<'_>) {
         headers::check_header_guard(linter, clean_lines);
         headers::check_includes(linter, clean_lines);
     }
@@ -212,7 +212,7 @@ impl RuleRegistry {
     pub fn run_line(
         &self,
         linter: &mut FileLinter<'_>,
-        clean_lines: &CleansedLines,
+        clean_lines: &CleansedLines<'_>,
         linenum: usize,
     ) {
         whitespace::check(linter, clean_lines, linenum);
@@ -220,7 +220,7 @@ impl RuleRegistry {
         readability::check(linter, clean_lines, linenum);
     }
 
-    pub fn run_finalize(&self, linter: &mut FileLinter<'_>, raw_lines: &[String]) {
+    pub fn run_finalize<S: AsRef<str>>(&self, linter: &mut FileLinter<'_>, raw_lines: &[S]) {
         whitespace::check_eof_newline(linter, raw_lines);
     }
 }

@@ -5,6 +5,8 @@ use cpplint_core::state::{CountingStyle, OutputFormat};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+const DEFAULT_AUTO_THREADS_CAP: usize = 4;
+
 #[derive(Debug, Clone)]
 pub enum ParsedCommand {
     Check(CheckArgs),
@@ -132,7 +134,10 @@ pub struct CheckArgs {
     #[arg(long)]
     pub timing: bool,
 
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Number of worker threads. Default uses up to 4 threads; 0 or -1 uses all available CPUs."
+    )]
     pub threads: Option<i32>,
 
     #[arg(long)]
@@ -250,7 +255,10 @@ impl CheckArgs {
 
 fn parse_num_threads(threads: Option<i32>) -> Result<usize, String> {
     match threads {
-        None | Some(0) | Some(-1) => std::thread::available_parallelism()
+        None => std::thread::available_parallelism()
+            .map(|count| count.get().min(DEFAULT_AUTO_THREADS_CAP))
+            .map_err(|error| error.to_string()),
+        Some(0) | Some(-1) => std::thread::available_parallelism()
             .map(|count| count.get())
             .map_err(|error| error.to_string()),
         Some(value) if value > 0 => Ok(value as usize),
@@ -258,5 +266,28 @@ fn parse_num_threads(threads: Option<i32>) -> Result<usize, String> {
             "Number of threads should be a positive integer, 0, or -1. (--threads={})",
             value
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_num_threads_caps_default_auto_value() {
+        let parsed = parse_num_threads(None).unwrap();
+        assert!((1..=DEFAULT_AUTO_THREADS_CAP).contains(&parsed));
+    }
+
+    #[test]
+    fn parse_num_threads_keeps_explicit_positive_value() {
+        assert_eq!(parse_num_threads(Some(2)).unwrap(), 2);
+    }
+
+    #[test]
+    fn parse_num_threads_allows_uncapped_auto_values() {
+        let available = std::thread::available_parallelism().unwrap().get();
+        assert_eq!(parse_num_threads(Some(0)).unwrap(), available);
+        assert_eq!(parse_num_threads(Some(-1)).unwrap(), available);
     }
 }

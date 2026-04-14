@@ -1,11 +1,12 @@
 use crate::cleanse::CleansedLines;
 use crate::line_utils;
 use regex::Regex;
+use std::simd::prelude::*;
 use std::sync::LazyLock;
 
 static CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"^(\s*(?:template\s*<[\w\s<>,:=]*>\s*)?(class|struct)\s+(?:\[\[[^\]]+\]\]\s+)*(?:[A-Za-z0-9_]+\s+)*(\w+(?:::\w+)*))(.*)$"#,
+        r#"^(\s*(?:template\s*<.*?>\s*)?(class|struct|union)\s+(?:(?:[A-Za-z0-9_]+\s+|\[\[.*?\]\]\s+)*)(\w+(?:::\w+)*(?:<[^;{]*?>)?))(?:\s*[:{]|(?:\s+\[\[.*?\]\])*\s*[:{]|\s*$)?"#,
     )
     .unwrap()
 });
@@ -35,6 +36,8 @@ pub struct FileFacts {
     non_blank_elided_prefix: Vec<usize>,
     block_kind: Vec<Option<ScopeKind>>,
     namespace_decl_line: Vec<Option<usize>>,
+    non_namespace_indent_depth_before: Vec<usize>,
+    non_namespace_indent_depth: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +49,7 @@ pub enum ScopeKind {
 
 impl FileFacts {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub fn new(clean_lines: &CleansedLines) -> Self {
+    pub fn new(clean_lines: &CleansedLines<'_>) -> Self {
         let n = clean_lines.elided.len();
         let mut in_namespace_or_extern_block = Vec::with_capacity(n);
         let mut namespace_top_level_depth = Vec::with_capacity(n);
@@ -66,11 +69,20 @@ impl FileFacts {
         let mut top_ns_depth = 0usize;
         let mut block_kind = vec![None; n];
         let mut namespace_decl_line = vec![None; n];
+        let mut non_namespace_indent_depth_before = Vec::with_capacity(n);
+        let mut non_namespace_indent_depth = Vec::with_capacity(n);
 
         let mut brace_stack = Vec::new();
         let mut matching_stack = Vec::new();
         let mut in_macro_continuation = false;
         let mut non_blank_count = 0usize;
+
+        // 1. Initial brace scan without joining the whole file into a temporary string.
+        let line_braces = clean_lines
+            .elided
+            .iter()
+            .map(|line| (brace_count(line, '{') as u32, brace_count(line, '}') as u32))
+            .collect::<Vec<_>>();
 
         for (linenum, (elided, line_no_raw)) in clean_lines
             .elided
@@ -97,9 +109,10 @@ impl FileFacts {
             };
             macro_lines.push(is_macro);
 
-            // 3. Braces and Scopes
-            let l_braces = brace_count(elided, '{');
-            let r_braces = brace_count(elided, '}');
+            let (l_braces, r_braces) = (
+                line_braces[linenum].0 as usize,
+                line_braces[linenum].1 as usize,
+            );
 
             // 3a. in_namespace_or_extern_block
             in_namespace_or_extern_block.push(ns_ext_depth > 0);
@@ -135,7 +148,7 @@ impl FileFacts {
                 }
             }
             if pending_ns_ext_scope.is_none() {
-                if elided.contains('{') && last_namespace_decl.is_some() {
+                if l_braces > 0 && last_namespace_decl.is_some() {
                     // Try to confirm if this brace belongs to the namespace
                     // For now, if we have a recent namespace decl and a brace, we assume it's linked
                     ns_ext_stack.push(ScopeKind::Namespace);
@@ -154,7 +167,7 @@ impl FileFacts {
                     }
                     last_namespace_decl = None; // consumed
                 } else if trimmed_elided.starts_with("namespace") {
-                    if elided.contains('{') {
+                    if l_braces > 0 {
                         ns_ext_stack.push(ScopeKind::Namespace);
                         block_kind[linenum] = Some(ScopeKind::Namespace);
                         namespace_decl_line[linenum] = Some(linenum);
@@ -166,7 +179,7 @@ impl FileFacts {
                         pending_ns_ext_scope = Some(ScopeKind::Namespace);
                     }
                 } else if trimmed_elided.starts_with("extern ") {
-                    if elided.contains('{') {
+                    if l_braces > 0 {
                         ns_ext_stack.push(ScopeKind::Extern);
                         ns_ext_depth += 1;
                     } else {
@@ -187,11 +200,14 @@ impl FileFacts {
             }
 
             // 3b. namespace_top_level_depth
-            namespace_top_level_depth.push(
-                (top_ns_depth > 0 && top_ns_stack.last() == Some(&ScopeKind::Namespace))
-                    .then_some(top_ns_depth),
-            );
-            if elided.contains('{') && block_kind[linenum] == Some(ScopeKind::Namespace) {
+            let non_ns_before = top_ns_stack
+                .iter()
+                .filter(|&&k| k == ScopeKind::Block)
+                .count();
+            non_namespace_indent_depth_before.push(non_ns_before);
+
+            namespace_top_level_depth.push((top_ns_depth > 0).then_some(top_ns_depth));
+            if l_braces > 0 && block_kind[linenum] == Some(ScopeKind::Namespace) {
                 top_ns_stack.push(ScopeKind::Namespace);
                 top_ns_depth += 1;
                 for _ in 1..l_braces {
@@ -216,9 +232,14 @@ impl FileFacts {
                     }
                 }
             }
+            let non_ns_depth = top_ns_stack
+                .iter()
+                .filter(|&&k| k == ScopeKind::Block)
+                .count();
+            non_namespace_indent_depth.push(non_ns_depth);
 
             // 3c. closing_brace_starts
-            let cbs = if !elided.contains('}') {
+            let cbs = if r_braces == 0 {
                 None
             } else {
                 let mut depth = 0usize;
@@ -286,6 +307,8 @@ impl FileFacts {
             non_blank_elided_prefix,
             block_kind,
             namespace_decl_line,
+            non_namespace_indent_depth_before,
+            non_namespace_indent_depth,
         }
     }
 
@@ -317,8 +340,18 @@ impl FileFacts {
             .flatten()
     }
 
-    pub fn closing_brace_start(&self, linenum: usize) -> Option<usize> {
-        self.closing_brace_starts.get(linenum).copied().flatten()
+    pub fn non_namespace_indent_depth_before(&self, linenum: usize) -> usize {
+        self.non_namespace_indent_depth_before
+            .get(linenum)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub fn non_namespace_indent_depth(&self, linenum: usize) -> usize {
+        self.non_namespace_indent_depth
+            .get(linenum)
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn block_kind(&self, linenum: usize) -> Option<ScopeKind> {
@@ -352,11 +385,12 @@ impl FileFacts {
 static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
     LazyLock::new(|| aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap());
 
-fn build_class_facts(lines: &[String]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
+fn build_class_facts<S: AsRef<str>>(lines: &[S]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
     let mut class_facts = Vec::new();
     let mut pending: Option<(usize, String, bool)> = None;
 
     for (linenum, line) in lines.iter().enumerate() {
+        let line = line.as_ref();
         if !CLASS_KEYWORDS_AC.is_match(line) && pending.is_none() {
             continue;
         }
@@ -396,6 +430,7 @@ fn build_class_facts(lines: &[String]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
 
         let mut class_end = None;
         for (end, candidate) in lines.iter().enumerate().skip(linenum + 1) {
+            let candidate = candidate.as_ref();
             depth += brace_count(candidate, '{') as isize;
             depth -= brace_count(candidate, '}') as isize;
             if depth == 0 {
@@ -434,9 +469,13 @@ fn build_class_facts(lines: &[String]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
     (class_facts, class_fact_by_line)
 }
 
-fn in_template_argument_list(lines: &[String], mut linenum: usize, mut pos: usize) -> bool {
+fn in_template_argument_list<S: AsRef<str>>(
+    lines: &[S],
+    mut linenum: usize,
+    mut pos: usize,
+) -> bool {
     while linenum < lines.len() {
-        let line = &lines[linenum];
+        let line = lines[linenum].as_ref();
         if pos >= line.len() {
             linenum += 1;
             pos = 0;
@@ -483,30 +522,46 @@ fn in_template_argument_list(lines: &[String], mut linenum: usize, mut pos: usiz
 }
 
 fn brace_count(line: &str, brace: char) -> usize {
-    line.bytes().filter(|&byte| byte == brace as u8).count()
+    let bytes = line.as_bytes();
+    let b = brace as u8;
+    let mut count = 0;
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        count += chunk.simd_eq(u8x32::splat(b)).to_bitmask().count_ones() as usize;
+        i += 32;
+    }
+    for &byte in &bytes[i..] {
+        if byte == b {
+            count += 1;
+        }
+    }
+    count
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bumpalo::Bump;
 
     #[test]
     fn file_facts_capture_namespace_macro_class_and_blocks() {
-        let clean_lines = CleansedLines::new(vec![
-            "namespace {".to_string(),
-            "  int value = 0;".to_string(),
-            "}".to_string(),
-            "#define FOO(x) \\".to_string(),
-            "  x".to_string(),
-            "class Foo {".to_string(),
-            " public:".to_string(),
-            "};".to_string(),
-        ]);
+        let arena = Bump::new();
+        let lines = [
+            "namespace {",
+            "  int value = 0;",
+            "}",
+            "#define FOO(x) \\",
+            "  x",
+            "class Foo {",
+            " public:",
+            "};",
+        ];
+        let clean_lines = CleansedLines::new(&arena, &lines);
 
         let facts = FileFacts::new(&clean_lines);
 
         assert_eq!(facts.namespace_top_level_depth(1), Some(1));
-        assert_eq!(facts.closing_brace_start(2), Some(0));
         assert_eq!(facts.matching_block_start(2), Some(0));
         assert_eq!(
             facts.enclosing_class_range(6),
@@ -518,37 +573,32 @@ mod tests {
 
     #[test]
     fn file_facts_capture_split_namespace_blocks() {
-        let clean_lines = CleansedLines::new(vec![
-            "namespace".to_string(),
-            "Foo".to_string(),
-            "{".to_string(),
-            "  int value = 0;".to_string(),
-            "}".to_string(),
-        ]);
+        let arena = Bump::new();
+        let lines = ["namespace", "Foo", "{", "  int value = 0;", "}"];
+        let clean_lines = CleansedLines::new(&arena, &lines);
 
         let facts = FileFacts::new(&clean_lines);
 
         assert_eq!(facts.namespace_top_level_depth(3), Some(1));
-        assert_eq!(facts.closing_brace_start(4), Some(2));
         assert_eq!(facts.matching_block_start(4), Some(2));
     }
 
     #[test]
     fn file_facts_track_closing_brace_context_on_mixed_brace_lines() {
-        let clean_lines = CleansedLines::new(vec![
-            "namespace foo {".to_string(),
-            "  const int values[] = {".to_string(),
-            "    1,".to_string(),
-            "  }, make_pair({1, 2});".to_string(),
-            "  if (ready) {".to_string(),
-            "  } else {".to_string(),
-            "}".to_string(),
-        ]);
+        let arena = Bump::new();
+        let lines = [
+            "namespace foo {",
+            "  const int values[] = {",
+            "    1,",
+            "  }, make_pair({1, 2});",
+            "  if (ready) {",
+            "  } else {",
+            "}",
+        ];
+        let clean_lines = CleansedLines::new(&arena, &lines);
 
         let facts = FileFacts::new(&clean_lines);
 
-        assert_eq!(facts.closing_brace_start(3), Some(3));
-        assert_eq!(facts.closing_brace_start(5), Some(5));
-        assert_eq!(facts.closing_brace_start(6), Some(5));
+        assert_eq!(facts.matching_block_start(3), Some(1));
     }
 }

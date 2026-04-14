@@ -1,6 +1,7 @@
 use crate::options::{CheckArgs, RuleArgs};
 use cpplint_core::registry::{RuleFamily, RuleSelection, rule_registry};
 use cpplint_core::runner::run_lint;
+use std::io;
 use std::process::ExitCode;
 
 pub fn run_check_command(args: &CheckArgs) -> ExitCode {
@@ -12,16 +13,8 @@ pub fn run_check_command(args: &CheckArgs) -> ExitCode {
         }
     };
 
-    match run_lint(&args.files, &runner_config) {
-        Ok(result) => {
-            if !result.stdout.is_empty() {
-                print!("{}", result.stdout);
-            }
-            if !result.stderr.is_empty() {
-                eprint!("{}", result.stderr);
-            }
-            ExitCode::from((result.error_count > 0) as u8)
-        }
+    match run_lint(&args.files, &runner_config, io::stdout(), io::stderr()) {
+        Ok(result) => ExitCode::from((result.error_count > 0) as u8),
         Err(error) => {
             eprintln!("{}", error);
             ExitCode::from(1)

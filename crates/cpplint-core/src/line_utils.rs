@@ -1,9 +1,23 @@
 use crate::cleanse::CleansedLines;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 
 pub fn get_indent_level(line: &str) -> usize {
+    let bytes = line.as_bytes();
     let mut count = 0;
-    for c in line.chars() {
-        if c == ' ' {
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        let mask = chunk.simd_eq(u8x32::splat(b' ')).to_bitmask();
+        let ones = mask.trailing_ones() as usize;
+        count += ones;
+        if ones < 32 {
+            return count;
+        }
+        i += 32;
+    }
+    for &b in &bytes[i..] {
+        if b == b' ' {
             count += 1;
         } else {
             break;
@@ -16,20 +30,24 @@ pub fn is_blank_line(line: &str) -> bool {
     line.trim().is_empty()
 }
 
-pub fn get_previous_non_blank_line(lines: &[String], linenum: usize) -> Option<(usize, &str)> {
+pub fn get_previous_non_blank_line<S: AsRef<str>>(
+    lines: &[S],
+    linenum: usize,
+) -> Option<(usize, &str)> {
     if linenum == 0 {
         return None;
     }
     for i in (0..linenum).rev() {
-        if !is_blank_line(&lines[i]) {
-            return Some((i, &lines[i]));
+        let line = lines[i].as_ref();
+        if !is_blank_line(line) {
+            return Some((i, line));
         }
     }
     None
 }
 
-pub fn namespace_decl_start_line(lines: &[String], start: usize) -> Option<usize> {
-    let trimmed = lines.get(start)?.trim();
+pub fn namespace_decl_start_line<S: AsRef<str>>(lines: &[S], start: usize) -> Option<usize> {
+    let trimmed = lines.get(start)?.as_ref().trim();
     if is_namespace_decl(trimmed) {
         return Some(start);
     }
@@ -85,12 +103,12 @@ pub fn close_expression(
     close_expression_in_lines(&clean_lines.elided, linenum, pos)
 }
 
-pub fn close_expression_in_lines(
-    lines: &[String],
+pub fn close_expression_in_lines<S: AsRef<str>>(
+    lines: &[S],
     mut linenum: usize,
     pos: usize,
 ) -> Option<(usize, usize)> {
-    let line = lines.get(linenum)?;
+    let line = lines.get(linenum)?.as_ref();
     let bytes = line.as_bytes();
     let start = *bytes.get(pos)?;
     let next = bytes.get(pos + 1).copied();
@@ -107,7 +125,7 @@ pub fn close_expression_in_lines(
 
     while !stack.is_empty() && linenum + 1 < lines.len() {
         linenum += 1;
-        let line = &lines[linenum];
+        let line = lines[linenum].as_ref();
         if let Some(end_pos) = find_end_of_expression_in_line(line, 0, &mut stack) {
             return Some((linenum, end_pos));
         }
@@ -123,18 +141,22 @@ pub fn reverse_close_expression(
     pos: usize,
 ) -> Option<(usize, usize)> {
     let line = clean_lines.elided.get(linenum)?;
-    if !matches!(line.as_bytes().get(pos), Some(b')' | b'}' | b']' | b'>')) {
+    let line_str: &str = line;
+    if !matches!(
+        line_str.as_bytes().get(pos),
+        Some(b')' | b'}' | b']' | b'>')
+    ) {
         return None;
     }
 
     let mut stack = Vec::new();
-    if let Some(start_pos) = find_start_of_expression_in_line(line, pos, &mut stack) {
+    if let Some(start_pos) = find_start_of_expression_in_line(line_str, pos, &mut stack) {
         return Some((linenum, start_pos));
     }
 
     while !stack.is_empty() && linenum > 0 {
         linenum -= 1;
-        let line = &clean_lines.elided[linenum];
+        let line = clean_lines.elided[linenum];
         if let Some(start_pos) =
             find_start_of_expression_in_line(line, line.len().saturating_sub(1), &mut stack)
         {
@@ -317,13 +339,16 @@ fn trailing_operator_match(prefix: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bumpalo::Bump;
 
     #[test]
     fn close_expression_handles_multiline_templates() {
-        let clean_lines = CleansedLines::new(vec![
-            "return BuiltInDefaultValueGetter<".to_string(),
-            "    T, ::std::is_default_constructible<T>::value>::Get();".to_string(),
-        ]);
+        let arena = Bump::new();
+        let lines = [
+            "return BuiltInDefaultValueGetter<",
+            "    T, ::std::is_default_constructible<T>::value>::Get();",
+        ];
+        let clean_lines = CleansedLines::new(&arena, &lines);
 
         assert_eq!(close_expression(&clean_lines, 0, 32), Some((1, 49)));
         assert_eq!(reverse_close_expression(&clean_lines, 1, 48), Some((0, 32)));

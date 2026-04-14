@@ -1,4 +1,5 @@
 use crate::categories;
+use crate::categories::Category;
 use crate::cleanse::CleansedLines;
 use crate::errors::Result;
 use crate::facts::FileFacts;
@@ -8,17 +9,22 @@ use crate::source::{DecodedSource, SourceFile};
 use crate::state::CppLintState;
 use crate::string_utils;
 use crate::suppressions::ErrorSuppressions;
-use regex::Regex;
+use bumpalo::Bump;
+use bumpalo::collections::Vec as BumpVec;
+use regex::{Regex, RegexSet};
+use std::iter::ExactSizeIterator;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 static NOLINT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bNOLINT(NEXTLINE|BEGIN|END)?\b(\([^)]+\))?"#).unwrap());
-static C_FILE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\b(?:LINT_C_FILE|vim?:\s*.*(\s*|:)filetype=c(\s*|:|$))"#).unwrap()
+static FILE_TYPE_RE_SET: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r#"\b(?:LINT_C_FILE|vim?:\s*.*(\s*|:)filetype=c(\s*|:|$))"#,
+        r#"\b(?:LINT_KERNEL_FILE)"#,
+    ])
+    .unwrap()
 });
-static KERNEL_FILE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(?:LINT_KERNEL_FILE)"#).unwrap());
 
 pub struct FileLinter<'a> {
     session: &'a CppLintState,
@@ -86,40 +92,52 @@ impl<'a> FileLinter<'a> {
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn process_file(&mut self) -> Result<()> {
-        let decoded = self.source_file.read()?;
-        self.process_decoded_source(decoded);
+        let arena = Bump::new();
+        let decoded = self.source_file.read_into(&arena)?;
+        self.process_decoded_source(decoded, &arena);
         Ok(())
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub fn process_file_data(&mut self, lines: Vec<String>) {
-        let decoded = DecodedSource::from_lines(self.source_file.clone(), lines);
-        self.process_decoded_source(decoded);
+    pub fn process_file_data<I, S>(&mut self, lines: I)
+    where
+        I: IntoIterator<Item = S>,
+        I::IntoIter: ExactSizeIterator,
+        S: AsRef<str>,
+    {
+        let arena = Bump::new();
+        let decoded = DecodedSource::from_lines(&arena, self.source_file.clone(), lines);
+        self.process_decoded_source(decoded, &arena);
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    fn process_decoded_source(&mut self, decoded: DecodedSource) {
+    fn process_decoded_source(&mut self, decoded: DecodedSource, arena: &Bump) {
         for &linenum in decoded.invalid_utf8_lines() {
             self.error(
                 linenum,
-                "readability/utf8",
+                Category::ReadabilityUtf8,
                 5,
                 "Line contains invalid UTF-8 (or Unicode replacement character).",
             );
         }
         for &linenum in decoded.null_lines() {
-            self.error(linenum, "readability/nul", 5, "Line contains NUL byte.");
+            self.error(
+                linenum,
+                Category::ReadabilityNul,
+                5,
+                "Line contains NUL byte.",
+            );
         }
 
         let mixed_line_endings = decoded.has_mixed_line_endings();
         let crlf_lines = decoded.crlf_lines().to_vec();
-        self.process_source_lines(decoded.into_lines());
+        self.process_source_lines(decoded.into_lines(), arena);
 
         if mixed_line_endings {
             for linenum in crlf_lines {
                 self.error(
                     linenum,
-                    "whitespace/newline",
+                    Category::WhitespaceNewline,
                     1,
                     "Unexpected \\r (^M) found; better to use only \\n",
                 );
@@ -128,18 +146,22 @@ impl<'a> FileLinter<'a> {
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    fn process_source_lines(&mut self, mut lines: Vec<String>) {
+    fn process_source_lines<'b>(&mut self, mut lines: BumpVec<'b, &'b str>, arena: &'b Bump) {
         let registry = self.registry;
         registry.run_raw_source(self, &lines);
 
-        for line in &lines {
+        for &line in &lines {
             self.process_global_suppressions(line);
         }
 
-        self.remove_multiline_comments(&mut lines);
+        self.remove_multiline_comments(lines.as_mut_slice());
 
-        let clean_lines =
-            CleansedLines::new_with_options(lines, self.options.as_ref(), self.filename());
+        let clean_lines = CleansedLines::new_with_options(
+            arena,
+            lines.as_slice(),
+            self.options.as_ref(),
+            self.filename(),
+        );
         self.facts = Some(FileFacts::new(&clean_lines));
         registry.run_file_structure(self, &clean_lines);
 
@@ -148,7 +170,12 @@ impl<'a> FileLinter<'a> {
         }
 
         if let Some(begin) = self.error_suppressions.get_open_block_start() {
-            self.error(begin, "readability/nolint", 5, "NOLINT block never ended");
+            self.error(
+                begin,
+                Category::ReadabilityNolint,
+                5,
+                "NOLINT block never ended",
+            );
         }
 
         registry.run_finalize(self, &clean_lines.raw_lines);
@@ -203,7 +230,7 @@ impl<'a> FileLinter<'a> {
                 if !category.is_empty() {
                     this.error(
                         linenum,
-                        "readability/nolint",
+                        Category::ReadabilityNolint,
                         5,
                         &format!("NOLINT categories not supported in block END: {}", category),
                     );
@@ -219,13 +246,18 @@ impl<'a> FileLinter<'a> {
             if let Some(begin) = self.error_suppressions.peek_open_block_start() {
                 self.error(
                     linenum,
-                    "readability/nolint",
+                    Category::ReadabilityNolint,
                     5,
                     &format!("NOLINT block already defined on line {}", begin + 1),
                 );
             }
         } else if no_lint_type == "END" && !self.error_suppressions.has_open_block() {
-            self.error(linenum, "readability/nolint", 5, "Not in a NOLINT block");
+            self.error(
+                linenum,
+                Category::ReadabilityNolint,
+                5,
+                "Not in a NOLINT block",
+            );
         }
 
         if categories.is_empty() || categories == "(*)" {
@@ -245,7 +277,7 @@ impl<'a> FileLinter<'a> {
             {
                 self.error(
                     linenum,
-                    "readability/nolint",
+                    Category::ReadabilityNolint,
                     5,
                     &format!("Unknown NOLINT error category: {}", category),
                 );
@@ -254,21 +286,22 @@ impl<'a> FileLinter<'a> {
     }
 
     fn process_global_suppressions(&mut self, line: &str) {
-        if C_FILE_RE.is_match(line) {
+        let matches = FILE_TYPE_RE_SET.matches(line);
+        if matches.matched(0) {
             self.error_suppressions.add_default_c_suppressions();
         }
-        if KERNEL_FILE_RE.is_match(line) {
+        if matches.matched(1) {
             self.error_suppressions.add_default_kernel_suppressions();
         }
     }
 
-    fn remove_multiline_comments(&mut self, lines: &mut [String]) {
+    fn remove_multiline_comments(&mut self, lines: &mut [&str]) {
         let mut lineix = 0usize;
         while let Some(begin) = find_next_multiline_comment_start(lines, lineix) {
             let Some(end) = find_next_multiline_comment_end(lines, begin) else {
                 self.error(
                     begin,
-                    "readability/multiline_comment",
+                    Category::ReadabilityMultilineComment,
                     5,
                     "Could not find end of multi-line comment",
                 );
@@ -277,7 +310,7 @@ impl<'a> FileLinter<'a> {
             if !lines[end].trim_end().ends_with("*/") {
                 self.error(
                     end,
-                    "readability/multiline_comment",
+                    Category::ReadabilityMultilineComment,
                     5,
                     "Could not find end of multi-line comment",
                 );
@@ -285,13 +318,13 @@ impl<'a> FileLinter<'a> {
             }
 
             for line in lines.iter_mut().take(end + 1).skip(begin) {
-                *line = "/**/".to_string();
+                *line = "/**/";
             }
             lineix = end + 1;
         }
     }
 
-    pub fn error(&mut self, linenum: usize, category: &str, confidence: i32, message: &str) {
+    pub fn error(&mut self, linenum: usize, category: Category, confidence: i32, message: &str) {
         if self.error_suppressions.is_suppressed(category, linenum)
             || !self
                 .options
@@ -315,7 +348,7 @@ impl<'a> FileLinter<'a> {
     pub fn error_display_line(
         &mut self,
         display_linenum: usize,
-        category: &str,
+        category: Category,
         confidence: i32,
         message: &str,
     ) {
@@ -406,7 +439,7 @@ fn relative_from_subdir(file: &Path, subdir: &Path) -> PathBuf {
     file.to_path_buf()
 }
 
-fn find_next_multiline_comment_start(lines: &[String], start: usize) -> Option<usize> {
+fn find_next_multiline_comment_start(lines: &[&str], start: usize) -> Option<usize> {
     for (idx, line) in lines.iter().enumerate().skip(start) {
         let trimmed = line.trim_start();
         if !trimmed.starts_with("/*") {
@@ -420,7 +453,7 @@ fn find_next_multiline_comment_start(lines: &[String], start: usize) -> Option<u
     None
 }
 
-fn find_next_multiline_comment_end(lines: &[String], start: usize) -> Option<usize> {
+fn find_next_multiline_comment_end(lines: &[&str], start: usize) -> Option<usize> {
     for (idx, line) in lines.iter().enumerate().skip(start) {
         if line.contains("*/") {
             return Some(idx);
@@ -473,7 +506,7 @@ mod tests {
         let _ = std::fs::remove_file(file_path);
 
         assert_eq!(state.error_count(), 1);
-        assert!(state.has_error("whitespace/newline"));
+        assert!(state.has_error(Category::WhitespaceNewline));
     }
 
     #[test]
@@ -494,7 +527,7 @@ mod tests {
         let _ = std::fs::remove_file(file_path);
 
         assert_eq!(state.error_count(), 2);
-        assert!(state.has_error("readability/utf8"));
+        assert!(state.has_error(Category::ReadabilityUtf8));
     }
 
     #[test]
@@ -504,11 +537,7 @@ mod tests {
         options.add_filter("-legal/copyright");
         options.add_filter("-whitespace/ending_newline");
         let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
-        let mut lines = vec![
-            "/* This should be removed".to_string(),
-            "".to_string(),
-            "*/".to_string(),
-        ];
+        let mut lines = vec!["/* This should be removed", "", "*/"];
 
         linter.remove_multiline_comments(&mut lines);
 
@@ -523,11 +552,11 @@ mod tests {
         options.add_filter("-legal/copyright");
         options.add_filter("-whitespace/ending_newline");
         let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
-        let mut lines = vec!["/* This should be removed".to_string(), "".to_string()];
+        let mut lines = vec!["/* This should be removed", ""];
 
         linter.remove_multiline_comments(&mut lines);
 
         assert_eq!(state.error_count(), 1);
-        assert!(state.has_error("readability/multiline_comment"));
+        assert!(state.has_error(Category::ReadabilityMultilineComment));
     }
 }

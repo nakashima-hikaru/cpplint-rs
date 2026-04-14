@@ -1,3 +1,4 @@
+use crate::categories::Category;
 use crate::cleanse::{CleansedLines, MatchedKeywords, collapse_strings};
 use crate::file_linter::FileLinter;
 use crate::line_utils;
@@ -6,6 +7,8 @@ use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use regex::Regex;
 use std::borrow::Cow;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 use std::sync::LazyLock;
 
 fn is_control_statement_start(s: &str) -> bool {
@@ -17,12 +20,6 @@ static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
 
-static NAMESPACE_INDENT_CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"^(\s*(?:template\s*<[\w\s<>,:=]*>\s*)?(?:class|struct)\s+(?:[A-Za-z0-9_]+\s+)*(\w+(?:::\w+)*))(.*)$"#,
-    )
-    .unwrap()
-});
 
 static IF_ELSE_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(["if", "else"]).unwrap());
@@ -66,31 +63,53 @@ static ANONYMOUS_NAMESPACE_TERM_MSG_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^\s*}.*\b(namespace anonymous|anonymous namespace)\b"#).unwrap()
 });
 
+const RD_BRACE_BIT: u8 = 1 << 0;
+const RD_SEMI_BIT: u8 = 1 << 1;
+
+static READABILITY_LUT: [u8; 256] = {
+    let mut lut = [0; 256];
+    lut[b'{' as usize] |= RD_BRACE_BIT;
+    lut[b'}' as usize] |= RD_BRACE_BIT;
+    lut[b';' as usize] |= RD_SEMI_BIT;
+    lut
+};
+
 fn is_test_like_function(name: &str) -> bool {
     name.starts_with("TEST") || name.starts_with("Test")
 }
 
-pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let elided_line = &clean_lines.elided[linenum];
     let raw_line = &clean_lines.raw_lines[linenum];
 
-    let mut has_brace = false;
-    let mut has_semicolon = false;
-    let has_slash = raw_line.contains('/');
-
-    for &b in elided_line.as_bytes() {
-        match b {
-            b'{' | b'}' => has_brace = true,
-            b';' => has_semicolon = true,
-            _ => {}
+    let bytes = elided_line.as_bytes();
+    let mut mask = 0u8;
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
+            mask |= RD_BRACE_BIT;
         }
+        if chunk.simd_eq(u8x32::splat(b';')).any() {
+            mask |= RD_SEMI_BIT;
+        }
+        i += 32;
+    }
+    for &b in &bytes[i..] {
+        mask |= READABILITY_LUT[b as usize];
+    }
+    let has_brace = (mask & RD_BRACE_BIT) != 0;
+    let has_semicolon = (mask & RD_SEMI_BIT) != 0;
+
+    let has_slash = raw_line.contains('/');
+    let keywords = clean_lines.keywords(linenum);
+
+    if keywords.has_alt_token() {
+        check_alt_tokens(linter, clean_lines, linenum);
     }
 
-    let keywords = &clean_lines.keywords[linenum];
-
-    check_alt_tokens(linter, clean_lines, linenum);
-
-    if elided_line.contains("using") || elided_line.contains("namespace") {
+    if keywords.has_using() || keywords.has_namespace() {
         check_namespace_using(linter, elided_line, linenum);
         check_unnamed_namespace_in_header(linter, elided_line, linenum);
     }
@@ -125,9 +144,9 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         != 0;
     if has_brace
         || has_control
-        || elided_line.contains("virtual")
-        || elided_line.contains("override")
-        || elided_line.contains("final")
+        || keywords.has_virtual()
+        || keywords.has_override()
+        || keywords.has_final()
     {
         check_redundant_virtuals(linter, clean_lines, elided_line, linenum);
     }
@@ -147,12 +166,12 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     check_missing_function_body(linter, clean_lines, linenum);
 }
 
-fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let use_raw_block_comment = clean_lines.has_comment[linenum]
         && clean_lines.elided[linenum].trim().is_empty()
-        && is_interior_block_comment_line(&clean_lines.raw_lines[linenum]);
+        && is_interior_block_comment_line(clean_lines.raw_lines[linenum]);
     let line = if use_raw_block_comment {
-        clean_lines.raw_lines[linenum].as_str()
+        clean_lines.raw_lines[linenum]
     } else {
         clean_lines.line_without_alternate_tokens(linenum)
     };
@@ -168,7 +187,7 @@ fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines, linenu
     for (key, token) in crate::cleanse::find_alternate_tokens(line) {
         linter.error(
             linenum,
-            "readability/alt_tokens",
+            Category::ReadabilityAltTokens,
             2,
             &format!("Use operator {} instead of {}", token, key),
         );
@@ -191,9 +210,9 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
     }
 
     let category = if trimmed.starts_with("using namespace std::literals") {
-        "build/namespaces_literals"
+        Category::BuildNamespacesLiterals
     } else {
-        "build/namespaces"
+        Category::BuildNamespaces
     };
     linter.error(
         linenum,
@@ -218,7 +237,7 @@ fn check_unnamed_namespace_in_header(linter: &mut FileLinter, elided_line: &str,
 
     linter.error(
         linenum,
-        "build/namespaces_headers",
+        Category::BuildNamespacesHeaders,
         4,
         "Do not use unnamed namespaces in header files.  See https://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Namespaces for more information.",
     );
@@ -226,7 +245,7 @@ fn check_unnamed_namespace_in_header(linter: &mut FileLinter, elided_line: &str,
 
 fn check_check_macro(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -262,7 +281,7 @@ fn check_check_macro(
 
     linter.error(
         linenum,
-        "readability/check",
+        Category::ReadabilityCheck,
         2,
         &format!(
             "Consider using {} instead of {}(a {} b)",
@@ -370,7 +389,7 @@ fn replacement_check_macro(check_macro: &str, op: &str) -> Option<&'static str> 
 
 fn check_function_size(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -407,7 +426,7 @@ fn check_function_size(
         };
         linter.error(
             start_line,
-            "readability/fn_size",
+            Category::ReadabilityFnSize,
             0,
             &format!(
                 "Small and focused functions are preferred: {} has {} non-blank lines (error triggered by exceeding {} lines).",
@@ -419,13 +438,13 @@ fn check_function_size(
 
 fn check_missing_function_body(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
     if let Some(function_name) = find_function_without_body(clean_lines, linenum) {
         linter.error(
             linenum,
-            "readability/fn_size",
+            Category::ReadabilityFnSize,
             5,
             &format!(
                 "Lint failed to find start of function body for {}.",
@@ -491,7 +510,7 @@ fn find_function_without_body<'a>(
     }
 }
 
-fn collect_function_signature(clean_lines: &CleansedLines, start_line: usize) -> String {
+fn collect_function_signature(clean_lines: &CleansedLines<'_>, start_line: usize) -> String {
     let mut parts = Vec::new();
     for idx in (0..=start_line).rev() {
         let line = clean_lines.elided[idx].trim();
@@ -538,7 +557,7 @@ fn parse_function_name(signature_line: &str) -> Option<&str> {
 
 fn check_braces(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -558,7 +577,7 @@ fn check_braces(
             if !safe_end && !prev_trimmed.starts_with('#') {
                 linter.error(
                     linenum,
-                    r#"whitespace/braces"#,
+                    Category::WhitespaceBraces,
                     4,
                     r#"{ should almost always be at the end of the previous line"#,
                 );
@@ -588,7 +607,7 @@ fn check_braces(
             {
                 linter.error(
                     linenum,
-                    "whitespace/newline",
+                    Category::WhitespaceNewline,
                     4,
                     "An else should appear on the same line as the preceding }",
                 );
@@ -615,7 +634,7 @@ fn check_braces(
                         if braced_else_if != brace_on_right {
                             linter.error(
                                 linenum,
-                                "readability/braces",
+                                Category::ReadabilityBraces,
                                 5,
                                 "If an else has a brace on one side, it should have it on both",
                             );
@@ -634,7 +653,7 @@ fn check_braces(
         if (has_left_brace || has_right_brace) && has_left_brace != has_right_brace {
             linter.error(
                 linenum,
-                "readability/braces",
+                Category::ReadabilityBraces,
                 5,
                 "If an else has a brace on one side, it should have it on both",
             );
@@ -661,19 +680,27 @@ fn count_unescaped_quotes(line: &str) -> usize {
     count
 }
 
-fn check_multiline_strings(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+fn check_multiline_strings(
+    linter: &mut FileLinter,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
     let line = clean_lines.line_without_alternate_tokens(linenum);
     if line.contains('"') && count_unescaped_quotes(line) % 2 == 1 {
         linter.error(
             linenum,
-            "readability/multiline_string",
+            Category::ReadabilityMultilineString,
             5,
             "Multi-line string (\"...\") found.  This lint script doesn't do well with such strings, and may give bogus warnings.  Use C++11 raw strings or concatenation instead.",
         );
     }
 }
 
-fn check_multiline_comments(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+fn check_multiline_comments(
+    linter: &mut FileLinter,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
     let line = &clean_lines.lines_without_raw_strings[linenum];
     if !line.contains("/*") {
         return;
@@ -701,14 +728,14 @@ fn check_multiline_comments(linter: &mut FileLinter, clean_lines: &CleansedLines
     if has_end {
         linter.error(
             linenum,
-            "readability/multiline_comment",
+            Category::ReadabilityMultilineComment,
             5,
             "Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.",
         );
     } else {
         linter.error(
             linenum,
-            "readability/multiline_comment",
+            Category::ReadabilityMultilineComment,
             5,
             "Could not find end of multi-line comment",
         );
@@ -717,7 +744,7 @@ fn check_multiline_comments(linter: &mut FileLinter, clean_lines: &CleansedLines
 
 fn check_empty_bodies(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -739,7 +766,7 @@ fn check_empty_bodies(
         if is_empty_control_statement(trimmed_start, "if") {
             linter.error(
                 linenum,
-                "whitespace/empty_conditional_body",
+                Category::WhitespaceEmptyConditionalBody,
                 5,
                 "Empty conditional bodies should use {}",
             );
@@ -751,7 +778,7 @@ fn check_empty_bodies(
         {
             linter.error(
                 linenum,
-                "whitespace/empty_loop_body",
+                Category::WhitespaceEmptyLoopBody,
                 5,
                 "Empty loop bodies should use {} or continue",
             );
@@ -779,7 +806,7 @@ fn check_empty_bodies(
     }
 
     let mut if_idx = opening_idx;
-    let mut found_if = string_utils::contains_word(&clean_lines.elided[if_idx], "if");
+    let mut found_if = string_utils::contains_word(clean_lines.elided[if_idx], "if");
     while !found_if && if_idx > 0 {
         if_idx -= 1;
         if clean_lines.elided[if_idx].trim().is_empty() {
@@ -788,7 +815,7 @@ fn check_empty_bodies(
         if clean_lines.elided[if_idx].contains('}') {
             return;
         }
-        found_if = string_utils::contains_word(&clean_lines.elided[if_idx], "if");
+        found_if = string_utils::contains_word(clean_lines.elided[if_idx], "if");
         if clean_lines.elided[if_idx].contains(';') && !found_if {
             return;
         }
@@ -822,7 +849,7 @@ fn check_empty_bodies(
 
     linter.error(
         opening_idx,
-        "whitespace/empty_if_body",
+        Category::WhitespaceEmptyIfBody,
         4,
         "If statement had no body and no else clause",
     );
@@ -873,7 +900,7 @@ fn is_empty_control_statement(line: &str, keyword: &str) -> bool {
 
 fn check_redundant_virtuals(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -895,7 +922,7 @@ fn check_redundant_virtuals(
     if has_virtual && (has_override || has_final) {
         linter.error(
             linenum,
-            "readability/inheritance",
+            Category::ReadabilityInheritance,
             4,
             "virtual is redundant since override/final already implies a virtual function",
         );
@@ -905,7 +932,7 @@ fn check_redundant_virtuals(
     if has_override && has_final {
         linter.error(
             linenum,
-            "readability/inheritance",
+            Category::ReadabilityInheritance,
             4,
             "override is redundant when final is present",
         );
@@ -932,7 +959,7 @@ fn check_redundant_virtuals(
     if prev_has_virtual {
         linter.error(
             linenum,
-            "readability/inheritance",
+            Category::ReadabilityInheritance,
             4,
             "virtual is redundant since override/final already implies a virtual function",
         );
@@ -941,7 +968,7 @@ fn check_redundant_virtuals(
 
 fn check_single_line_control_bodies(
     linter: &mut FileLinter,
-    _clean_lines: &CleansedLines,
+    _clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -971,7 +998,7 @@ fn check_single_line_control_bodies(
                     {
                         linter.error(
                             linenum,
-                            "whitespace/newline",
+                            Category::WhitespaceNewline,
                             5,
                             &format!(
                                 "Controlled statements inside brackets of {} clause should be on a separate line",
@@ -988,7 +1015,7 @@ fn check_single_line_control_bodies(
 
 fn check_multiline_if_else_bodies(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -1083,7 +1110,7 @@ fn check_multiline_if_else_bodies(
         if !MULTILINE_IF_LAMBDA_RE.is_match(statement_line) {
             linter.error(
                 linenum,
-                "readability/braces",
+                Category::ReadabilityBraces,
                 4,
                 "If/else bodies with multiple statements require braces",
             );
@@ -1100,14 +1127,14 @@ fn check_multiline_if_else_bodies(
         {
             linter.error(
                 linenum,
-                "readability/braces",
+                Category::ReadabilityBraces,
                 4,
                 "Else clause should be indented at the same level as if. Ambiguous nested if/else chains require braces.",
             );
         } else if next_indent > if_indent {
             linter.error(
                 linenum,
-                "readability/braces",
+                Category::ReadabilityBraces,
                 4,
                 "If/else bodies with multiple statements require braces",
             );
@@ -1117,7 +1144,7 @@ fn check_multiline_if_else_bodies(
 
 fn check_namespace_termination_comment(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
     let raw_line = &clean_lines.raw_lines[linenum];
@@ -1147,7 +1174,7 @@ fn check_namespace_termination_comment(
         } else {
             "Anonymous namespace should be terminated with \"// namespace\""
         };
-        linter.error(linenum, "readability/namespace", 5, message);
+        linter.error(linenum, Category::ReadabilityNamespace, 5, message);
         return;
     }
     let pattern = format!(
@@ -1159,7 +1186,7 @@ fn check_namespace_termination_comment(
     }
     linter.error(
         linenum,
-        "readability/namespace",
+        Category::ReadabilityNamespace,
         5,
         &format!(
             "Namespace should be terminated with \"// namespace {}\"",
@@ -1170,7 +1197,7 @@ fn check_namespace_termination_comment(
 
 fn check_namespace_indentation(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -1178,77 +1205,47 @@ fn check_namespace_indentation(
         return;
     }
 
-    if linter.facts().namespace_top_level_depth(linenum).is_none()
-        && !elided_line.contains('}')
-        && linter.facts().enclosing_class_range(linenum).is_none()
-        && !is_multiline_type_header_wrap(clean_lines, linenum)
-    {
-        // Re-check for closing brace context
-        if !is_namespace_closing_brace(linter, clean_lines, linenum)
-            && !is_namespace_block_closure(linter, clean_lines, linenum)
-        {
-            return;
-        }
+    if linter.facts().namespace_top_level_depth(linenum).is_none() {
+        return;
     }
 
     if is_macro_definition(clean_lines, elided_line, linenum) {
         return;
     }
 
-    if linter.facts().block_kind(linenum) == Some(crate::facts::ScopeKind::Namespace)
-        && NAMESPACE_START_RE.is_match(clean_lines.elided[linenum].trim())
-        && !clean_lines.elided[linenum].contains('}')
-    {
-        linter.error(
-            linenum,
-            "whitespace/indent_namespace",
-            4,
-            "Do not indent within a namespace.",
-        );
-        return;
-    }
-
     if is_namespace_closing_brace(linter, clean_lines, linenum) {
         return;
     }
-    if is_namespace_block_closure(linter, clean_lines, linenum) {
-        linter.error(
-            linenum,
-            "whitespace/indent_namespace",
-            4,
-            "Do not indent within a namespace.",
-        );
-        return;
-    }
 
-    if linter.facts().enclosing_class_range(linenum).is_some() {
-        return;
-    }
-
-    if is_multiline_type_header_wrap(clean_lines, linenum) {
-        return;
-    }
-
-    if linter.facts().namespace_top_level_depth(linenum).is_some()
-        || is_namespace_initializer_continuation(linter, clean_lines, linenum)
+    let class_range = linter.facts().enclosing_class_range(linenum);
+    if let Some(range) = class_range
+        && linenum != range.end
     {
+        return;
+    }
+
+    let non_ns_before = linter.facts().non_namespace_indent_depth_before(linenum);
+    let non_ns = linter.facts().non_namespace_indent_depth(linenum);
+    let has_close = elided_line.contains('}');
+
+    if non_ns_before == 0 || (has_close && non_ns == 0) {
         linter.error(
             linenum,
-            "whitespace/indent_namespace",
+            Category::WhitespaceIndentNamespace,
             4,
             "Do not indent within a namespace.",
         );
     }
 }
 
-fn is_macro_definition(clean_lines: &CleansedLines, elided_line: &str, linenum: usize) -> bool {
+fn is_macro_definition(clean_lines: &CleansedLines<'_>, elided_line: &str, linenum: usize) -> bool {
     elided_line.starts_with("#define")
         || (linenum > 0 && clean_lines.elided[linenum - 1].ends_with('\\'))
 }
 
 fn is_namespace_closing_brace(
     linter: &FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) -> bool {
     clean_lines.elided[linenum].contains('}')
@@ -1270,139 +1267,6 @@ fn is_namespace_closing_brace(
             })
 }
 
-fn is_namespace_block_closure(
-    linter: &FileLinter,
-    clean_lines: &CleansedLines,
-    linenum: usize,
-) -> bool {
-    clean_lines.elided[linenum].contains('}')
-        && linter
-            .facts()
-            .matching_block_start(linenum)
-            .is_some_and(|start| {
-                if linter.facts().block_kind(start) == Some(crate::facts::ScopeKind::Namespace) {
-                    if let Some(namespace_line) = linter.facts().namespace_decl_line(start) {
-                        linter
-                            .facts()
-                            .namespace_top_level_depth(namespace_line)
-                            .is_some()
-                    } else {
-                        linter.facts().namespace_top_level_depth(start).is_some()
-                    }
-                } else {
-                    false
-                }
-            })
-}
-
-fn is_namespace_initializer_continuation(
-    linter: &FileLinter,
-    clean_lines: &CleansedLines,
-    linenum: usize,
-) -> bool {
-    if !clean_lines.elided[linenum].contains('}') {
-        return false;
-    }
-
-    linter
-        .facts()
-        .closing_brace_start(linenum)
-        .is_some_and(|start| {
-            linter.facts().namespace_top_level_depth(start).is_some()
-                && clean_lines.elided[start].contains('=')
-                && !clean_lines.elided[start].contains('(')
-        })
-}
-
-fn is_multiline_type_header_wrap(clean_lines: &CleansedLines, linenum: usize) -> bool {
-    let current = clean_lines.elided[linenum].trim();
-    if current.contains('}') {
-        return false;
-    }
-
-    for start in linenum.saturating_sub(3)..linenum {
-        let start_line = clean_lines.elided[start].trim();
-        if start_line.is_empty()
-            || start_line.contains('{')
-            || start_line.contains(';')
-            || start_line.contains('}')
-            || start_line.ends_with('<')
-        {
-            continue;
-        }
-        let Some(captures) = NAMESPACE_INDENT_CLASS_DECL_RE.captures(start_line) else {
-            continue;
-        };
-        let Some(decl) = captures.get(1) else {
-            continue;
-        };
-        if in_template_argument_list(clean_lines, start, decl.end()) {
-            continue;
-        }
-
-        if (start + 1..linenum).any(|idx| {
-            let line = clean_lines.elided[idx].trim();
-            line.is_empty() || line.contains('{') || line.contains(';') || line.contains('}')
-        }) {
-            continue;
-        }
-
-        return true;
-    }
-
-    false
-}
-
-fn in_template_argument_list(
-    clean_lines: &CleansedLines,
-    mut linenum: usize,
-    mut pos: usize,
-) -> bool {
-    while linenum < clean_lines.elided.len() {
-        let line = &clean_lines.elided[linenum];
-        if pos >= line.len() {
-            linenum += 1;
-            pos = 0;
-            continue;
-        }
-
-        let slice = &line[pos..];
-        let Some((offset, ch)) = slice
-            .char_indices()
-            .find(|(_, c)| matches!(c, '{' | '}' | ';' | '=' | '[' | ']' | '.' | '<' | '>'))
-        else {
-            linenum += 1;
-            pos = 0;
-            continue;
-        };
-
-        pos += offset + ch.len_utf8();
-
-        match ch {
-            '{' | '}' | ';' => return false,
-            '>' | '=' | '[' | ']' | '.' => return true,
-            '<' => {
-                let open_pos = pos.saturating_sub(1);
-                let Some((end_line, end_pos)) =
-                    line_utils::close_expression(clean_lines, linenum, open_pos)
-                else {
-                    return false;
-                };
-                linenum = end_line;
-                pos = end_pos;
-            }
-            _ => {
-                pos += 1;
-                if pos >= line.len() {
-                    linenum += 1;
-                    pos = 0;
-                }
-            }
-        }
-    }
-
-    false
-}
 
 fn is_assign_match(line: &str) -> bool {
     let trimmed = line.trim_end();
@@ -1469,7 +1333,7 @@ fn is_operator_index_match(s: &str) -> bool {
 
 fn check_trailing_semicolon(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
@@ -1509,7 +1373,7 @@ fn check_trailing_semicolon(
                     || string_utils::contains_word_start(line_prefix, "requires")
                     || is_assign_match(line_prefix)
                     || (open_line > 0
-                        && string_utils::get_last_non_space(&clean_lines.elided[open_line - 1])
+                        && string_utils::get_last_non_space(clean_lines.elided[open_line - 1])
                             == ']')
             });
         if skip {
@@ -1547,7 +1411,7 @@ fn check_trailing_semicolon(
     if has_trailing_semicolon {
         linter.error(
             end_line,
-            "readability/braces",
+            Category::ReadabilityBraces,
             4,
             "You don't need a ; after a }",
         );

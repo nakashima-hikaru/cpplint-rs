@@ -157,10 +157,15 @@ impl Options {
         true
     }
 
-    pub fn should_print_error(&self, category: &str, filename: &str, linenum: usize) -> bool {
+    pub fn should_print_error(
+        &self,
+        category: crate::categories::Category,
+        filename: &str,
+        linenum: usize,
+    ) -> bool {
         let mut result = true;
         for filter in &self.filters {
-            if filter.is_matched(category, filename, linenum) {
+            if filter.is_matched(category.as_str(), filename, linenum) {
                 result = filter.sign;
             }
         }
@@ -210,13 +215,25 @@ mod tests {
     #[test]
     fn test_should_print_error() {
         let mut options = Options::new();
-        assert!(!options.should_print_error("readability/fn_size", "test.cpp", 10));
+        assert!(!options.should_print_error(
+            crate::categories::Category::ReadabilityFnSize,
+            "test.cpp",
+            10
+        ));
 
         options.add_filter("+readability/fn_size");
-        assert!(options.should_print_error("readability/fn_size", "test.cpp", 10));
+        assert!(options.should_print_error(
+            crate::categories::Category::ReadabilityFnSize,
+            "test.cpp",
+            10
+        ));
 
         options.add_filter("-readability");
-        assert!(!options.should_print_error("readability/fn_size", "test.cpp", 10));
+        assert!(!options.should_print_error(
+            crate::categories::Category::ReadabilityFnSize,
+            "test.cpp",
+            10
+        ));
     }
 
     #[test]
@@ -235,7 +252,15 @@ mod tests {
     fn test_add_filters_parses_list() {
         let mut options = Options::new();
         assert!(options.add_filters("-whitespace,+runtime/printf:test.cc:14"));
-        assert!(!options.should_print_error("whitespace/tab", "foo.cc", 1));
-        assert!(options.should_print_error("runtime/printf", "test.cc", 14));
+        assert!(!options.should_print_error(
+            crate::categories::Category::WhitespaceTab,
+            "foo.cc",
+            1
+        ));
+        assert!(options.should_print_error(
+            crate::categories::Category::RuntimePrintf,
+            "test.cc",
+            14
+        ));
     }
 }

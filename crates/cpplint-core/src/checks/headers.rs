@@ -1,596 +1,788 @@
 use crate::c_headers;
+use crate::categories::Category;
 use crate::cleanse::CleansedLines;
 use crate::file_linter::FileLinter;
 use crate::options::IncludeOrder;
 use crate::state::{IncludeKind, IncludeState};
 use aho_corasick::AhoCorasick;
-use std::collections::{BTreeMap, HashSet};
+use fxhash::FxHashSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 static INCLUDE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"^\s*#\s*include\s*([<"])([^>"]+)[>"]"#).unwrap());
 
-#[derive(Clone, Copy)]
-enum IwyuKind {
-    Word,
-    FuncOrTempl,
-    StdTempl,
-    Templ,
-    Func,
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+enum IwyuHeader {
+    Algorithm,
+    Cstdio,
+    Functional,
+    Iostream,
+    Limits,
+    List,
+    Map,
+    Memory,
+    Set,
+    String,
+    Tuple,
+    Utility,
+    Vector,
 }
 
-struct IwyuCheck {
-    token: &'static str,
-    header: &'static str,
-    kind: IwyuKind,
+impl IwyuHeader {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IwyuHeader::Algorithm => "algorithm",
+            IwyuHeader::Cstdio => "cstdio",
+            IwyuHeader::Functional => "functional",
+            IwyuHeader::Iostream => "iostream",
+            IwyuHeader::Limits => "limits",
+            IwyuHeader::List => "list",
+            IwyuHeader::Map => "map",
+            IwyuHeader::Memory => "memory",
+            IwyuHeader::Set => "set",
+            IwyuHeader::String => "string",
+            IwyuHeader::Tuple => "tuple",
+            IwyuHeader::Utility => "utility",
+            IwyuHeader::Vector => "vector",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum IwyuToken {
+    File,
+    Allocator,
+    BinaryFunction,
+    BinaryNegate,
+    Bind1st,
+    Bind2nd,
+    Cerr,
+    CharTraits,
+    Cin,
+    Clearerr,
+    Clog,
+    ConstMemFun1RefT,
+    ConstMemFun1T,
+    ConstMemFunRefT,
+    ConstMemFunT,
+    Copy,
+    Cout,
+    Divides,
+    EqualTo,
+    Fclose,
+    Feof,
+    Ferror,
+    Fflush,
+    Fgetc,
+    Fgetpos,
+    Fgets,
+    Fopen,
+    Forward,
+    FposT,
+    Fprintf,
+    Fputc,
+    Fputs,
+    Fread,
+    Freopen,
+    Fscanf,
+    Fseek,
+    Fsetpos,
+    Ftell,
+    Fwrite,
+    Getc,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+    List,
+    LogicalAnd,
+    LogicalNot,
+    LogicalOr,
+    MakePair,
+    MakeShared,
+    MakeUnique,
+    Map,
+    Max,
+    MemFun,
+    MemFun1RefT,
+    MemFun1T,
+    MemFunRef,
+    MemFunRefT,
+    MemFunT,
+    Min,
+    MinElement,
+    Minus,
+    Modulus,
+    Move,
+    Multimap,
+    Multiplies,
+    Negate,
+    Not1,
+    Not2,
+    NotEqualTo,
+    NumericLimits,
+    Pair,
+    Perror,
+    Plus,
+    PointerToBinaryFunction,
+    PointerToUnaryFunction,
+    Printf,
+    PtrFun,
+    Putc,
+    Putchar,
+    Puts,
+    Scanf,
+    Set,
+    Setbuf,
+    Setvbuf,
+    SharedPtr,
+    Snprintf,
+    Sort,
+    Sprintf,
+    Sscanf,
+    String,
+    Swap,
+    Tmpnam,
+    Transform,
+    Tuple,
+    UnaryFunction,
+    UnaryNegate,
+    Ungetc,
+    UniquePtr,
+    Vector,
+    Vfprintf,
+    Vfscanf,
+    Vprintf,
+    Vscanf,
+    Vsnprintf,
+    Vsscanf,
+    Wcerr,
+    Wcin,
+    Wclog,
+    Wcout,
+    WeakPtr,
+}
+
+impl IwyuToken {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IwyuToken::File => "FILE",
+            IwyuToken::Allocator => "allocator",
+            IwyuToken::BinaryFunction => "binary_function",
+            IwyuToken::BinaryNegate => "binary_negate",
+            IwyuToken::Bind1st => "bind1st",
+            IwyuToken::Bind2nd => "bind2nd",
+            IwyuToken::Cerr => "cerr",
+            IwyuToken::CharTraits => "char_traits",
+            IwyuToken::Cin => "cin",
+            IwyuToken::Clearerr => "clearerr",
+            IwyuToken::Clog => "clog",
+            IwyuToken::ConstMemFun1RefT => "const_mem_fun1_ref_t",
+            IwyuToken::ConstMemFun1T => "const_mem_fun1_t",
+            IwyuToken::ConstMemFunRefT => "const_mem_fun_ref_t",
+            IwyuToken::ConstMemFunT => "const_mem_fun_t",
+            IwyuToken::Copy => "copy",
+            IwyuToken::Cout => "cout",
+            IwyuToken::Divides => "divides",
+            IwyuToken::EqualTo => "equal_to",
+            IwyuToken::Fclose => "fclose",
+            IwyuToken::Feof => "feof",
+            IwyuToken::Ferror => "ferror",
+            IwyuToken::Fflush => "fflush",
+            IwyuToken::Fgetc => "fgetc",
+            IwyuToken::Fgetpos => "fgetpos",
+            IwyuToken::Fgets => "fgets",
+            IwyuToken::Fopen => "fopen",
+            IwyuToken::Forward => "forward",
+            IwyuToken::FposT => "fpos_t",
+            IwyuToken::Fprintf => "fprintf",
+            IwyuToken::Fputc => "fputc",
+            IwyuToken::Fputs => "fputs",
+            IwyuToken::Fread => "fread",
+            IwyuToken::Freopen => "freopen",
+            IwyuToken::Fscanf => "fscanf",
+            IwyuToken::Fseek => "fseek",
+            IwyuToken::Fsetpos => "fsetpos",
+            IwyuToken::Ftell => "ftell",
+            IwyuToken::Fwrite => "fwrite",
+            IwyuToken::Getc => "getc",
+            IwyuToken::Greater => "greater",
+            IwyuToken::GreaterEqual => "greater_equal",
+            IwyuToken::Less => "less",
+            IwyuToken::LessEqual => "less_equal",
+            IwyuToken::List => "list",
+            IwyuToken::LogicalAnd => "logical_and",
+            IwyuToken::LogicalNot => "logical_not",
+            IwyuToken::LogicalOr => "logical_or",
+            IwyuToken::MakePair => "make_pair",
+            IwyuToken::MakeShared => "make_shared",
+            IwyuToken::MakeUnique => "make_unique",
+            IwyuToken::Map => "map",
+            IwyuToken::Max => "max",
+            IwyuToken::MemFun => "mem_fun",
+            IwyuToken::MemFun1RefT => "mem_fun1_ref_t",
+            IwyuToken::MemFun1T => "mem_fun1_t",
+            IwyuToken::MemFunRef => "mem_fun_ref",
+            IwyuToken::MemFunRefT => "mem_fun_ref_t",
+            IwyuToken::MemFunT => "mem_fun_t",
+            IwyuToken::Min => "min",
+            IwyuToken::MinElement => "min_element",
+            IwyuToken::Minus => "minus",
+            IwyuToken::Modulus => "modulus",
+            IwyuToken::Move => "move",
+            IwyuToken::Multimap => "multimap",
+            IwyuToken::Multiplies => "multiplies",
+            IwyuToken::Negate => "negate",
+            IwyuToken::Not1 => "not1",
+            IwyuToken::Not2 => "not2",
+            IwyuToken::NotEqualTo => "not_equal_to",
+            IwyuToken::NumericLimits => "numeric_limits",
+            IwyuToken::Pair => "pair",
+            IwyuToken::Perror => "perror",
+            IwyuToken::Plus => "plus",
+            IwyuToken::PointerToBinaryFunction => "pointer_to_binary_function",
+            IwyuToken::PointerToUnaryFunction => "pointer_to_unary_function",
+            IwyuToken::Printf => "printf",
+            IwyuToken::PtrFun => "ptr_fun",
+            IwyuToken::Putc => "putc",
+            IwyuToken::Putchar => "putchar",
+            IwyuToken::Puts => "puts",
+            IwyuToken::Scanf => "scanf",
+            IwyuToken::Set => "set",
+            IwyuToken::Setbuf => "setbuf",
+            IwyuToken::Setvbuf => "setvbuf",
+            IwyuToken::SharedPtr => "shared_ptr",
+            IwyuToken::Snprintf => "snprintf",
+            IwyuToken::Sort => "sort",
+            IwyuToken::Sprintf => "sprintf",
+            IwyuToken::Sscanf => "sscanf",
+            IwyuToken::String => "string",
+            IwyuToken::Swap => "swap",
+            IwyuToken::Tmpnam => "tmpnam",
+            IwyuToken::Transform => "transform",
+            IwyuToken::Tuple => "tuple",
+            IwyuToken::UnaryFunction => "unary_function",
+            IwyuToken::UnaryNegate => "unary_negate",
+            IwyuToken::Ungetc => "ungetc",
+            IwyuToken::UniquePtr => "unique_ptr",
+            IwyuToken::Vector => "vector",
+            IwyuToken::Vfprintf => "vfprintf",
+            IwyuToken::Vfscanf => "vfscanf",
+            IwyuToken::Vprintf => "vprintf",
+            IwyuToken::Vscanf => "vscanf",
+            IwyuToken::Vsnprintf => "vsnprintf",
+            IwyuToken::Vsscanf => "vsscanf",
+            IwyuToken::Wcerr => "wcerr",
+            IwyuToken::Wcin => "wcin",
+            IwyuToken::Wclog => "wclog",
+            IwyuToken::Wcout => "wcout",
+            IwyuToken::WeakPtr => "weak_ptr",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum IwyuCheck {
+    Word {
+        token: IwyuToken,
+        header: IwyuHeader,
+    },
+    FuncOrTempl {
+        token: IwyuToken,
+        header: IwyuHeader,
+    },
+    StdTempl {
+        token: IwyuToken,
+        header: IwyuHeader,
+    },
+    Templ {
+        token: IwyuToken,
+        header: IwyuHeader,
+    },
+    Func {
+        token: IwyuToken,
+        header: IwyuHeader,
+    },
+}
+
+impl IwyuCheck {
+    fn token(&self) -> IwyuToken {
+        match *self {
+            IwyuCheck::Word { token, .. } => token,
+            IwyuCheck::FuncOrTempl { token, .. } => token,
+            IwyuCheck::StdTempl { token, .. } => token,
+            IwyuCheck::Templ { token, .. } => token,
+            IwyuCheck::Func { token, .. } => token,
+        }
+    }
+
+    fn header(&self) -> IwyuHeader {
+        match *self {
+            IwyuCheck::Word { header, .. } => header,
+            IwyuCheck::FuncOrTempl { header, .. } => header,
+            IwyuCheck::StdTempl { header, .. } => header,
+            IwyuCheck::Templ { header, .. } => header,
+            IwyuCheck::Func { header, .. } => header,
+        }
+    }
 }
 
 const IWYU_CHECKS: &[IwyuCheck] = &[
-    IwyuCheck {
-        token: "string",
-        header: "string",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::String,
+        header: IwyuHeader::String,
     },
-    IwyuCheck {
-        token: "cin",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Cin,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "cout",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Cout,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "cerr",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Cerr,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "clog",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Clog,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "wcin",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Wcin,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "wcout",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Wcout,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "wcerr",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Wcerr,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "wclog",
-        header: "iostream",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::Wclog,
+        header: IwyuHeader::Iostream,
     },
-    IwyuCheck {
-        token: "FILE",
-        header: "cstdio",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::File,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fpos_t",
-        header: "cstdio",
-        kind: IwyuKind::Word,
+    IwyuCheck::Word {
+        token: IwyuToken::FposT,
+        header: IwyuHeader::Cstdio,
     },
     // Algorithm
-    IwyuCheck {
-        token: "copy",
-        header: "algorithm",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Copy,
+        header: IwyuHeader::Algorithm,
     },
-    IwyuCheck {
-        token: "max",
-        header: "algorithm",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Max,
+        header: IwyuHeader::Algorithm,
     },
-    IwyuCheck {
-        token: "min",
-        header: "algorithm",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Min,
+        header: IwyuHeader::Algorithm,
     },
-    IwyuCheck {
-        token: "min_element",
-        header: "algorithm",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::MinElement,
+        header: IwyuHeader::Algorithm,
     },
-    IwyuCheck {
-        token: "sort",
-        header: "algorithm",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Sort,
+        header: IwyuHeader::Algorithm,
     },
-    IwyuCheck {
-        token: "transform",
-        header: "algorithm",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Transform,
+        header: IwyuHeader::Algorithm,
     },
     // Utility
-    IwyuCheck {
-        token: "forward",
-        header: "utility",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Forward,
+        header: IwyuHeader::Utility,
     },
-    IwyuCheck {
-        token: "make_pair",
-        header: "utility",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::MakePair,
+        header: IwyuHeader::Utility,
     },
-    IwyuCheck {
-        token: "move",
-        header: "utility",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Move,
+        header: IwyuHeader::Utility,
     },
-    IwyuCheck {
-        token: "swap",
-        header: "utility",
-        kind: IwyuKind::FuncOrTempl,
+    IwyuCheck::FuncOrTempl {
+        token: IwyuToken::Swap,
+        header: IwyuHeader::Utility,
     },
     // Map
-    IwyuCheck {
-        token: "map",
-        header: "map",
-        kind: IwyuKind::StdTempl,
+    IwyuCheck::StdTempl {
+        token: IwyuToken::Map,
+        header: IwyuHeader::Map,
     },
     // Templates
-    IwyuCheck {
-        token: "unary_function",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::UnaryFunction,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "binary_function",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::BinaryFunction,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "plus",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Plus,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "minus",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Minus,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "multiplies",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Multiplies,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "divides",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Divides,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "modulus",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Modulus,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "negate",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Negate,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "equal_to",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::EqualTo,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "not_equal_to",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::NotEqualTo,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "greater",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Greater,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "less",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Less,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "greater_equal",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::GreaterEqual,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "less_equal",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::LessEqual,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "logical_and",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::LogicalAnd,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "logical_or",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::LogicalOr,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "logical_not",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::LogicalNot,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "unary_negate",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::UnaryNegate,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "not1",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Not1,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "binary_negate",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::BinaryNegate,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "not2",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Not2,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "bind1st",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Bind1st,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "bind2nd",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Bind2nd,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "pointer_to_unary_function",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::PointerToUnaryFunction,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "pointer_to_binary_function",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::PointerToBinaryFunction,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "ptr_fun",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::PtrFun,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "mem_fun_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MemFunT,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "mem_fun",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MemFun,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "mem_fun1_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MemFun1T,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "mem_fun1_ref_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MemFun1RefT,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "mem_fun_ref_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MemFunRefT,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "const_mem_fun_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::ConstMemFunT,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "const_mem_fun1_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::ConstMemFun1T,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "const_mem_fun_ref_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::ConstMemFunRefT,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "const_mem_fun1_ref_t",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::ConstMemFun1RefT,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "mem_fun_ref",
-        header: "functional",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MemFunRef,
+        header: IwyuHeader::Functional,
     },
-    IwyuCheck {
-        token: "list",
-        header: "list",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::List,
+        header: IwyuHeader::List,
     },
-    IwyuCheck {
-        token: "numeric_limits",
-        header: "limits",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::NumericLimits,
+        header: IwyuHeader::Limits,
     },
-    IwyuCheck {
-        token: "multimap",
-        header: "map",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Multimap,
+        header: IwyuHeader::Map,
     },
-    IwyuCheck {
-        token: "allocator",
-        header: "memory",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Allocator,
+        header: IwyuHeader::Memory,
     },
-    IwyuCheck {
-        token: "make_shared",
-        header: "memory",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MakeShared,
+        header: IwyuHeader::Memory,
     },
-    IwyuCheck {
-        token: "make_unique",
-        header: "memory",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::MakeUnique,
+        header: IwyuHeader::Memory,
     },
-    IwyuCheck {
-        token: "shared_ptr",
-        header: "memory",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::SharedPtr,
+        header: IwyuHeader::Memory,
     },
-    IwyuCheck {
-        token: "unique_ptr",
-        header: "memory",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::UniquePtr,
+        header: IwyuHeader::Memory,
     },
-    IwyuCheck {
-        token: "weak_ptr",
-        header: "memory",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::WeakPtr,
+        header: IwyuHeader::Memory,
     },
-    IwyuCheck {
-        token: "set",
-        header: "set",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Set,
+        header: IwyuHeader::Set,
     },
-    IwyuCheck {
-        token: "char_traits",
-        header: "string",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::CharTraits,
+        header: IwyuHeader::String,
     },
-    IwyuCheck {
-        token: "tuple",
-        header: "tuple",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Tuple,
+        header: IwyuHeader::Tuple,
     },
-    IwyuCheck {
-        token: "pair",
-        header: "utility",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Pair,
+        header: IwyuHeader::Utility,
     },
-    IwyuCheck {
-        token: "vector",
-        header: "vector",
-        kind: IwyuKind::Templ,
+    IwyuCheck::Templ {
+        token: IwyuToken::Vector,
+        header: IwyuHeader::Vector,
     },
     // cstdio functions
-    IwyuCheck {
-        token: "fgets",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fgets,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fclose",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fclose,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "clearerr",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Clearerr,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "feof",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Feof,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "ferror",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Ferror,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fflush",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fflush,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fgetpos",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fgetpos,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fread",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fread,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fgetc",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fgetc,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fputc",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fputc,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fputs",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fputs,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fopen",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fopen,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "freopen",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Freopen,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fprintf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fprintf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fseek",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fseek,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fsetpos",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fsetpos,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "ftell",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Ftell,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "getc",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Getc,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "putc",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Putc,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "putchar",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Putchar,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "perror",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Perror,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "printf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Printf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "puts",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Puts,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "scanf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Scanf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "setbuf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Setbuf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "setvbuf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Setvbuf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "snprintf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Snprintf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "sprintf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Sprintf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "sscanf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Sscanf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "tmpnam",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Tmpnam,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "ungetc",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Ungetc,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "vfprintf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Vfprintf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "vfscanf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Vfscanf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "vprintf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Vprintf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "vsnprintf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Vsnprintf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "vscanf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Vscanf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "vsscanf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Vsscanf,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fwrite",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fwrite,
+        header: IwyuHeader::Cstdio,
     },
-    IwyuCheck {
-        token: "fscanf",
-        header: "cstdio",
-        kind: IwyuKind::Func,
+    IwyuCheck::Func {
+        token: IwyuToken::Fscanf,
+        header: IwyuHeader::Cstdio,
     },
 ];
 
 static IWYU_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
-    let patterns: Vec<&str> = IWYU_CHECKS.iter().map(|c| c.token).collect();
+    let patterns: Vec<&str> = IWYU_CHECKS.iter().map(|c| c.token().as_str()).collect();
     aho_corasick::AhoCorasickBuilder::new()
         .match_kind(aho_corasick::MatchKind::LeftmostLongest)
         .build(patterns)
@@ -606,7 +798,7 @@ static NOLINT_HEADER_GUARD_RE: LazyLock<regex::Regex> =
 static PRAGMA_ONCE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^\s*#pragma\s+once\b").unwrap());
 
-pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) {
+pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) {
     let extension = Path::new(linter.filename())
         .extension()
         .and_then(|ext| ext.to_str())
@@ -660,7 +852,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
         if guard != expected_guard {
             linter.error(
                 line_idx,
-                "build/header_guard",
+                Category::BuildHeaderGuard,
                 5,
                 &format!(
                     "#ifndef header guard has wrong style, please use: {}",
@@ -683,7 +875,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
         if endif_line == expected_slash_legacy {
             linter.error(
                 endif_idx,
-                "build/header_guard",
+                Category::BuildHeaderGuard,
                 0,
                 &format!(r#"#endif line should be "{}""#, expected_slash),
             );
@@ -693,7 +885,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
         if endif_line == expected_block_legacy {
             linter.error(
                 endif_idx,
-                "build/header_guard",
+                Category::BuildHeaderGuard,
                 0,
                 &format!(r#"#endif line should be "{}""#, expected_block),
             );
@@ -702,7 +894,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
 
         linter.error(
             endif_idx,
-            "build/header_guard",
+            Category::BuildHeaderGuard,
             5,
             &format!(r#"#endif line should be "{}""#, expected_slash),
         );
@@ -711,7 +903,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
 
     linter.error_display_line(
         0,
-        "build/header_guard",
+        Category::BuildHeaderGuard,
         5,
         &format!(
             "No #ifndef header guard found, suggested CPP variable is: {}",
@@ -720,7 +912,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines) 
     );
 }
 
-pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
+pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) {
     let mut include_state = IncludeState::new();
     let all_extensions = linter.options().all_extensions();
     let header_extensions = linter.options().header_extensions();
@@ -784,7 +976,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
         {
             linter.error(
                 linenum,
-                "build/include_subdir",
+                Category::BuildIncludeSubdir,
                 4,
                 "Include the directory when naming header files",
             );
@@ -793,7 +985,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
         if matches!(include, "cfenv" | "fenv.h" | "ratio") {
             linter.error(
                 linenum,
-                "build/c++11",
+                Category::BuildCpp11,
                 5,
                 &format!("<{}> is an unapproved C++11 header.", include),
             );
@@ -802,7 +994,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
         if include == "filesystem" {
             linter.error(
                 linenum,
-                "build/c++17",
+                Category::BuildCpp17,
                 5,
                 "<filesystem> is an unapproved C++17 header.",
             );
@@ -819,7 +1011,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
             }
             linter.error(
                 linenum,
-                "build/include",
+                Category::BuildInclude,
                 4,
                 &format!(
                     r#""{}" already included at {}:{}"#,
@@ -840,7 +1032,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
         if let Some(extension) = includes_non_header_from_other_package {
             linter.error(
                 linenum,
-                "build/include",
+                Category::BuildInclude,
                 4,
                 &format!("Do not include .{} files from other packages", extension),
             );
@@ -862,7 +1054,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
                     .unwrap_or("");
                 linter.error(
                     linenum,
-                    "build/include_order",
+                    Category::BuildIncludeOrder,
                     4,
                     &format!(
                         "{}. Should be: {}.h, c system, c++ system, other.",
@@ -878,7 +1070,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines) {
             {
                 linter.error(
                     linenum,
-                    "build/include_alpha",
+                    Category::BuildIncludeAlpha,
                     4,
                     &format!(r#"Include "{}" not in alphabetical order"#, include),
                 );
@@ -995,10 +1187,10 @@ fn first_component(value: &str) -> &str {
 
 fn check_include_what_you_use(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     include_state: &IncludeState,
 ) {
-    let mut required: BTreeMap<&str, (usize, String)> = BTreeMap::new();
+    let mut required: BTreeMap<IwyuHeader, (usize, String)> = BTreeMap::new();
 
     for (linenum, line) in clean_lines.elided.iter().enumerate() {
         if clean_lines.raw_lines[linenum].contains("NOLINT") {
@@ -1009,45 +1201,46 @@ fn check_include_what_you_use(
             continue;
         }
 
-        let mut matched_headers = HashSet::new();
+        let mut matched_headers = FxHashSet::default();
         for mat in IWYU_AC.find_iter(line) {
             let start = mat.start();
             let end = mat.end();
-            let check = &IWYU_CHECKS[mat.pattern()];
-            if matched_headers.contains(check.header) {
+            let check = IWYU_CHECKS[mat.pattern()];
+            let header = check.header();
+            if matched_headers.contains(&header) {
                 continue;
             }
 
             let m = IwyuMatch { line, start, end };
-            match check.kind {
-                IwyuKind::Word => {
+            match check {
+                IwyuCheck::Word { token, .. } => {
                     if m.is_word_match() {
-                        required.insert(check.header, (linenum, check.token.to_string()));
-                        matched_headers.insert(check.header);
+                        required.insert(header, (linenum, token.as_str().to_string()));
+                        matched_headers.insert(header);
                     }
                 }
-                IwyuKind::FuncOrTempl => {
+                IwyuCheck::FuncOrTempl { token, .. } => {
                     if m.is_function_or_template_match() {
-                        required.insert(check.header, (linenum, check.token.to_string()));
-                        matched_headers.insert(check.header);
+                        required.insert(header, (linenum, token.as_str().to_string()));
+                        matched_headers.insert(header);
                     }
                 }
-                IwyuKind::StdTempl => {
+                IwyuCheck::StdTempl { token, .. } => {
                     if m.is_std_template_match() {
-                        required.insert(check.header, (linenum, format!("{}<>", check.token)));
-                        matched_headers.insert(check.header);
+                        required.insert(header, (linenum, format!("{}<>", token.as_str())));
+                        matched_headers.insert(header);
                     }
                 }
-                IwyuKind::Templ => {
+                IwyuCheck::Templ { token, .. } => {
                     if m.is_template_match() {
-                        required.insert(check.header, (linenum, format!("{}<>", check.token)));
-                        matched_headers.insert(check.header);
+                        required.insert(header, (linenum, format!("{}<>", token.as_str())));
+                        matched_headers.insert(header);
                     }
                 }
-                IwyuKind::Func => {
+                IwyuCheck::Func { token, .. } => {
                     if m.is_function_match() {
-                        required.insert(check.header, (linenum, check.token.to_string()));
-                        matched_headers.insert(check.header);
+                        required.insert(header, (linenum, token.as_str().to_string()));
+                        matched_headers.insert(header);
                     }
                 }
             }
@@ -1055,12 +1248,12 @@ fn check_include_what_you_use(
     }
 
     for (header, (linenum, symbol)) in required {
-        if include_state.find_header(header).is_none() {
+        if include_state.find_header(header.as_str()).is_none() {
             linter.error(
                 linenum,
-                "build/include_what_you_use",
+                Category::BuildIncludeWhatYouUse,
                 4,
-                &format!("Add #include <{}> for {}", header, symbol),
+                &format!("Add #include <{}> for {}", header.as_str(), symbol),
             );
         }
     }
@@ -1260,7 +1453,7 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
         }
         linter.error(
             first_include_line.unwrap_or(0),
-            "build/include",
+            Category::BuildInclude,
             5,
             &message,
         );

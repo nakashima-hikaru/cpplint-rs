@@ -1,3 +1,4 @@
+use crate::categories::Category;
 use crate::file_linter::FileLinter;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use std::cmp;
@@ -10,12 +11,13 @@ static COPYRIGHT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .unwrap()
 });
 
-pub fn check(linter: &mut FileLinter, lines: &[String]) {
+pub fn check<S: AsRef<str>>(linter: &mut FileLinter, lines: &[S]) {
     // C++ version says it should occur by line 10.
     // lines[0] is often a placeholder or empty depending on how it's read.
     let search_limit = cmp::min(lines.len(), 11);
 
     for (i, line) in lines.iter().enumerate().take(search_limit) {
+        let line = line.as_ref();
         if i == 0 && line.is_empty() {
             continue;
         } // Skip placeholder
@@ -27,7 +29,7 @@ pub fn check(linter: &mut FileLinter, lines: &[String]) {
 
     linter.error(
         0,
-        "legal/copyright",
+        Category::LegalCopyright,
         5,
         "No copyright message found.  You should have a line: \"Copyright [year] <Copyright Owner>\"",
     );

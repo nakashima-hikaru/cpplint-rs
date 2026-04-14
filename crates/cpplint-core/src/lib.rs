@@ -1,3 +1,4 @@
+#![feature(portable_simd)]
 //! Core linting engine for `cpplint-rs`.
 //!
 //! Inspired by Ruff's layering, the crate separates:

@@ -9,6 +9,133 @@ pub struct RenderedOutput {
     pub stderr: String,
 }
 
+pub fn format_diagnostic(output_format: OutputFormat, diagnostic: &Diagnostic) -> String {
+    match output_format {
+        OutputFormat::Vs7 => format!(
+            "{}({}): error cpplint: [{}] {} [{}]\n",
+            diagnostic.filename,
+            diagnostic.linenum,
+            diagnostic.category,
+            diagnostic.message,
+            diagnostic.confidence
+        ),
+        OutputFormat::Eclipse => format!(
+            "{}:{}: warning: {}  [{}] [{}]\n",
+            diagnostic.filename,
+            diagnostic.linenum,
+            diagnostic.message,
+            diagnostic.category,
+            diagnostic.confidence
+        ),
+        OutputFormat::Emacs | OutputFormat::JUnit | OutputFormat::Sed | OutputFormat::Gsed => {
+            format!(
+                "{}:{}:  {}  [{}] [{}]\n",
+                diagnostic.filename,
+                diagnostic.linenum,
+                diagnostic.message,
+                diagnostic.category,
+                diagnostic.confidence
+            )
+        }
+    }
+}
+
+pub fn format_note(note: &Note) -> String {
+    note.text.to_string()
+}
+
+pub fn format_sed_diagnostic(
+    output_format: OutputFormat,
+    diagnostic: &Diagnostic,
+) -> (bool, String) {
+    let command = match output_format {
+        OutputFormat::Sed => "sed",
+        OutputFormat::Gsed => "gsed",
+        _ => return (false, String::new()),
+    };
+
+    if let Some(script) = sed_fixup(&diagnostic.message) {
+        (
+            true,
+            format!(
+                "{} -i '{}{}' {} # {}  [{}] [{}]\n",
+                command,
+                diagnostic.linenum,
+                script,
+                diagnostic.filename,
+                diagnostic.message,
+                diagnostic.category,
+                diagnostic.confidence
+            ),
+        )
+    } else {
+        (
+            false,
+            format!(
+                "# {}:{}:  \"{}\"  [{}] [{}]\n",
+                diagnostic.filename,
+                diagnostic.linenum,
+                diagnostic.message,
+                diagnostic.category,
+                diagnostic.confidence
+            ),
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct DiagnosticCounter {
+    counting_style: CountingStyle,
+    counts: BTreeMap<String, usize>,
+    total: usize,
+}
+
+impl DiagnosticCounter {
+    pub fn new(counting_style: CountingStyle) -> Self {
+        Self {
+            counting_style,
+            counts: BTreeMap::new(),
+            total: 0,
+        }
+    }
+
+    pub fn add(&mut self, diagnostic: &Diagnostic) {
+        self.total += 1;
+        if self.counting_style != CountingStyle::Total {
+            let category = match self.counting_style {
+                CountingStyle::Total => unreachable!(),
+                CountingStyle::Toplevel => diagnostic
+                    .category
+                    .as_str()
+                    .split('/')
+                    .next()
+                    .unwrap_or(diagnostic.category.as_str())
+                    .to_string(),
+                CountingStyle::Detailed => diagnostic.category.to_string(),
+            };
+            *self.counts.entry(category).or_insert(0) += 1;
+        }
+    }
+
+    pub fn total(&self) -> usize {
+        self.total
+    }
+
+    pub fn render_summary(&self) -> String {
+        let mut out = String::new();
+        if self.counting_style != CountingStyle::Total {
+            for (category, count) in &self.counts {
+                out.push_str(&format!(
+                    "Category '{}' errors found: {}\n",
+                    category, count
+                ));
+            }
+        }
+        out.push_str(&format!("Total errors found: {}\n", self.total));
+        out
+    }
+}
+
 pub fn render(
     output_format: OutputFormat,
     counting_style: CountingStyle,
@@ -120,11 +247,6 @@ fn render_sed_like(
     notes: &[Note],
 ) -> RenderedOutput {
     let mut rendered = RenderedOutput::default();
-    let command = match output_format {
-        OutputFormat::Sed => "sed",
-        OutputFormat::Gsed => "gsed",
-        _ => unreachable!(),
-    };
 
     for note in notes {
         if note.stream == NoteStream::Stderr {
@@ -133,26 +255,11 @@ fn render_sed_like(
     }
 
     for diagnostic in diagnostics {
-        if let Some(script) = sed_fixup(&diagnostic.message) {
-            rendered.stdout.push_str(&format!(
-                "{} -i '{}{}' {} # {}  [{}] [{}]\n",
-                command,
-                diagnostic.linenum,
-                script,
-                diagnostic.filename,
-                diagnostic.message,
-                diagnostic.category,
-                diagnostic.confidence
-            ));
+        let (is_fixable, text) = format_sed_diagnostic(output_format, diagnostic);
+        if is_fixable {
+            rendered.stdout.push_str(&text);
         } else {
-            rendered.stderr.push_str(&format!(
-                "# {}:{}:  \"{}\"  [{}] [{}]\n",
-                diagnostic.filename,
-                diagnostic.linenum,
-                diagnostic.message,
-                diagnostic.category,
-                diagnostic.confidence
-            ));
+            rendered.stderr.push_str(&text);
         }
     }
 
@@ -200,7 +307,7 @@ fn render_junit(
             .enumerate()
             .map(|(file_index, filename)| ProcessedFile {
                 file_index,
-                filename: (*filename).to_string(),
+                filename: (*filename).to_string().into(),
                 had_error: true,
             })
             .collect();
@@ -228,7 +335,7 @@ fn render_junit_case(
 "#,
         xml_escape(&case.filename)
     ));
-    if let Some(entries) = grouped.get(case.filename.as_str()) {
+    if let Some(entries) = grouped.get(case.filename.as_ref()) {
         for diagnostic in entries {
             let summary = format!(
                 "[{}] [{}] {}:{}",
@@ -241,7 +348,7 @@ fn render_junit_case(
             stdout.push_str(&format!(
                 r#"    <failure type="{}" message="{}">{}</failure>
 "#,
-                xml_escape(&diagnostic.category),
+                xml_escape(diagnostic.category.as_str()),
                 xml_escape(&summary),
                 xml_escape(&body)
             ));
@@ -250,66 +357,12 @@ fn render_junit_case(
     stdout.push_str("  </testcase>\n");
 }
 
-fn format_diagnostic(output_format: OutputFormat, diagnostic: &Diagnostic) -> String {
-    match output_format {
-        OutputFormat::Vs7 => format!(
-            "{}({}): error cpplint: [{}] {} [{}]\n",
-            diagnostic.filename,
-            diagnostic.linenum,
-            diagnostic.category,
-            diagnostic.message,
-            diagnostic.confidence
-        ),
-        OutputFormat::Eclipse => format!(
-            "{}:{}: warning: {}  [{}] [{}]\n",
-            diagnostic.filename,
-            diagnostic.linenum,
-            diagnostic.message,
-            diagnostic.category,
-            diagnostic.confidence
-        ),
-        OutputFormat::Emacs | OutputFormat::JUnit | OutputFormat::Sed | OutputFormat::Gsed => {
-            format!(
-                "{}:{}:  {}  [{}] [{}]\n",
-                diagnostic.filename,
-                diagnostic.linenum,
-                diagnostic.message,
-                diagnostic.category,
-                diagnostic.confidence
-            )
-        }
-    }
-}
-
 fn render_counts(counting_style: CountingStyle, diagnostics: &[Diagnostic]) -> String {
-    let mut out = String::new();
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-
-    if counting_style != CountingStyle::Total {
-        for diagnostic in diagnostics {
-            let category = match counting_style {
-                CountingStyle::Total => unreachable!(),
-                CountingStyle::Toplevel => diagnostic
-                    .category
-                    .split('/')
-                    .next()
-                    .unwrap_or(diagnostic.category.as_str())
-                    .to_string(),
-                CountingStyle::Detailed => diagnostic.category.clone(),
-            };
-            *counts.entry(category).or_insert(0) += 1;
-        }
-
-        for (category, count) in counts {
-            out.push_str(&format!(
-                "Category '{}' errors found: {}\n",
-                category, count
-            ));
-        }
+    let mut counter = DiagnosticCounter::new(counting_style);
+    for diagnostic in diagnostics {
+        counter.add(diagnostic);
     }
-
-    out.push_str(&format!("Total errors found: {}\n", diagnostics.len()));
-    out
+    counter.render_summary()
 }
 
 fn sed_fixup(message: &str) -> Option<&'static str> {
@@ -346,11 +399,11 @@ mod tests {
     fn sample_diagnostic() -> Diagnostic {
         Diagnostic {
             file_index: 0,
-            filename: "sample.cc".to_string(),
+            filename: "sample.cc".into(),
             linenum: 7,
-            category: "whitespace/tab".to_string(),
+            category: crate::categories::Category::WhitespaceTab,
             confidence: 1,
-            message: "Tab found; better to use spaces".to_string(),
+            message: "Tab found; better to use spaces".into(),
         }
     }
 
@@ -364,7 +417,7 @@ mod tests {
                 file_index: 0,
                 order: 0,
                 stream: NoteStream::Stdout,
-                text: "Done processing sample.cc\n".to_string(),
+                text: "Done processing sample.cc\n".into(),
             }],
             &[],
             None,
@@ -392,7 +445,7 @@ mod tests {
             &[],
             &[ProcessedFile {
                 file_index: 0,
-                filename: "sample.cc".to_string(),
+                filename: "sample.cc".into(),
                 had_error: true,
             }],
             None,
@@ -411,19 +464,19 @@ mod tests {
             vec![
                 Diagnostic {
                     file_index: 1,
-                    filename: "b.cc".to_string(),
+                    filename: "b.cc".into(),
                     linenum: 4,
-                    category: "whitespace/tab".to_string(),
+                    category: crate::categories::Category::WhitespaceTab,
                     confidence: 1,
-                    message: "Tab found; better to use spaces".to_string(),
+                    message: "Tab found; better to use spaces".into(),
                 },
                 Diagnostic {
                     file_index: 0,
-                    filename: "a.cc".to_string(),
+                    filename: "a.cc".into(),
                     linenum: 2,
-                    category: "whitespace/tab".to_string(),
+                    category: crate::categories::Category::WhitespaceTab,
                     confidence: 1,
-                    message: "Tab found; better to use spaces".to_string(),
+                    message: "Tab found; better to use spaces".into(),
                 },
             ],
             vec![
@@ -431,13 +484,13 @@ mod tests {
                     file_index: 1,
                     order: 0,
                     stream: NoteStream::Stdout,
-                    text: "Done processing b.cc\n".to_string(),
+                    text: "Done processing b.cc\n".into(),
                 },
                 Note {
                     file_index: 0,
                     order: 0,
                     stream: NoteStream::Stdout,
-                    text: "Done processing a.cc\n".to_string(),
+                    text: "Done processing a.cc\n".into(),
                 },
             ],
             vec![],

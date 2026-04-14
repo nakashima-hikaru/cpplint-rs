@@ -22,6 +22,7 @@ regex = { version = "1.10", features = [
     "perf-backtrack",
 ] }
 thiserror = "2.0"
+memchr = "2.7"
 
 # ripgrep ecosystem
 ignore = { version = "0.4", features = ["simd-accel"] }
@@ -33,7 +34,7 @@ fxhash = "0.2"
 
 # CLI & Concurrency
 clap = { version = "4.5", features = ["derive"] }
-rayon = "1.10"
+rayon = "1.12.0"
 
 # Testing & Benchmarking
 criterion = "0.8"

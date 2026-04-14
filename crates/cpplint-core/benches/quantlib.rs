@@ -37,7 +37,13 @@ fn bench_quantlib(c: &mut Criterion) {
 
     group.bench_function("quantlib", |b| {
         b.iter(|| {
-            let _ = run_lint(&[quantlib_path.clone()], &config).unwrap();
+            let _ = run_lint(
+                &[quantlib_path.clone()],
+                &config,
+                std::io::sink(),
+                std::io::sink(),
+            )
+            .unwrap();
         })
     });
 

@@ -1,3 +1,4 @@
+use crate::categories::Category;
 use crate::cleanse::{CleansedLines, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
@@ -27,6 +28,44 @@ static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
     ])
     .unwrap()
 });
+
+const WS_COLON_BIT: u32 = 1 << 0;
+const WS_PAREN_BIT: u32 = 1 << 1;
+const WS_COMMA_BIT: u32 = 1 << 2;
+const WS_SEMI_BIT: u32 = 1 << 3;
+const WS_BRACE_BIT: u32 = 1 << 4;
+const WS_BRACKET_BIT: u32 = 1 << 5;
+const WS_OP_BIT: u32 = 1 << 6;
+
+static WHITESPACE_LUT: [u32; 256] = {
+    let mut lut = [0; 256];
+    lut[b':' as usize] |= WS_COLON_BIT;
+    lut[b'(' as usize] |= WS_PAREN_BIT;
+    lut[b')' as usize] |= WS_PAREN_BIT;
+    lut[b',' as usize] |= WS_COMMA_BIT;
+    lut[b';' as usize] |= WS_SEMI_BIT;
+    lut[b'{' as usize] |= WS_BRACE_BIT;
+    lut[b'}' as usize] |= WS_BRACE_BIT;
+    lut[b'[' as usize] |= WS_BRACKET_BIT;
+    lut[b']' as usize] |= WS_BRACKET_BIT;
+    lut[b'=' as usize] |= WS_OP_BIT;
+    lut[b'<' as usize] |= WS_OP_BIT;
+    lut[b'>' as usize] |= WS_OP_BIT;
+    lut[b'!' as usize] |= WS_OP_BIT;
+    lut[b'~' as usize] |= WS_OP_BIT;
+    lut[b'+' as usize] |= WS_OP_BIT;
+    lut[b'-' as usize] |= WS_OP_BIT;
+    lut[b'*' as usize] |= WS_OP_BIT;
+    lut[b'/' as usize] |= WS_OP_BIT;
+    lut[b'%' as usize] |= WS_OP_BIT;
+    lut[b'&' as usize] |= WS_OP_BIT;
+    lut[b'|' as usize] |= WS_OP_BIT;
+    lut[b'^' as usize] |= WS_OP_BIT;
+    lut
+};
+
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 
 static OPERATOR_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator_*\b"#).unwrap());
@@ -135,7 +174,8 @@ fn contains_class_or_struct_word(line: &str) -> bool {
         .any(|mat| string_utils::is_word_match(line, mat.start(), mat.end()))
 }
 
-fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let line = &clean_lines.lines_without_raw_strings[linenum];
     let Some(comment_pos) = line.find("//") else {
         return;
@@ -159,7 +199,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, l
     {
         linter.error(
             linenum,
-            "whitespace/comments",
+            Category::WhitespaceComments,
             2,
             "At least two spaces is best between code and comments",
         );
@@ -169,13 +209,18 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, l
     if let Some(captures) = TODO_COMMENT_RE.captures(comment) {
         let leading_spaces = captures.get(1).map(|m| m.as_str().len()).unwrap_or(0);
         if leading_spaces > 1 {
-            linter.error(linenum, "whitespace/todo", 2, "Too many spaces before TODO");
+            linter.error(
+                linenum,
+                Category::WhitespaceTodo,
+                2,
+                "Too many spaces before TODO",
+            );
         }
 
         if captures.get(2).is_none() {
             linter.error(
                 linenum,
-                "readability/todo",
+                Category::ReadabilityTodo,
                 2,
                 "Missing username in TODO; it should look like \"// TODO(my_username): Stuff.\"",
             );
@@ -185,7 +230,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, l
         if captures.get(3).is_none() || (!suffix.is_empty() && suffix != " ") {
             linter.error(
                 linenum,
-                "whitespace/todo",
+                Category::WhitespaceTodo,
                 2,
                 "TODO(my_username) should be followed by a space",
             );
@@ -196,7 +241,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines, l
     if comment_matches.matched(0) && !comment_matches.matched(1) {
         linter.error(
             linenum,
-            "whitespace/comments",
+            Category::WhitespaceComments,
             4,
             "Should have a space between // and comment",
         );
@@ -317,33 +362,14 @@ fn has_extra_space_after_leading_nested_open_paren(line: &str) -> bool {
     space_count > 1 && rest[space_count..].starts_with('(')
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_operator_spacing(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if !elided_line.as_bytes().iter().any(|&b| {
-        matches!(
-            b,
-            b'=' | b'<'
-                | b'>'
-                | b'!'
-                | b'~'
-                | b'+'
-                | b'-'
-                | b'*'
-                | b'/'
-                | b'%'
-                | b'&'
-                | b'|'
-                | b'^'
-        )
-    }) {
-        return;
-    }
-
     let mut masked_line: std::borrow::Cow<'_, str> = std::borrow::Cow::Borrowed(elided_line);
     if keywords.has_operator()
         && let Some((prefix, operator, suffix)) = find_operator_method(elided_line)
@@ -363,7 +389,7 @@ fn check_operator_spacing(
     {
         linter.error(
             linenum,
-            "whitespace/operators",
+            Category::WhitespaceOperators,
             4,
             "Extra space for operator ! ",
         );
@@ -380,7 +406,7 @@ fn check_operator_spacing(
     {
         linter.error(
             linenum,
-            "whitespace/operators",
+            Category::WhitespaceOperators,
             4,
             "Missing spaces around =",
         );
@@ -389,7 +415,7 @@ fn check_operator_spacing(
     if let Some(op) = find_missing_comparison_space(line_to_check) {
         linter.error(
             linenum,
-            "whitespace/operators",
+            Category::WhitespaceOperators,
             3,
             &format!("Missing spaces around {}", op),
         );
@@ -400,7 +426,7 @@ fn check_operator_spacing(
         {
             linter.error(
                 linenum,
-                "whitespace/operators",
+                Category::WhitespaceOperators,
                 3,
                 "Missing spaces around <",
             );
@@ -413,7 +439,7 @@ fn check_operator_spacing(
         {
             linter.error(
                 linenum,
-                "whitespace/operators",
+                Category::WhitespaceOperators,
                 3,
                 "Missing spaces around >",
             );
@@ -423,11 +449,11 @@ fn check_operator_spacing(
     if let Some((left, right)) = find_lshift_spacing(line_to_check) {
         let left_is_digit = left.len() == 1 && left.as_bytes()[0].is_ascii_digit();
         let right_is_digit = right.len() == 1 && right.as_bytes()[0].is_ascii_digit();
-        let operator_semicolon = left == "operator" && right == ";";
-        if !(operator_semicolon || left_is_digit && right_is_digit) {
+        let operator_definition = left == "operator" && (right == ";" || right == "(");
+        if !(operator_definition || left_is_digit && right_is_digit) {
             linter.error(
                 linenum,
-                "whitespace/operators",
+                Category::WhitespaceOperators,
                 3,
                 "Missing spaces around <<",
             );
@@ -437,7 +463,7 @@ fn check_operator_spacing(
     if has_rshift_spacing(line_to_check) {
         linter.error(
             linenum,
-            "whitespace/operators",
+            Category::WhitespaceOperators,
             3,
             "Missing spaces around >>",
         );
@@ -446,7 +472,7 @@ fn check_operator_spacing(
     if let Some(op) = find_extra_unary_space(line_to_check) {
         linter.error(
             linenum,
-            "whitespace/operators",
+            Category::WhitespaceOperators,
             4,
             &format!("Extra space for operator {}", op),
         );
@@ -728,7 +754,7 @@ fn check_parenthesis_spacing(
         if let Some(captures) = CONTROL_PARENS_MISSING_SPACE_RE.captures(elided_line) {
             linter.error(
                 linenum,
-                "whitespace/parens",
+                Category::WhitespaceParens,
                 5,
                 &format!(
                     "Missing space before ( in {}",
@@ -755,7 +781,7 @@ fn check_parenthesis_spacing(
             {
                 linter.error(
                     linenum,
-                    "whitespace/parens",
+                    Category::WhitespaceParens,
                     5,
                     &format!("Mismatching spaces inside () in {}", keyword),
                 );
@@ -763,7 +789,7 @@ fn check_parenthesis_spacing(
             if left_spaces != 0 && left_spaces != 1 {
                 linter.error(
                     linenum,
-                    "whitespace/parens",
+                    Category::WhitespaceParens,
                     5,
                     &format!(
                         "Should have zero or one spaces inside ( and ) in {}",
@@ -777,7 +803,7 @@ fn check_parenthesis_spacing(
 
 fn check_spacing_for_function_call(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     raw_line: &str,
     linenum: usize,
@@ -867,14 +893,19 @@ fn check_spacing_for_function_call_base(
     if has_extra_space_after_function_call_paren(fncall) {
         linter.error(
             linenum,
-            "whitespace/parens",
+            Category::WhitespaceParens,
             4,
             "Extra space after ( in function call",
         );
     } else if has_extra_space_after_leading_nested_open_paren(fncall)
         || has_extra_space_after_open_paren(fncall)
     {
-        linter.error(linenum, "whitespace/parens", 2, "Extra space after (");
+        linter.error(
+            linenum,
+            Category::WhitespaceParens,
+            2,
+            "Extra space after (",
+        );
     }
 
     let spacing_matches = CALL_SPACING_SET.matches(fncall);
@@ -899,7 +930,7 @@ fn check_spacing_for_function_call_base(
             };
             linter.error(
                 linenum,
-                "whitespace/parens",
+                Category::WhitespaceParens,
                 confidence,
                 "Extra space before ( in function call",
             );
@@ -918,17 +949,22 @@ fn check_spacing_for_function_call_base(
     {
         linter.error(
             linenum,
-            "whitespace/parens",
+            Category::WhitespaceParens,
             2,
             "Closing ) should be moved to the previous line",
         );
     } else {
-        linter.error(linenum, "whitespace/parens", 2, "Extra space before )");
+        linter.error(
+            linenum,
+            Category::WhitespaceParens,
+            2,
+            "Extra space before )",
+        );
     }
 }
 
 fn is_braced_initialization(
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) -> bool {
@@ -952,7 +988,7 @@ fn is_braced_initialization(
         let mut owned = String::with_capacity(trailing_text.len() + extra_capacity);
         owned.push_str(trailing_text.as_ref());
         for offset in end_linenum + 1..trailing_limit {
-            owned.push_str(&clean_lines.elided[offset]);
+            owned.push_str(clean_lines.elided[offset]);
         }
         trailing_text = Cow::Owned(owned);
     }
@@ -1002,7 +1038,12 @@ fn looks_like_type_name(expr: &str) -> bool {
             .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
-fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+fn check_blank_line_rules(
+    linter: &mut FileLinter,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
     let line = &clean_lines.lines_without_raw_strings[linenum];
     if !crate::line_utils::is_blank_line(line) {
         return;
@@ -1034,7 +1075,7 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
         let exception = if INITLIST_CONTINUATION_RE.is_match(prev_line) {
             let mut search_position = linenum.checked_sub(2);
             while let Some(position) = search_position {
-                if !INITLIST_CONTINUATION_RE.is_match(&clean_lines.elided[position]) {
+                if !INITLIST_CONTINUATION_RE.is_match(clean_lines.elided[position]) {
                     break;
                 }
                 search_position = position.checked_sub(1);
@@ -1049,7 +1090,7 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
         if !exception {
             linter.error(
                 linenum,
-                "whitespace/blank_line",
+                Category::WhitespaceBlankLine,
                 2,
                 "Redundant blank line at the start of a code block should be deleted.",
             );
@@ -1059,7 +1100,7 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
     if let Some(captures) = ACCESS_SPECIFIER_RE.captures(prev_line) {
         linter.error(
             linenum,
-            "whitespace/blank_line",
+            Category::WhitespaceBlankLine,
             3,
             &format!(
                 "Do not leave a blank line after \"{}:\"",
@@ -1091,7 +1132,7 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
         }
         linter.error(
             linenum,
-            "whitespace/blank_line",
+            Category::WhitespaceBlankLine,
             3,
             "Redundant blank line at the end of a code block should be deleted.",
         );
@@ -1100,7 +1141,7 @@ fn check_blank_line_rules(linter: &mut FileLinter, clean_lines: &CleansedLines, 
 
 fn check_section_spacing(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
@@ -1179,7 +1220,7 @@ fn check_section_spacing(
     if end_class_head < linenum.saturating_sub(1) {
         linter.error(
             linenum,
-            "whitespace/blank_line",
+            Category::WhitespaceBlankLine,
             3,
             &format!(
                 "\"{}:\" should be preceded by a blank line",
@@ -1191,7 +1232,7 @@ fn check_section_spacing(
 
 fn check_access_specifier_indentation(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
@@ -1212,7 +1253,7 @@ fn check_access_specifier_indentation(
 
     let prefix = captures.get(1).map(|m| m.as_str()).unwrap_or("");
     let class_indent = crate::line_utils::get_indent_level(
-        &clean_lines.lines_without_raw_strings[class_range.start],
+        clean_lines.lines_without_raw_strings[class_range.start],
     );
     if prefix.len() == class_indent + 1 && prefix.chars().all(|ch| ch == ' ') {
         return;
@@ -1238,7 +1279,7 @@ fn check_access_specifier_indentation(
     let slots = captures.get(3).map(|m| m.as_str()).unwrap_or("");
     linter.error(
         linenum,
-        "whitespace/indent",
+        Category::WhitespaceIndent,
         3,
         &format!(
             "{}{}: should be indented +1 space inside {}",
@@ -1249,7 +1290,7 @@ fn check_access_specifier_indentation(
 
 fn check_class_closing_brace_alignment(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
     let Some(class_range) = linter.facts().enclosing_class_range(linenum) else {
@@ -1265,7 +1306,7 @@ fn check_class_closing_brace_alignment(
     }
 
     let class_indent = crate::line_utils::get_indent_level(
-        &clean_lines.lines_without_raw_strings[class_range.start],
+        clean_lines.lines_without_raw_strings[class_range.start],
     );
     let closing_indent = crate::line_utils::get_indent_level(line);
     if closing_indent == class_indent {
@@ -1287,7 +1328,7 @@ fn check_class_closing_brace_alignment(
     };
     linter.error(
         linenum,
-        "whitespace/indent",
+        Category::WhitespaceIndent,
         3,
         &format!(
             "Closing brace should be aligned with beginning of {}",
@@ -1296,6 +1337,7 @@ fn check_class_closing_brace_alignment(
     );
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_tabs_and_line_length(
     linter: &mut FileLinter,
     raw_line: &str,
@@ -1305,7 +1347,7 @@ fn check_tabs_and_line_length(
     if raw_line.contains('\t') {
         linter.error(
             linenum,
-            "whitespace/tab",
+            Category::WhitespaceTab,
             1,
             "Tab found; better to use spaces",
         );
@@ -1315,7 +1357,7 @@ fn check_tabs_and_line_length(
     if width > linter.options().line_length && !should_skip_line_length(line_without_raw_strings) {
         linter.error(
             linenum,
-            "whitespace/line_length",
+            Category::WhitespaceLineLength,
             2,
             &format!(
                 "Lines should be <= {} characters long",
@@ -1325,9 +1367,10 @@ fn check_tabs_and_line_length(
     }
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_indentation(
     linter: &mut FileLinter,
-    clean_lines: &CleansedLines,
+    clean_lines: &CleansedLines<'_>,
     raw_line: &str,
     line: &str,
     linenum: usize,
@@ -1335,7 +1378,7 @@ fn check_indentation(
     if raw_line.ends_with(' ') || raw_line.ends_with('\t') {
         linter.error(
             linenum,
-            "whitespace/end_of_line",
+            Category::WhitespaceEndOfLine,
             4,
             "Line ends in whitespace.  Consider deleting these extra spaces.",
         );
@@ -1345,10 +1388,10 @@ fn check_indentation(
     let indent_line = if comment_only_line { raw_line } else { line };
     let initial_spaces = crate::line_utils::get_indent_level(raw_line);
     let prev_line_allows_continuation = linenum > 0
-        && PREV_LINE_CONTINUATION_RE.is_match(&clean_lines.lines_without_raw_strings[linenum - 1]);
+        && PREV_LINE_CONTINUATION_RE.is_match(clean_lines.lines_without_raw_strings[linenum - 1]);
     let is_scope_or_label = SCOPE_OR_LABEL_RE.is_match(indent_line);
     let is_raw_string_line =
-        clean_lines.raw_lines[linenum].as_str() != line && line.trim_start().starts_with("\"\"");
+        clean_lines.raw_lines[linenum] != line && line.trim_start().starts_with("\"\"");
     let should_check_indent = !raw_line.trim().is_empty() || initial_spaces > 0;
 
     if should_check_indent
@@ -1359,38 +1402,77 @@ fn check_indentation(
     {
         linter.error(
             linenum,
-            "whitespace/indent",
+            Category::WhitespaceIndent,
             3,
             "Weird number of spaces at line-start.  Are you using a 2-space indent?",
         );
     }
 }
 
-pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usize) {
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let raw_line = &clean_lines.raw_lines[linenum];
     let line_without_raw_strings = &clean_lines.lines_without_raw_strings[linenum];
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
 
     let has_slash = raw_line.contains('/');
-    let mut has_colon = false;
-    let mut has_paren = false;
-    let mut has_comma = false;
-    let mut has_semicolon = false;
-    let mut has_brace = false;
 
-    for &b in elided_line.as_bytes() {
-        match b {
-            b':' => has_colon = true,
-            b'(' | b')' => has_paren = true,
-            b',' => has_comma = true,
-            b';' => has_semicolon = true,
-            b'{' => has_brace = true,
-            _ => {}
+    let bytes = elided_line.as_bytes();
+    let mut mask = 0u32;
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
+            mask |= WS_PAREN_BIT;
         }
+        if chunk.simd_eq(u8x32::splat(b':')).any() {
+            mask |= WS_COLON_BIT;
+        }
+        if chunk.simd_eq(u8x32::splat(b';')).any() {
+            mask |= WS_SEMI_BIT;
+        }
+        if chunk.simd_eq(u8x32::splat(b',')).any() {
+            mask |= WS_COMMA_BIT;
+        }
+        if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
+            mask |= WS_BRACE_BIT;
+        }
+        if (chunk.simd_eq(u8x32::splat(b'[')) | chunk.simd_eq(u8x32::splat(b']'))).any() {
+            mask |= WS_BRACKET_BIT;
+        }
+        if (chunk.simd_eq(u8x32::splat(b'='))
+            | chunk.simd_eq(u8x32::splat(b'<'))
+            | chunk.simd_eq(u8x32::splat(b'>'))
+            | chunk.simd_eq(u8x32::splat(b'!'))
+            | chunk.simd_eq(u8x32::splat(b'~'))
+            | chunk.simd_eq(u8x32::splat(b'+'))
+            | chunk.simd_eq(u8x32::splat(b'-'))
+            | chunk.simd_eq(u8x32::splat(b'*'))
+            | chunk.simd_eq(u8x32::splat(b'/'))
+            | chunk.simd_eq(u8x32::splat(b'%'))
+            | chunk.simd_eq(u8x32::splat(b'&'))
+            | chunk.simd_eq(u8x32::splat(b'|'))
+            | chunk.simd_eq(u8x32::splat(b'^')))
+        .any()
+        {
+            mask |= WS_OP_BIT;
+        }
+        i += 32;
+    }
+    for &b in &bytes[i..] {
+        mask |= WHITESPACE_LUT[b as usize];
     }
 
-    let keywords = &clean_lines.keywords[linenum];
+    let has_colon = (mask & WS_COLON_BIT) != 0;
+    let has_paren = (mask & WS_PAREN_BIT) != 0;
+    let has_comma = (mask & WS_COMMA_BIT) != 0;
+    let has_semicolon = (mask & WS_SEMI_BIT) != 0;
+    let has_brace = (mask & WS_BRACE_BIT) != 0;
+    let has_bracket = (mask & WS_BRACKET_BIT) != 0;
+    let has_operator = (mask & WS_OP_BIT) != 0;
+
+    let keywords = clean_lines.keywords(linenum);
 
     if has_slash {
         check_comment_spacing(linter, clean_lines, linenum);
@@ -1399,49 +1481,51 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     check_blank_line_rules(linter, clean_lines, linenum);
 
     if linenum > 0 {
-        check_section_spacing(linter, clean_lines, linenum, keywords);
+        check_section_spacing(linter, clean_lines, linenum, &keywords);
     }
 
     if has_colon || keywords.has_access() {
-        check_access_specifier_indentation(linter, clean_lines, linenum, keywords);
+        check_access_specifier_indentation(linter, clean_lines, linenum, &keywords);
     }
 
-    if elided_line.contains('}') {
+    if has_brace {
         check_class_closing_brace_alignment(linter, clean_lines, linenum);
     }
 
     check_tabs_and_line_length(linter, raw_line, line_without_raw_strings, linenum);
     check_indentation(linter, clean_lines, raw_line, line, linenum);
 
-    if elided_line.contains('[') && has_extra_space_before_bracket(elided_line) {
+    if has_bracket && has_extra_space_before_bracket(elided_line) {
         linter.error(
             linenum,
-            r#"whitespace/braces"#,
+            Category::WhitespaceBraces,
             5,
-            r#"Extra space before ["#,
+            "Extra space before [",
         );
     }
 
     if keywords.has_for() && has_colon && RANGE_FOR_COLON_SET.is_match(elided_line) {
         linter.error(
             linenum,
-            r#"whitespace/forcolon"#,
+            Category::WhitespaceForcolon,
             2,
-            r#"Missing space around colon in range-based for loop"#,
+            "Missing space around colon in range-based for loop",
         );
     }
 
-    check_operator_spacing(linter, clean_lines, elided_line, linenum, keywords);
+    if has_operator {
+        check_operator_spacing(linter, clean_lines, elided_line, linenum, &keywords);
+    }
 
     if has_paren {
-        check_parenthesis_spacing(linter, elided_line, raw_line, linenum, keywords);
+        check_parenthesis_spacing(linter, elided_line, raw_line, linenum, &keywords);
         check_spacing_for_function_call(
             linter,
             clean_lines,
             elided_line,
             raw_line,
             linenum,
-            keywords,
+            &keywords,
         );
     }
 
@@ -1480,7 +1564,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
             if missing_comma_space {
                 linter.error(
                     linenum,
-                    r#"whitespace/comma"#,
+                    Category::WhitespaceComma,
                     3,
                     r#"Missing space after ,"#,
                 );
@@ -1515,7 +1599,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
                 }
                 linter.error(
                     target_linenum,
-                    r#"whitespace/semicolon"#,
+                    Category::WhitespaceSemicolon,
                     3,
                     r#"Missing space after ;"#,
                 );
@@ -1545,7 +1629,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
             {
                 linter.error(
                     linenum,
-                    "whitespace/newline",
+                    Category::WhitespaceNewline,
                     0,
                     "More than one command on the same line",
                 );
@@ -1570,7 +1654,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
             {
                 linter.error(
                     linenum,
-                    r#"whitespace/braces"#,
+                    Category::WhitespaceBraces,
                     5,
                     r#"Missing space before {"#,
                 );
@@ -1581,7 +1665,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     if elided_line.contains("}else") {
         linter.error(
             linenum,
-            r#"whitespace/braces"#,
+            Category::WhitespaceBraces,
             5,
             r#"Missing space before else"#,
         );
@@ -1593,7 +1677,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
         if trimmed_suffix == ";" {
             linter.error(
                 linenum,
-                r#"whitespace/semicolon"#,
+                Category::WhitespaceSemicolon,
                 5,
                 r#"Semicolon defining empty statement. Use {} instead."#,
             );
@@ -1601,7 +1685,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     } else if elided_line.trim() == ";" {
         linter.error(
             linenum,
-            r#"whitespace/semicolon"#,
+            Category::WhitespaceSemicolon,
             5,
             r#"Line contains only semicolon. If this should be an empty statement, use {} instead."#,
         );
@@ -1610,23 +1694,23 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines, linenum: usiz
     {
         linter.error(
             linenum,
-            r#"whitespace/semicolon"#,
+            Category::WhitespaceSemicolon,
             5,
             r#"Extra space before last semicolon. If this should be an empty statement, use {} instead."#,
         );
     }
 }
 
-pub fn check_eof_newline(linter: &mut FileLinter, raw_lines: &[String]) {
+pub fn check_eof_newline<S: AsRef<str>>(linter: &mut FileLinter, raw_lines: &[S]) {
     if raw_lines.is_empty() {
         return;
     }
 
-    let last_line = &raw_lines[raw_lines.len() - 1];
+    let last_line = raw_lines[raw_lines.len() - 1].as_ref();
     if !last_line.is_empty() {
         linter.error(
             raw_lines.len() - 1,
-            "whitespace/ending_newline",
+            Category::WhitespaceEndingNewline,
             5,
             "Could not find a newline character at the end of the file.",
         );

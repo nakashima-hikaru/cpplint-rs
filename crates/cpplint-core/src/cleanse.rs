@@ -1,6 +1,10 @@
 use crate::options::Options;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
+use bumpalo::Bump;
+use bumpalo::collections::Vec as BumpVec;
 use std::borrow::Cow;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 use std::sync::LazyLock;
 
 static INCLUDE_RE: LazyLock<regex::Regex> =
@@ -56,12 +60,21 @@ const KEYWORDS: &[&str] = &[
     "const_cast",
     "else",
     "do",
+    "namespace",
+    "virtual",
+    "override",
+    "final",
+    "inline",
+    "constexpr",
+    "static",
 ];
 
 static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KEYWORDS).unwrap());
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct MatchedKeywords(u32);
+
+const KEYWORDS_NOT_CALCULATED: u32 = u32::MAX;
 
 impl MatchedKeywords {
     pub(crate) const IF: u32 = 1 << 0;
@@ -84,6 +97,14 @@ impl MatchedKeywords {
     pub(crate) const CAST: u32 = 1 << 17;
     pub(crate) const ELSE: u32 = 1 << 18;
     pub(crate) const DO: u32 = 1 << 19;
+    pub(crate) const NAMESPACE: u32 = 1 << 20;
+    pub(crate) const VIRTUAL: u32 = 1 << 21;
+    pub(crate) const OVERRIDE: u32 = 1 << 22;
+    pub(crate) const FINAL: u32 = 1 << 23;
+    pub(crate) const INLINE: u32 = 1 << 24;
+    pub(crate) const CONSTEXPR: u32 = 1 << 25;
+    pub(crate) const STATIC: u32 = 1 << 26;
+    pub(crate) const HAS_ALT_TOKEN: u32 = 1 << 27;
 
     pub fn from_line(line: &str) -> Self {
         if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
@@ -112,6 +133,13 @@ impl MatchedKeywords {
                 21..=23 => Self::CAST,
                 24 => Self::ELSE,
                 25 => Self::DO,
+                26 => Self::NAMESPACE,
+                27 => Self::VIRTUAL,
+                28 => Self::OVERRIDE,
+                29 => Self::FINAL,
+                30 => Self::INLINE,
+                31 => Self::CONSTEXPR,
+                32 => Self::STATIC,
                 _ => 0,
             };
         }
@@ -198,6 +226,38 @@ impl MatchedKeywords {
     pub fn has_any_cast(&self) -> bool {
         (self.0 & Self::CAST) != 0
     }
+    #[inline(always)]
+    pub fn has_namespace(&self) -> bool {
+        (self.0 & Self::NAMESPACE) != 0
+    }
+    #[inline(always)]
+    pub fn has_virtual(&self) -> bool {
+        (self.0 & Self::VIRTUAL) != 0
+    }
+    #[inline(always)]
+    pub fn has_override(&self) -> bool {
+        (self.0 & Self::OVERRIDE) != 0
+    }
+    #[inline(always)]
+    pub fn has_final(&self) -> bool {
+        (self.0 & Self::FINAL) != 0
+    }
+    #[inline(always)]
+    pub fn has_inline(&self) -> bool {
+        (self.0 & Self::INLINE) != 0
+    }
+    #[inline(always)]
+    pub fn has_constexpr(&self) -> bool {
+        (self.0 & Self::CONSTEXPR) != 0
+    }
+    #[inline(always)]
+    pub fn has_static(&self) -> bool {
+        (self.0 & Self::STATIC) != 0
+    }
+    #[inline(always)]
+    pub fn has_alt_token(&self) -> bool {
+        (self.0 & Self::HAS_ALT_TOKEN) != 0
+    }
 
     #[inline(always)]
     pub fn bits(&self) -> u32 {
@@ -248,54 +308,64 @@ pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
     matches
 }
 
-pub struct CleansedLines {
-    pub elided: Vec<String>,
-    elided_without_alternate_tokens: Option<Vec<String>>,
-    pub lines: Vec<String>,
-    pub raw_lines: Vec<String>,
-    pub lines_without_raw_strings: Vec<String>,
-    pub has_comment: Vec<bool>,
-    pub keywords: Vec<MatchedKeywords>,
+pub struct CleansedLines<'a> {
+    pub raw_lines: BumpVec<'a, &'a str>,
+    pub lines: BumpVec<'a, &'a str>,
+    pub elided: BumpVec<'a, &'a str>,
+    pub lines_without_raw_strings: BumpVec<'a, &'a str>,
+    pub has_comment: BumpVec<'a, bool>,
+    pub(crate) keywords: BumpVec<'a, MatchedKeywords>,
+    pub(crate) elided_without_alternate_tokens: Option<BumpVec<'a, &'a str>>,
 }
 
-impl CleansedLines {
-    pub fn new(raw_lines: Vec<String>) -> Self {
-        let options = Options::new();
-        Self::new_with_options(raw_lines, &options, "")
+impl<'a> CleansedLines<'a> {
+    pub fn new(arena: &'a Bump, raw_lines: &[&'a str]) -> Self {
+        Self::new_with_options(arena, raw_lines, &Options::new(), "")
     }
 
-    #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub fn new_with_options(raw_lines: Vec<String>, options: &Options, filename: &str) -> Self {
+    pub fn new_with_options(
+        arena: &'a Bump,
+        raw_lines: &[&'a str],
+        options: &Options,
+        filename: &str,
+    ) -> Self {
         let n = raw_lines.len();
-        let mut lines = Vec::with_capacity(n);
-        let mut elided = Vec::with_capacity(n);
-        let mut has_comment = Vec::with_capacity(n);
-        let mut lines_without_raw_strings = Vec::with_capacity(n);
-        let mut keywords = Vec::with_capacity(n);
+        let mut lines = BumpVec::with_capacity_in(n, arena);
+        let mut elided = BumpVec::with_capacity_in(n, arena);
+        let mut has_comment = BumpVec::with_capacity_in(n, arena);
+        let mut lines_without_raw_strings = BumpVec::with_capacity_in(n, arena);
+        let mut keywords = BumpVec::with_capacity_in(n, arena);
+        let mut raw_lines_arena = BumpVec::with_capacity_in(n, arena);
+        raw_lines_arena.extend_from_slice(raw_lines);
 
         let mut in_block_comment = false;
         let mut raw_delimiter = String::new();
-        let replace_alt_tokens = !options.should_print_error("readability/alt_tokens", filename, 0);
-        let mut elided_without_alternate_tokens = replace_alt_tokens.then(|| Vec::with_capacity(n));
+        let replace_alt_tokens = !options.should_print_error(
+            crate::categories::Category::ReadabilityAltTokens,
+            filename,
+            0,
+        );
+        let mut elided_without_alternate_tokens =
+            replace_alt_tokens.then(|| BumpVec::with_capacity_in(n, arena));
 
-        for raw_line in &raw_lines {
+        for &raw_line_ref in raw_lines {
             // 1. Cleanse raw strings
-            let mut line_without_raw: Cow<'_, str> = Cow::Borrowed(raw_line);
+            let mut line_without_raw: Cow<'_, str> = Cow::Borrowed(raw_line_ref);
 
             if !raw_delimiter.is_empty() {
-                if let Some(pos) = raw_line.find(&raw_delimiter) {
-                    let leading_space_count = raw_line
+                if let Some(pos) = raw_line_ref.find(&raw_delimiter) {
+                    let leading_space_count = raw_line_ref
                         .bytes()
                         .take_while(|b| b.is_ascii_whitespace())
                         .count();
                     let mut s = String::with_capacity(
-                        leading_space_count + 2 + raw_line.len() - (pos + raw_delimiter.len()),
+                        leading_space_count + 2 + raw_line_ref.len() - (pos + raw_delimiter.len()),
                     );
                     for _ in 0..leading_space_count {
                         s.push(' ');
                     }
                     s.push_str("\"\"");
-                    s.push_str(&raw_line[pos + raw_delimiter.len()..]);
+                    s.push_str(&raw_line_ref[pos + raw_delimiter.len()..]);
                     line_without_raw = Cow::Owned(s);
                     raw_delimiter.clear();
                 } else {
@@ -336,37 +406,74 @@ impl CleansedLines {
                 }
             }
 
-            let line_without_raw_owned = line_without_raw.into_owned();
-            lines_without_raw_strings.push(line_without_raw_owned.clone());
+            let was_raw_string_replaced = matches!(line_without_raw, Cow::Owned(_));
+            let line_without_raw_ref: &'a str = if was_raw_string_replaced {
+                arena.alloc_str(line_without_raw.as_ref())
+            } else {
+                raw_line_ref
+            };
+            lines_without_raw_strings.push(line_without_raw_ref);
 
             // 2. Cleanse comments
             let (comment_removed, is_comment, still_in_block) =
-                cleanse_comments_line(&line_without_raw_owned, in_block_comment);
-            lines.push(comment_removed.to_string());
+                cleanse_comments_line(line_without_raw_ref, in_block_comment);
+
+            let line_comment_removed_ref: &'a str = if let Cow::Owned(s) = comment_removed {
+                arena.alloc_str(&s)
+            } else {
+                line_without_raw_ref
+            };
+            lines.push(line_comment_removed_ref);
             has_comment.push(is_comment);
             in_block_comment = still_in_block;
 
             // 3. Collapse strings
-            let collapsed_line = collapse_strings(&comment_removed);
-            if let Some(lines_without_alt_tokens) = &mut elided_without_alternate_tokens {
-                let elided_line = replace_alternate_tokens(&collapsed_line);
-                lines_without_alt_tokens.push(collapsed_line.to_string());
-                elided.push(elided_line.into_owned());
+            let collapsed_line = collapse_strings(line_comment_removed_ref);
+            let line_collapsed_ref: &'a str = if let Cow::Owned(s) = collapsed_line {
+                arena.alloc_str(s.as_ref())
             } else {
-                elided.push(collapsed_line.into_owned());
-            }
+                line_comment_removed_ref
+            };
 
-            keywords.push(MatchedKeywords::from_line(&elided[elided.len() - 1]));
+            let has_alt = !find_alternate_tokens(line_collapsed_ref).is_empty();
+
+            if let Some(lines_without_alt_tokens) = &mut elided_without_alternate_tokens {
+                let elided_line = replace_alternate_tokens(line_collapsed_ref);
+                lines_without_alt_tokens.push(line_collapsed_ref);
+
+                let line_elided_ref: &'a str = if let Cow::Owned(s) = elided_line {
+                    arena.alloc_str(&s)
+                } else {
+                    line_collapsed_ref
+                };
+
+                let mut bits = MatchedKeywords::from_line(line_elided_ref).0;
+                if has_alt {
+                    bits |= MatchedKeywords::HAS_ALT_TOKEN;
+                }
+                keywords.push(MatchedKeywords(bits));
+                elided.push(line_elided_ref);
+            } else {
+                let elided_line = line_collapsed_ref;
+                elided.push(elided_line);
+                if has_alt {
+                    let mut bits = MatchedKeywords::from_line(elided.last().unwrap()).0;
+                    bits |= MatchedKeywords::HAS_ALT_TOKEN;
+                    keywords.push(MatchedKeywords(bits));
+                } else {
+                    keywords.push(MatchedKeywords(KEYWORDS_NOT_CALCULATED));
+                }
+            }
         }
 
         CleansedLines {
-            elided,
-            elided_without_alternate_tokens,
+            raw_lines: raw_lines_arena,
             lines,
-            raw_lines,
+            elided,
             lines_without_raw_strings,
             has_comment,
             keywords,
+            elided_without_alternate_tokens,
         }
     }
 
@@ -374,10 +481,23 @@ impl CleansedLines {
         self.elided_without_alternate_tokens
             .as_ref()
             .and_then(|lines| lines.get(linenum))
-            .map_or_else(
-                || self.elided[linenum].as_str(),
-                std::string::String::as_str,
-            )
+            .copied()
+            .unwrap_or(self.elided[linenum])
+    }
+
+    pub fn keywords(&self, linenum: usize) -> MatchedKeywords {
+        let val = self.keywords[linenum];
+        if val.0 != KEYWORDS_NOT_CALCULATED {
+            return val;
+        }
+
+        let calculated = MatchedKeywords::from_line(self.elided[linenum]);
+        // NOTE: In single-threaded use, we'd just update this.
+        // If we want thread-safety here, we'd need Atomic back, but FileLinter is &mut.
+        // However, CleansedLines might be shared. Let's assume FileLinter ownership for now.
+        // Actually keywords is not pub(crate) so we can't easily mut it from a &self ref.
+        // For simplicity during optimization, let's keep it as is.
+        calculated
     }
 }
 
@@ -515,9 +635,30 @@ fn cleanse_comments_line<'a>(
     // If we're not in a block comment and the line has no interesting characters, return as-is (possibly trimmed)
     if !in_block_comment {
         let bytes = line.as_bytes();
-        let has_special = bytes
-            .iter()
-            .any(|&b| matches!(b, b'/' | b'*' | b'"' | b'\'' | b'\\'));
+        let mut has_special = false;
+        let mut i = 0;
+        while i + 32 <= bytes.len() {
+            let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+            if (chunk.simd_eq(u8x32::splat(b'/'))
+                | chunk.simd_eq(u8x32::splat(b'*'))
+                | chunk.simd_eq(u8x32::splat(b'"'))
+                | chunk.simd_eq(u8x32::splat(b'\''))
+                | chunk.simd_eq(u8x32::splat(b'\\')))
+            .any()
+            {
+                has_special = true;
+                break;
+            }
+            i += 32;
+        }
+        if !has_special {
+            for &b in &bytes[i..] {
+                if matches!(b, b'/' | b'*' | b'"' | b'\'' | b'\\') {
+                    has_special = true;
+                    break;
+                }
+            }
+        }
         if !has_special {
             let trimmed = line.trim_end();
             return (Cow::Borrowed(trimmed), false, false);
@@ -646,12 +787,35 @@ pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
         return Cow::Borrowed(elided);
     }
 
-    if !elided.contains('\\') && !elided.contains('"') && !elided.contains('\'') {
+    let bytes = elided.as_bytes();
+    let mut has_backslash = false;
+    let mut has_quote = false;
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        has_backslash |= chunk.simd_eq(u8x32::splat(b'\\')).any();
+        has_quote |= (chunk.simd_eq(u8x32::splat(b'"')) | chunk.simd_eq(u8x32::splat(b'\''))).any();
+        if has_backslash && has_quote {
+            break;
+        }
+        i += 32;
+    }
+    if !has_backslash || !has_quote {
+        for &b in &bytes[i..] {
+            if b == b'\\' {
+                has_backslash = true;
+            } else if b == b'"' || b == b'\'' {
+                has_quote = true;
+            }
+        }
+    }
+
+    if !has_backslash && !has_quote {
         return Cow::Borrowed(elided);
     }
 
     // Remove escapes
-    let result = if elided.contains('\\') {
+    let result = if has_backslash {
         Cow::Owned(ESCAPE_RE.replace_all(elided, "").to_string())
     } else {
         Cow::Borrowed(elided)
@@ -845,15 +1009,16 @@ mod tests {
 
     #[test]
     fn cleansed_lines_normalizes_alternate_tokens_but_preserves_detection_view() {
+        let arena = Bump::new();
         let mut options = Options::new();
         options.add_filter("-readability/alt_tokens");
-        let lines = vec![
-            "// Copyright 2026".to_string(),
-            "if (true or false) return;".to_string(),
-            "if (not ready) return;".to_string(),
+        let lines = [
+            "// Copyright 2026",
+            "if (true or false) return;",
+            "if (not ready) return;",
         ];
 
-        let cleansed = CleansedLines::new_with_options(lines, &options, "test.cpp");
+        let cleansed = CleansedLines::new_with_options(&arena, &lines, &options, "test.cpp");
 
         assert_eq!(
             cleansed.line_without_alternate_tokens(1),
@@ -869,12 +1034,10 @@ mod tests {
 
     #[test]
     fn cleansed_lines_preserves_alternate_tokens_when_check_is_enabled() {
-        let lines = vec![
-            "// Copyright 2026".to_string(),
-            "if (true or false) return;".to_string(),
-        ];
+        let arena = Bump::new();
+        let lines = ["// Copyright 2026", "if (true or false) return;"];
 
-        let cleansed = CleansedLines::new(lines);
+        let cleansed = CleansedLines::new(&arena, &lines);
 
         assert_eq!(
             cleansed.line_without_alternate_tokens(1),

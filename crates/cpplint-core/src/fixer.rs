@@ -9,9 +9,15 @@ use crate::line_utils;
 use crate::options::{IncludeOrder, Options};
 use crate::state::CppLintState;
 use crate::state::IncludeKind;
+use bumpalo::Bump;
+use fxhash::FxHashSet;
 use regex::Regex;
-use std::collections::HashSet;
+use std::cell::UnsafeCell;
 use std::path::{Path, PathBuf};
+
+thread_local! {
+    static FIXER_ARENA: UnsafeCell<Bump> = UnsafeCell::new(Bump::new());
+}
 use std::sync::LazyLock;
 
 const MAX_FIX_PASSES: usize = 8;
@@ -54,8 +60,6 @@ static SEMICOLON_SPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#";([^\s};\\)/])"#).unwrap());
 static COLON_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#":\s*;\s*$"#).unwrap());
 static SPACE_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s+;\s*$"#).unwrap());
-static MAKE_PAIR_TEMPLATE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bmake_pair\s*<"#).unwrap());
 static PRINTF_Q_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"%([-+ 0#]*\d*(?:\.\d+)?)q"#).unwrap());
 static ACCESS_SPECIFIER_FIX_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -101,7 +105,7 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<bool> {
     };
 
     for _ in 0..MAX_FIX_PASSES {
-        let diagnostics = lint_lines(path, options, lines.clone());
+        let diagnostics = lint_lines(path, options, &lines);
         if diagnostics.is_empty() {
             break;
         }
@@ -130,7 +134,7 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<bool> {
     Ok(true)
 }
 
-fn lint_lines(path: &Path, options: &Options, lines: Vec<String>) -> Vec<Diagnostic> {
+fn lint_lines(path: &Path, options: &Options, lines: &[String]) -> Vec<Diagnostic> {
     let state = CppLintState::new();
     let mut linter = FileLinter::new(path.to_path_buf(), &state, options.clone());
     linter.process_file_data(lines);
@@ -175,7 +179,7 @@ fn fix_header_guard(
 ) -> bool {
     if !diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.category == "build/header_guard")
+        .any(|diagnostic| diagnostic.category.as_str() == "build/header_guard")
     {
         return false;
     }
@@ -306,7 +310,7 @@ fn fix_include_block(
     }
 
     let file_from_repo = relative_from_repository(path, &options.repository);
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     let mut entries = Vec::new();
     for line in &lines[start..end] {
         let trimmed = line.trim();
@@ -461,7 +465,7 @@ fn missing_include_entries_from_diagnostics(
 
 fn missing_self_header_from_diagnostics(diagnostics: &[Diagnostic]) -> Option<String> {
     diagnostics.iter().find_map(|diagnostic| {
-        if diagnostic.category != "build/include" {
+        if diagnostic.category.as_str() != "build/include" {
             return None;
         }
         let marker = " should include its header file ";
@@ -480,7 +484,7 @@ fn missing_iwyu_headers_from_diagnostics(diagnostics: &[Diagnostic]) -> Vec<Stri
     diagnostics
         .iter()
         .filter_map(|diagnostic| {
-            if diagnostic.category != "build/include_what_you_use" {
+            if diagnostic.category.as_str() != "build/include_what_you_use" {
                 return None;
             }
             let rest = diagnostic.message.strip_prefix("Add #include <")?;
@@ -493,7 +497,7 @@ fn missing_iwyu_headers_from_diagnostics(diagnostics: &[Diagnostic]) -> Vec<Stri
 fn fix_namespace_comments(diagnostics: &[Diagnostic], lines: &mut [String]) -> bool {
     let mut changed = false;
     for diagnostic in diagnostics {
-        if diagnostic.category != "readability/namespace" {
+        if diagnostic.category.as_str() != "readability/namespace" {
             continue;
         }
         let idx = diagnostic.linenum.saturating_sub(1);
@@ -528,8 +532,9 @@ fn fix_brace_placement(diagnostics: &[Diagnostic], lines: &mut Vec<String>) -> b
     let mut targets: Vec<usize> = diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic.category == "whitespace/braces"
-                && diagnostic.message == "{ should almost always be at the end of the previous line"
+            diagnostic.category.as_str() == "whitespace/braces"
+                && diagnostic.message.as_ref()
+                    == "{ should almost always be at the end of the previous line"
         })
         .map(|diagnostic| diagnostic.linenum.saturating_sub(1))
         .collect();
@@ -592,11 +597,9 @@ fn apply_line_fixes(
                     }
                 }
             }
-            "whitespace/ending_newline" => {
-                if lines.last().is_some_and(|line| !line.is_empty()) {
-                    lines.push(String::new());
-                    changed = true;
-                }
+            "whitespace/ending_newline" if lines.last().is_some_and(|line| !line.is_empty()) => {
+                lines.push(String::new());
+                changed = true;
             }
             "whitespace/comments" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
@@ -707,7 +710,7 @@ fn apply_line_fixes(
             "readability/braces" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx)
-                    && diagnostic.message == "You don't need a ; after a }"
+                    && diagnostic.message.as_ref() == "You don't need a ; after a }"
                 {
                     let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
                     if *line != fixed {
@@ -1223,20 +1226,56 @@ fn fix_endif_comment(line: &mut String) -> bool {
 }
 
 fn fix_make_pair(line: &mut String) -> bool {
-    let Some(start) = MAKE_PAIR_TEMPLATE_RE.find(line).map(|m| m.end() - 1) else {
-        return false;
-    };
-    let Some(end) = find_matching_angle_bracket(line, start) else {
-        return false;
-    };
-    let mut fixed = String::with_capacity(line.len());
-    fixed.push_str(&line[..start]);
-    fixed.push_str(&line[end + 1..]);
-    if *line != fixed {
-        *line = fixed;
-        return true;
+    let mut changed = false;
+    let mut current_pos = 0;
+
+    const NEEDLE: &str = "make_pair";
+
+    while let Some(start_offset) = line[current_pos..].find(NEEDLE) {
+        let match_start = current_pos + start_offset;
+        let match_end = match_start + NEEDLE.len();
+
+        // Check word boundary \b
+        let is_word_boundary_start = match match_start
+            .checked_sub(1)
+            .and_then(|i| line.as_bytes().get(i))
+        {
+            Some(&b) => !b.is_ascii_alphanumeric() && b != b'_',
+            None => true,
+        };
+        let is_word_boundary_end = match line.as_bytes().get(match_end) {
+            Some(&b) => !b.is_ascii_alphanumeric() && b != b'_',
+            None => true,
+        };
+
+        if !is_word_boundary_start || !is_word_boundary_end {
+            current_pos = match_end;
+            continue;
+        }
+
+        let mut bracket_start = match_end;
+        while line
+            .as_bytes()
+            .get(bracket_start)
+            .is_some_and(|&b| b.is_ascii_whitespace())
+        {
+            bracket_start += 1;
+        }
+
+        if line.as_bytes().get(bracket_start) != Some(&b'<') {
+            current_pos = bracket_start.max(match_end + 1);
+            continue;
+        }
+
+        if let Some(end) = find_matching_angle_bracket(line, bracket_start) {
+            line.replace_range(bracket_start..end + 1, "");
+            changed = true;
+            current_pos = bracket_start;
+        } else {
+            current_pos = bracket_start + 1;
+        }
     }
-    false
+    changed
 }
 
 fn fix_memset(line: &mut String) -> bool {
@@ -1280,9 +1319,20 @@ fn fix_namespace_indentation(line: &mut String) -> bool {
     false
 }
 
-fn build_facts(path: &Path, options: &Options, lines: &[String]) -> (CleansedLines, FileFacts) {
+fn build_facts<'a>(
+    arena: &'a Bump,
+    path: &Path,
+    options: &Options,
+    lines: &[String],
+) -> (CleansedLines<'a>, FileFacts) {
     let filename = path.to_string_lossy();
-    let clean_lines = CleansedLines::new_with_options(lines.to_vec(), options, &filename);
+    let mut arena_lines = bumpalo::collections::Vec::with_capacity_in(lines.len(), arena);
+    for line in lines {
+        arena_lines.push(arena.alloc_str(line) as &str);
+    }
+    let arena_lines = arena_lines.into_bump_slice();
+
+    let clean_lines = CleansedLines::new_with_options(arena, arena_lines, options, &filename);
     let facts = FileFacts::new(&clean_lines);
     (clean_lines, facts)
 }
@@ -1293,30 +1343,37 @@ fn fix_access_specifier_indentation(
     lines: &mut [String],
     idx: usize,
 ) -> bool {
-    let (clean_lines, facts) = build_facts(path, options, lines);
-    let Some(class_range) = facts.enclosing_class_range(idx) else {
-        return false;
-    };
-    let class_indent =
-        line_utils::get_indent_level(&clean_lines.lines_without_raw_strings[class_range.start]);
-    let Some(captures) = ACCESS_SPECIFIER_FIX_RE.captures(&lines[idx]) else {
-        return false;
-    };
-    let access = captures.name("access").map(|m| m.as_str()).unwrap_or("");
-    let slots = captures.name("slots").map(|m| m.as_str()).unwrap_or("");
-    let suffix = captures.name("suffix").map(|m| m.as_str()).unwrap_or("");
-    let fixed = format!(
-        "{}{}{}:{}",
-        " ".repeat(class_indent + 1),
-        access,
-        slots,
-        suffix
-    );
-    if lines[idx] != fixed {
-        lines[idx] = fixed;
-        return true;
-    }
-    false
+    FIXER_ARENA.with(|arena_cell| {
+        // SAFETY: The arena is thread-local and accessed only within the `fix_access_specifier_indentation` method.
+        // This method is called synchronously without re-entrancy or awaiting,
+        // ensuring that the borrow of the `UnsafeCell` is exclusive and safe.
+        let arena = unsafe { &mut *arena_cell.get() };
+        arena.reset();
+        let (clean_lines, facts) = build_facts(arena, path, options, lines);
+        let Some(class_range) = facts.enclosing_class_range(idx) else {
+            return false;
+        };
+        let class_indent =
+            line_utils::get_indent_level(clean_lines.lines_without_raw_strings[class_range.start]);
+        let Some(captures) = ACCESS_SPECIFIER_FIX_RE.captures(&lines[idx]) else {
+            return false;
+        };
+        let access = captures.name("access").map(|m| m.as_str()).unwrap_or("");
+        let slots = captures.name("slots").map(|m| m.as_str()).unwrap_or("");
+        let suffix = captures.name("suffix").map(|m| m.as_str()).unwrap_or("");
+        let fixed = format!(
+            "{}{}{}:{}",
+            " ".repeat(class_indent + 1),
+            access,
+            slots,
+            suffix
+        );
+        if lines[idx] != fixed {
+            lines[idx] = fixed;
+            return true;
+        }
+        false
+    })
 }
 
 fn fix_class_closing_brace_alignment(
@@ -1325,22 +1382,30 @@ fn fix_class_closing_brace_alignment(
     lines: &mut [String],
     idx: usize,
 ) -> bool {
-    let (clean_lines, facts) = build_facts(path, options, lines);
-    let Some(class_range) = facts.enclosing_class_range(idx) else {
-        return false;
-    };
-    let class_indent =
-        line_utils::get_indent_level(&clean_lines.lines_without_raw_strings[class_range.start]);
-    let trimmed = lines[idx].trim_start();
-    if !trimmed.starts_with('}') {
-        return false;
-    }
-    let fixed = format!("{}{}", " ".repeat(class_indent), trimmed);
-    if lines[idx] != fixed {
-        lines[idx] = fixed;
-        return true;
-    }
-    false
+    FIXER_ARENA.with(|arena_cell| {
+        // SAFETY: Similar to `fix_access_specifier_indentation`, the arena is thread-local
+        // and accessed synchronously within `fix_class_closing_brace_alignment`.
+        // This ensures exclusive and safe access to the `UnsafeCell`.
+        let arena = unsafe { &mut *arena_cell.get() };
+        arena.reset();
+        let (clean_lines, facts) = build_facts(arena, path, options, lines);
+        let Some(class_range) = facts.enclosing_class_range(idx) else {
+            return false;
+        };
+        let class_indent =
+            line_utils::get_indent_level(clean_lines.lines_without_raw_strings[class_range.start]);
+        let trimmed = lines[idx].trim_start();
+        if !trimmed.starts_with('}') {
+            return false;
+        }
+        let suffix = &trimmed[1..];
+        let fixed = format!("{}}}{}", " ".repeat(class_indent), suffix);
+        if lines[idx] != fixed {
+            lines[idx] = fixed;
+            return true;
+        }
+        false
+    })
 }
 
 fn fix_storage_class(line: &mut String) -> bool {

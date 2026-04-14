@@ -102,7 +102,13 @@ fn main() {
     let iterations = profile_iterations();
 
     for _ in 0..iterations {
-        let result = run_lint(black_box(&files), black_box(&config)).unwrap();
+        let result = run_lint(
+            black_box(&files),
+            black_box(&config),
+            std::io::sink(),
+            std::io::sink(),
+        )
+        .unwrap();
         black_box((result.stdout.len(), result.stderr.len(), result.error_count));
     }
 }

@@ -237,10 +237,7 @@ fn build_directory_plan(
     };
     let mut messages = local_messages;
     let mut path = directory.to_path_buf();
-    loop {
-        let Some(parent) = path.parent() else {
-            break;
-        };
+    while let Some(parent) = path.parent() {
         if parent == path {
             break;
         }
