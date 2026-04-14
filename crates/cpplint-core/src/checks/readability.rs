@@ -20,7 +20,6 @@ static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
 
-
 static IF_ELSE_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(["if", "else"]).unwrap());
 static MULTILINE_IF_OPEN_BRACE_RE: LazyLock<Regex> =
@@ -1266,7 +1265,6 @@ fn is_namespace_closing_brace(
                     .is_none()
             })
 }
-
 
 fn is_assign_match(line: &str) -> bool {
     let trimmed = line.trim_end();
