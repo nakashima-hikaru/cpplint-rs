@@ -6,7 +6,7 @@ A high-performance Rust reimplementation of [cpplint 2.0](https://github.com/cpp
 
 ## 🚀 Performance
 
-`cpplint-rs` is designed for speed. By leveraging Rust's zero-cost abstractions, multi-threading, and efficient pattern matching, it significantly outperforms the original linter.
+`cpplint-rs` is designed for speed. By leveraging Rust's zero-cost abstractions, multi-threaded execution with `rayon`, and highly efficient pattern matching via Aho-Corasick and SIMD-accelerated scanning, it significantly outperforms the original linter. It further optimizes execution by utilizing bitflags for constant-time state tracking, arena-based memory allocation to minimize heap overhead, and directory-level configuration caching to accelerate massive recursive scans.
 
 ### QuantLib Benchmark
 _Measured on 2,604 files in the QuantLib codebase._
@@ -14,20 +14,20 @@ _Measured on 2,604 files in the QuantLib codebase._
 #### macOS (GitHub Actions)
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 5.589 ± 0.835 | 4.855 | 7.304 | 4.97 ± 0.87 |
-| `cpplint-rs` | 1.125 ± 0.102 | 0.938 | 1.218 | 1.00 |
+| `cpplint-cpp` | 5.533 ± 0.445 | 5.153 | 6.618 | 4.72 ± 0.94 |
+| `cpplint-rs` | 1.173 ± 0.214 | 0.878 | 1.478 | 1.00 |
 
 #### Ubuntu (GitHub Actions)
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 3.288 ± 0.023 | 3.251 | 3.329 | 2.18 ± 0.07 |
-| `cpplint-rs` | 1.509 ± 0.045 | 1.393 | 1.548 | 1.00 |
+| `cpplint-cpp` | 3.107 ± 0.011 | 3.089 | 3.122 | 3.10 ± 0.21 |
+| `cpplint-rs` | 1.002 ± 0.067 | 0.889 | 1.115 | 1.00 |
 
 #### Windows (GitHub Actions)
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 4.834 ± 0.065 | 4.796 | 5.011 | 2.37 ± 0.11 |
-| `cpplint-rs` | 2.037 ± 0.092 | 1.867 | 2.119 | 1.00 |
+| `cpplint-cpp` | 3.689 ± 0.112 | 3.603 | 3.928 | 2.93 ± 0.13 |
+| `cpplint-rs` | 1.257 ± 0.042 | 1.175 | 1.299 | 1.00 |
 
 ### GoogleTest Benchmark
 _Measured on the GoogleTest codebase._
@@ -35,20 +35,21 @@ _Measured on the GoogleTest codebase._
 #### macOS (GitHub Actions)
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 467.4 ± 77.5 | 432.0 | 687.4 | 4.20 ± 0.90 |
-| `cpplint-rs` | 111.3 ± 15.0 | 88.0 | 136.7 | 1.00 |
+| `cpplint-cpp` | 639.5 ± 46.2 | 574.6 | 725.1 | 6.17 ± 2.24 |
+| `cpplint-rs` | 103.7 ± 36.9 | 62.6 | 190.9 | 1.00 |
 
 #### Ubuntu (GitHub Actions)
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 266.0 ± 3.4 | 259.2 | 272.5 | 1.92 ± 0.08 |
-| `cpplint-rs` | 138.5 ± 5.4 | 129.9 | 148.5 | 1.00 |
+| `cpplint-cpp` | 249.1 ± 2.3 | 245.3 | 253.0 | 2.49 ± 0.11 |
+| `cpplint-rs` | 100.1 ± 4.3 | 92.6 | 107.3 | 1.00 |
 
 #### Windows (GitHub Actions)
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `cpplint-cpp` | 410.2 ± 6.2 | 403.7 | 418.9 | 2.19 ± 0.05 |
-| `cpplint-rs` | 187.5 ± 2.6 | 182.3 | 192.1 | 1.00 |
+| `cpplint-cpp` | 312.1 ± 24.1 | 294.5 | 370.1 | 2.90 ± 0.25 |
+| `cpplint-rs` | 107.6 ± 3.9 | 102.3 | 117.1 | 1.00 |
+
 
 ## ✨ Highlights
 
@@ -57,6 +58,7 @@ _Measured on the GoogleTest codebase._
 - **Recursive by Default**: Easily scan entire projects with `--recursive`.
 - **Multiple Formats**: Supports `emacs`, `vs7`, `eclipse`, `junit`, and `sed` output formats.
 - **Reliable**: Passed extensive validation against GoogleTest and QuantLib codebases.
+
 
 ## 🤝 Acknowledgments
 
