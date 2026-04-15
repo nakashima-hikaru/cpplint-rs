@@ -371,7 +371,7 @@ mod tests {
                 .contains("Number of threads should be a positive integer, 0, or -1")
         );
     }
-    
+
     #[test]
     fn test_parse_args_legacy_check() {
         let args: Vec<OsString> = vec!["cpplint".into(), "--verbose=3".into(), "foo.cpp".into()];
