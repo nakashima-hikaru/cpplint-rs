@@ -1464,12 +1464,24 @@ fn update_code_and_comment(line: &mut String, transform: impl FnOnce(&str) -> St
     false
 }
 
+thread_local! {
+    static OPERATOR_SPACE_REGEX_CACHE: std::cell::RefCell<fxhash::FxHashMap<String, std::sync::Arc<Regex>>> = std::cell::RefCell::new(fxhash::FxHashMap::default());
+}
+
 fn add_spaces_around_operator(code: &str, op: &str) -> String {
-    let pattern = Regex::new(&format!(
-        r#"(?P<lhs>\S)\s*{}\s*(?P<rhs>\S)"#,
-        regex::escape(op)
-    ))
-    .unwrap();
+    let pattern_str = format!(r#"(?P<lhs>\S)\s*{}\s*(?P<rhs>\S)"#, regex::escape(op));
+
+    let pattern = OPERATOR_SPACE_REGEX_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(re) = cache.get(&pattern_str) {
+            std::sync::Arc::clone(re)
+        } else {
+            let re = std::sync::Arc::new(Regex::new(&pattern_str).unwrap());
+            cache.insert(pattern_str.clone(), std::sync::Arc::clone(&re));
+            re
+        }
+    });
+
     pattern
         .replace_all(code, format!("$lhs {} $rhs", op))
         .into_owned()
