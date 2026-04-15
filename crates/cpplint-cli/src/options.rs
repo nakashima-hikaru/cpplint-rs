@@ -372,7 +372,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_parse_args_legacy_check() {
         let args: Vec<OsString> = vec!["cpplint".into(), "--verbose=3".into(), "foo.cpp".into()];

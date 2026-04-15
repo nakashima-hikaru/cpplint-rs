@@ -21,4 +21,3 @@ When extracting string prefixes or slices, avoid character iteration loops that 
 
 ## 2026-04-15 - Regex Compilation Caching
 **Learning:** When compiling identical regex strings multiple times across config parsing boundaries (or similar contexts), cache the compiled `Regex` (or its parsing `Error`) inside an `Arc` to avoid the overhead of repeatedly calling `Regex::new`. Caching the `Result<Arc<Regex>, regex::Error>` allows preserving validation errors while still avoiding duplicate compilation overhead for repeatedly seen valid *and* invalid strings.
-
