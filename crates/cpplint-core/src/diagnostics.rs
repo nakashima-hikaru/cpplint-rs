@@ -68,7 +68,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::clone_on_copy)]
     fn test_note_stream_properties() {
         let stream_out = NoteStream::Stdout;
         let stream_err = NoteStream::Stderr;
@@ -77,12 +76,9 @@ mod tests {
         assert_eq!(stream_out, NoteStream::Stdout);
         assert_ne!(stream_out, stream_err);
 
-        // Test Copy and Clone
+        // Test Copy
         let stream_out_copy = stream_out;
         assert_eq!(stream_out, stream_out_copy);
-
-        let stream_out_clone = stream_out.clone();
-        assert_eq!(stream_out, stream_out_clone);
 
         // Test Debug
         let debug_str = format!("{:?}", stream_out);
