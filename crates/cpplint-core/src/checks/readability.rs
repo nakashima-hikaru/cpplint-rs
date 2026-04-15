@@ -32,13 +32,54 @@ static MULTILINE_IF_LAMBDA_RE: LazyLock<Regex> =
 static NAMESPACE_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*namespace\b\s*([:\w]+)?(.*)$"#).unwrap());
 fn is_check_const(s: &str) -> bool {
+    if s == "true" || s == "false" || s == "NULL" || s == "nullptr" {
+        return true;
+    }
     let bytes = s.as_bytes();
-    if bytes.len() < 2 {
+    if bytes.is_empty() {
         return false;
     }
-    let first = bytes[0];
-    let last = bytes[bytes.len() - 1];
-    (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'')
+
+    if bytes.len() >= 2 {
+        let first = bytes[0];
+        let last = bytes[bytes.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return true;
+        }
+    }
+
+    let mut s = s;
+    if s.starts_with('-') || s.starts_with('+') {
+        s = &s[1..];
+    }
+    if s.is_empty() {
+        return false;
+    }
+
+    let (num_part, suffix) = if s.starts_with("0x") || s.starts_with("0X") {
+        let hex_content = &s[2..];
+        let end = hex_content
+            .find(|c: char| !c.is_ascii_hexdigit())
+            .unwrap_or(hex_content.len());
+        (&hex_content[..end], &hex_content[end..])
+    } else {
+        let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        (&s[..end], &s[end..])
+    };
+
+    if num_part.is_empty() {
+        return false;
+    }
+
+    if suffix.is_empty() {
+        return true;
+    }
+
+    let suffix = suffix.to_ascii_uppercase();
+    matches!(
+        suffix.as_str(),
+        "U" | "L" | "UL" | "LU" | "LL" | "ULL" | "LLU"
+    )
 }
 const INHERITANCE_KEYWORDS: [&str; 3] = ["virtual", "override", "final"];
 static INHERITANCE_KEYWORDS_AC: LazyLock<AhoCorasick> =
@@ -183,7 +224,8 @@ fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, li
         return;
     }
 
-    for (key, token) in crate::cleanse::find_alternate_tokens(line) {
+    for index in crate::cleanse::find_alternate_tokens(line) {
+        let (key, token) = crate::cleanse::ALT_TOKEN_REPLACEMENT[index];
         linter.error(
             linenum,
             Category::ReadabilityAltTokens,

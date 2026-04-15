@@ -12,7 +12,7 @@ static INCLUDE_RE: LazyLock<regex::Regex> =
 static ESCAPE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)"#).unwrap());
 
-const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
+pub(crate) const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
     ("and", "&&"),
     ("and_eq", "&="),
     ("bitand", "&"),
@@ -294,7 +294,7 @@ fn is_valid_alt_token_match(bytes: &[u8], start: usize, end: usize) -> bool {
         && (end == bytes.len() || matches!(bytes[end], b' ' | b'('))
 }
 
-pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
+pub fn find_alternate_tokens(line: &str) -> Vec<usize> {
     let bytes = line.as_bytes();
     let mut matches = Vec::new();
     for mat in ALT_TOKEN_AC.find_iter(line) {
@@ -303,7 +303,7 @@ pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
         if !is_valid_alt_token_match(bytes, start, end) {
             continue;
         }
-        matches.push(ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()]);
+        matches.push(mat.pattern().as_usize());
     }
     matches
 }
@@ -1094,8 +1094,8 @@ mod tests {
     fn find_alternate_tokens_reports_multiple_matches() {
         let actual = find_alternate_tokens("if (true or true and (not true)) return;");
         assert_eq!(actual.len(), 3);
-        assert_eq!(actual[0], ("or", "||"));
-        assert_eq!(actual[1], ("and", "&&"));
-        assert_eq!(actual[2], ("not", "!"));
+        assert_eq!(actual[0], 7);
+        assert_eq!(actual[1], 0);
+        assert_eq!(actual[2], 5);
     }
 }
