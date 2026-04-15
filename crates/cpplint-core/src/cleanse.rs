@@ -12,7 +12,7 @@ static INCLUDE_RE: LazyLock<regex::Regex> =
 static ESCAPE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)"#).unwrap());
 
-const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
+pub(crate) const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
     ("and", "&&"),
     ("and_eq", "&="),
     ("bitand", "&"),
@@ -294,7 +294,7 @@ fn is_valid_alt_token_match(bytes: &[u8], start: usize, end: usize) -> bool {
         && (end == bytes.len() || matches!(bytes[end], b' ' | b'('))
 }
 
-pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
+pub fn find_alternate_tokens(line: &str) -> Vec<usize> {
     let bytes = line.as_bytes();
     let mut matches = Vec::new();
     for mat in ALT_TOKEN_AC.find_iter(line) {
@@ -303,7 +303,7 @@ pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
         if !is_valid_alt_token_match(bytes, start, end) {
             continue;
         }
-        matches.push(ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()]);
+        matches.push(mat.pattern().as_usize());
     }
     matches
 }
@@ -506,20 +506,29 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
     let mut delimiter = String::new();
 
     for line in raw_lines {
-        let mut new_line = line.clone();
+        let mut new_line: std::borrow::Cow<str> = std::borrow::Cow::Borrowed(line.as_str());
 
         if !delimiter.is_empty() {
             if let Some(pos) = line.find(&delimiter) {
                 // End of raw string
                 // Match leading space
-                let leading_space = line
-                    .chars()
-                    .take_while(|ch| ch.is_whitespace())
-                    .collect::<String>();
-                new_line = format!("{}\"\"{}", leading_space, &line[pos + delimiter.len()..]);
+                let non_space_idx = line
+                    .char_indices()
+                    .find(|(_, ch)| !ch.is_whitespace())
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
+                let leading_space = &line[..non_space_idx];
+                let suffix = &line[pos + delimiter.len()..];
+
+                let mut buf = String::with_capacity(leading_space.len() + 2 + suffix.len());
+                buf.push_str(leading_space);
+                buf.push_str("\"\"");
+                buf.push_str(suffix);
+                new_line = std::borrow::Cow::Owned(buf);
+
                 delimiter.clear();
             } else {
-                new_line = "\"\"".to_string();
+                new_line = std::borrow::Cow::Borrowed("\"\"");
             }
         }
 
@@ -532,19 +541,32 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
                 break;
             }
 
-            delimiter = format!("){}\"", raw_delimiter);
+            delimiter.clear();
+            delimiter.reserve(raw_delimiter.len() + 2);
+            delimiter.push(')');
+            delimiter.push_str(raw_delimiter);
+            delimiter.push('"');
+
             if let Some(end) = suffix.find(&delimiter) {
-                new_line = format!("{}\"\"{}", prefix, &suffix[end + delimiter.len()..]);
+                let suffix_rest = &suffix[end + delimiter.len()..];
+                let mut buf = String::with_capacity(prefix.len() + 2 + suffix_rest.len());
+                buf.push_str(prefix);
+                buf.push_str("\"\"");
+                buf.push_str(suffix_rest);
+                new_line = std::borrow::Cow::Owned(buf);
+
                 delimiter.clear();
             } else {
-                new_line = format!("{}\"\"", prefix);
+                let mut buf = String::with_capacity(prefix.len() + 2);
+                buf.push_str(prefix);
+                buf.push_str("\"\"");
+                new_line = std::borrow::Cow::Owned(buf);
             }
         }
-        result.push(new_line);
+        result.push(new_line.into_owned());
     }
     result
 }
-
 fn find_raw_string_start(line: &str) -> Option<(&str, &str, &str)> {
     for mat in RAW_STRING_PREFIXES_AC.find_iter(line) {
         let start = mat.start();
@@ -1094,8 +1116,8 @@ mod tests {
     fn find_alternate_tokens_reports_multiple_matches() {
         let actual = find_alternate_tokens("if (true or true and (not true)) return;");
         assert_eq!(actual.len(), 3);
-        assert_eq!(actual[0], ("or", "||"));
-        assert_eq!(actual[1], ("and", "&&"));
-        assert_eq!(actual[2], ("not", "!"));
+        assert_eq!(actual[0], 7);
+        assert_eq!(actual[1], 0);
+        assert_eq!(actual[2], 5);
     }
 }

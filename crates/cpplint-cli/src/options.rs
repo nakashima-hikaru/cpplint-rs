@@ -15,11 +15,17 @@ pub enum ParsedCommand {
 
 pub fn parse_cli() -> ParsedCommand {
     let args: Vec<OsString> = std::env::args_os().collect();
+    parse_args(args)
+}
 
-    match args.get(1).and_then(|arg| arg.to_str()) {
-        Some("check") => ParsedCommand::Check(CheckCli::parse_from(strip_subcommand(&args)).check),
-        Some("rule") => ParsedCommand::Rule(RuleCli::parse_from(strip_subcommand(&args)).rule),
-        _ => ParsedCommand::Check(LegacyCheckCli::parse_from(args).check),
+pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> ParsedCommand {
+    let args_vec: Vec<OsString> = args.into_iter().collect();
+    match args_vec.get(1).and_then(|arg| arg.to_str()) {
+        Some("check") => {
+            ParsedCommand::Check(CheckCli::parse_from(strip_subcommand(&args_vec)).check)
+        }
+        Some("rule") => ParsedCommand::Rule(RuleCli::parse_from(strip_subcommand(&args_vec)).rule),
+        _ => ParsedCommand::Check(LegacyCheckCli::parse_from(args_vec).check),
     }
 }
 
@@ -289,5 +295,145 @@ mod tests {
         let available = std::thread::available_parallelism().unwrap().get();
         assert_eq!(parse_num_threads(Some(0)).unwrap(), available);
         assert_eq!(parse_num_threads(Some(-1)).unwrap(), available);
+    }
+
+    fn get_default_check_args() -> CheckArgs {
+        LegacyCheckCli::parse_from(["cpplint", "foo.cc"]).check
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_negative_verbosity() {
+        let mut args = get_default_check_args();
+        args.verbose = -1;
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Verbosity should be a non-negative integer. (--verbose=-1)"
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_invalid_config_filename() {
+        let mut args = get_default_check_args();
+        args.config = "dir/CPPLINT.cfg".to_string();
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Config file name must not include directory components."
+        );
+
+        args.config = "dir\\CPPLINT.cfg".to_string();
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Config file name must not include directory components."
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_missing_root_directory() {
+        let mut args = get_default_check_args();
+        args.root = Some(PathBuf::from("does_not_exist_dir_12345"));
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Root directory does not exist")
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_missing_repository() {
+        let mut args = get_default_check_args();
+        args.repository = Some(PathBuf::from("does_not_exist_dir_12345"));
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Repository path does not exist")
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_invalid_threads() {
+        let mut args = get_default_check_args();
+        args.threads = Some(-2);
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Number of threads should be a positive integer, 0, or -1")
+        );
+    }
+
+    #[test]
+    fn test_parse_args_legacy_check() {
+        let args: Vec<OsString> = vec!["cpplint".into(), "--verbose=3".into(), "foo.cpp".into()];
+        let parsed = parse_args(args);
+        match parsed {
+            ParsedCommand::Check(check_args) => {
+                assert_eq!(check_args.verbose, 3);
+                assert_eq!(check_args.files, vec![PathBuf::from("foo.cpp")]);
+            }
+            _ => panic!("Expected ParsedCommand::Check"),
+        }
+    }
+
+    #[test]
+    fn test_parse_args_explicit_check() {
+        let args: Vec<OsString> = vec![
+            "cpplint".into(),
+            "check".into(),
+            "--quiet".into(),
+            "bar.cpp".into(),
+        ];
+        let parsed = parse_args(args);
+        match parsed {
+            ParsedCommand::Check(check_args) => {
+                assert!(check_args.quiet);
+                assert_eq!(check_args.files, vec![PathBuf::from("bar.cpp")]);
+            }
+            _ => panic!("Expected ParsedCommand::Check"),
+        }
+    }
+
+    #[test]
+    fn test_parse_args_rule_subcommand() {
+        let args: Vec<OsString> = vec!["cpplint".into(), "rule".into(), "--all".into()];
+        let parsed = parse_args(args);
+        match parsed {
+            ParsedCommand::Rule(rule_args) => {
+                assert!(rule_args.all);
+                assert!(rule_args.query.is_none());
+            }
+            _ => panic!("Expected ParsedCommand::Rule"),
+        }
+    }
+
+    #[test]
+    fn test_parse_args_flags() {
+        let args: Vec<OsString> = vec![
+            "cpplint".into(),
+            "--linelength=100".into(),
+            "--counting=detailed".into(),
+            "--exclude=src/exclude.cpp".into(),
+            "main.cpp".into(),
+        ];
+        let parsed = parse_args(args);
+        match parsed {
+            ParsedCommand::Check(check_args) => {
+                assert_eq!(check_args.line_length, 100);
+                assert!(matches!(check_args.counting, CliCountingStyle::Detailed));
+                assert_eq!(check_args.exclude, vec!["src/exclude.cpp"]);
+                assert_eq!(check_args.files, vec![PathBuf::from("main.cpp")]);
+            }
+            _ => panic!("Expected ParsedCommand::Check"),
+        }
     }
 }
