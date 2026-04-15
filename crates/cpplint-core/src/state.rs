@@ -586,6 +586,24 @@ mod tests {
     }
 
     #[test]
+    fn test_is_in_alphabetical_order() {
+        let mut include_state = IncludeState::new();
+        include_state.set_last_header("foo/m.h");
+
+        // previous_line_is_include is false
+        assert!(include_state.is_in_alphabetical_order(false, "foo/a.h"));
+
+        // self.last_header < canonical_header
+        assert!(include_state.is_in_alphabetical_order(true, "foo/z.h"));
+
+        // self.last_header == canonical_header
+        assert!(include_state.is_in_alphabetical_order(true, "foo/m.h"));
+
+        // self.last_header > canonical_header
+        assert!(!include_state.is_in_alphabetical_order(true, "foo/a.h"));
+    }
+
+    #[test]
     fn test_function_state_tracks_current_function_lines() {
         let mut function_state = FunctionState::new();
         assert_eq!(function_state.current_name(), None);
