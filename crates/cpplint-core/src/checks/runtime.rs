@@ -1453,6 +1453,28 @@ mod tests {
         state.error_count() > 0
     }
 
+    fn test_printf(line: &str) -> bool {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
+        check_printf(&mut linter, line, 1);
+        state.error_count() > 0
+    }
+
+    #[test]
+    fn test_check_printf() {
+        // Should report error
+        assert!(test_printf("strcpy(buf, \"abc\");"));
+        assert!(test_printf("strcat(buf, \"abc\");"));
+        assert!(test_printf("sprintf(buf, \"%s\", \"abc\");"));
+        assert!(test_printf("snprintf(buf, 10, \"%s\", \"abc\");"));
+
+        // Should not report error
+        assert!(!test_printf("snprintf(buf, sizeof(buf), \"%s\", \"abc\");"));
+        assert!(!test_printf("snprintf(buf, 0, \"%s\", \"abc\");"));
+        assert!(!test_printf("printf(\"%s\", \"abc\");"));
+    }
+
     #[test]
     fn test_check_unary_operator_ampersand() {
         assert!(test_ampersand("operator&()"));
