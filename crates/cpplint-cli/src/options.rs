@@ -333,7 +333,11 @@ mod tests {
         args.root = Some(PathBuf::from("does_not_exist_dir_12345"));
         let result = args.to_runner_config();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Root directory does not exist"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Root directory does not exist")
+        );
     }
 
     #[test]
@@ -342,7 +346,11 @@ mod tests {
         args.repository = Some(PathBuf::from("does_not_exist_dir_12345"));
         let result = args.to_runner_config();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Repository path does not exist"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Repository path does not exist")
+        );
     }
 
     #[test]
@@ -351,8 +359,10 @@ mod tests {
         args.threads = Some(-2);
         let result = args.to_runner_config();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("Number of threads should be a positive integer, 0, or -1"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Number of threads should be a positive integer, 0, or -1")
+        );
     }
 }
