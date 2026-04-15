@@ -377,10 +377,7 @@ fn check_casts(
                 let start = current_pos + idx;
                 if start + 1 < bytes.len() {
                     let next_byte = bytes[start + 1];
-                    if matches!(
-                        next_byte,
-                        b'i' | b'f' | b'd' | b'b' | b'c' | b's' | b'u'
-                    ) {
+                    if matches!(next_byte, b'i' | b'f' | b'd' | b'b' | b'c' | b's' | b'u') {
                         let rest = &elided_line[start..];
                         for needle in BASIC_CAST_NEEDLES {
                             if rest.starts_with(needle) {
