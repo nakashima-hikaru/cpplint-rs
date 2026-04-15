@@ -1453,6 +1453,45 @@ mod tests {
         state.error_count() > 0
     }
 
+    fn test_vla(line: &str) -> bool {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
+        check_variable_length_arrays(&mut linter, line, 1);
+        state.error_count() > 0
+    }
+
+    #[test]
+    fn test_check_variable_length_arrays() {
+        // Failing cases (should be flagged)
+        assert!(test_vla("int a[x];"));
+        assert!(test_vla("int a[x * 2];"));
+        assert!(test_vla("int a[x + 2];"));
+        assert!(test_vla("int a[x / 2];"));
+        assert!(test_vla("int a[x - 2];"));
+        assert!(test_vla("int a[x << 2];"));
+        assert!(test_vla("int a[x >> 2];"));
+        assert!(test_vla("int a[some_var];"));
+        assert!(test_vla("int a[some_var + kConstant];"));
+        assert!(test_vla("int a[kConstant + some_var];"));
+
+        // Passing cases (should be ignored)
+        assert!(!test_vla("int a[10];"));
+        assert!(!test_vla("int a[kMaxSize];"));
+        assert!(!test_vla("int a[sizeof(int)];"));
+        assert!(!test_vla("int a[arraysize(b)];"));
+        assert!(!test_vla("int a[0x10];"));
+        assert!(!test_vla("int a[SOME_CONSTANT];"));
+        assert!(!test_vla("int a[MyClass::SOME_CONSTANT];"));
+        assert!(!test_vla("int a[MyClass::kConstant];"));
+        assert!(!test_vla("return a[x];"));
+        assert!(!test_vla("delete[] a;"));
+        assert!(!test_vla("int a[sizeof(MyClass)];"));
+        assert!(!test_vla("int a[sizeof(MyClass::Nested)];"));
+        assert!(!test_vla("int a[sizeof(MyClass<T>)];"));
+        assert!(!test_vla("int a[kConstant * 2];")); // Handled correctly by regex tokenization
+    }
+
     #[test]
     fn test_check_unary_operator_ampersand() {
         assert!(test_ampersand("operator&()"));
