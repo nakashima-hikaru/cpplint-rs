@@ -99,6 +99,13 @@ mod tests {
         // Test PartialEq and Eq
         assert_eq!(note1, note2);
 
+        // Inequality
+        let note3 = Note {
+            file_index: 1,
+            ..note1.clone()
+        };
+        assert_ne!(note1, note3);
+
         // Test fields
         assert_eq!(note1.file_index, 2);
         assert_eq!(note1.order, 1);

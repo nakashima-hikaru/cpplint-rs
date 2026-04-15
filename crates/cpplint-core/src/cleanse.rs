@@ -506,20 +506,27 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
     let mut delimiter = String::new();
 
     for line in raw_lines {
-        let mut new_line = line.clone();
+        let mut new_line: std::borrow::Cow<str> = std::borrow::Cow::Borrowed(line.as_str());
 
         if !delimiter.is_empty() {
             if let Some(pos) = line.find(&delimiter) {
                 // End of raw string
                 // Match leading space
-                let leading_space = line
-                    .chars()
-                    .take_while(|ch| ch.is_whitespace())
-                    .collect::<String>();
-                new_line = format!("{}\"\"{}", leading_space, &line[pos + delimiter.len()..]);
+                let non_space_idx = line
+                    .char_indices()
+                    .find(|(_, ch)| !ch.is_whitespace())
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
+                let leading_space = &line[..non_space_idx];
+
+                new_line = std::borrow::Cow::Owned(format!(
+                    "{}\"\"{}",
+                    leading_space,
+                    &line[pos + delimiter.len()..]
+                ));
                 delimiter.clear();
             } else {
-                new_line = "\"\"".to_string();
+                new_line = std::borrow::Cow::Borrowed("\"\"");
             }
         }
 
@@ -534,13 +541,17 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
 
             delimiter = format!("){}\"", raw_delimiter);
             if let Some(end) = suffix.find(&delimiter) {
-                new_line = format!("{}\"\"{}", prefix, &suffix[end + delimiter.len()..]);
+                new_line = std::borrow::Cow::Owned(format!(
+                    "{}\"\"{}",
+                    prefix,
+                    &suffix[end + delimiter.len()..]
+                ));
                 delimiter.clear();
             } else {
-                new_line = format!("{}\"\"", prefix);
+                new_line = std::borrow::Cow::Owned(format!("{}\"\"", prefix));
             }
         }
-        result.push(new_line);
+        result.push(new_line.into_owned());
     }
     result
 }
