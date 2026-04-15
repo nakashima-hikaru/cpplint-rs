@@ -1,29 +1,10 @@
 use crate::cleanse::CleansedLines;
-use std::simd::cmp::SimdPartialEq;
-use std::simd::u8x32;
 
 pub fn get_indent_level(line: &str) -> usize {
-    let bytes = line.as_bytes();
-    let mut count = 0;
-    let mut i = 0;
-    while i + 32 <= bytes.len() {
-        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
-        let mask = chunk.simd_eq(u8x32::splat(b' ')).to_bitmask();
-        let ones = mask.trailing_ones() as usize;
-        count += ones;
-        if ones < 32 {
-            return count;
-        }
-        i += 32;
-    }
-    for &b in &bytes[i..] {
-        if b == b' ' {
-            count += 1;
-        } else {
-            break;
-        }
-    }
-    count
+    line.as_bytes()
+        .iter()
+        .take_while(|&&b| b == b' ')
+        .count()
 }
 
 pub fn is_blank_line(line: &str) -> bool {
