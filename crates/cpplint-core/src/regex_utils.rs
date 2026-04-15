@@ -1,7 +1,7 @@
 use fxhash::FxHashMap;
 use regex::Regex;
-use std::sync::Arc;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 enum CachedRegex {
     Standard(Arc<Regex>),
