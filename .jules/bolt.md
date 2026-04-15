@@ -9,4 +9,8 @@
 When extracting string prefixes or slices, avoid character iteration loops that 'collect::<String>()', as this triggers redundant allocations. Use slice indices or functions like \`char_indices()\` combined with slice creation \`&str[..]\` to avoid heap allocations. Replaced \`String::clone()\` in hot loops with \`std::borrow::Cow\` to lazily clone, eliminating allocations on unmodified inputs.
 
 ## 2026-04-15
+* Optimizing AhoCorasick for simple needles in hot path (`runtime.rs`)
+  Replaced AhoCorasick search logic with native `memchr` plus simple byte lookup and iteration. This brought down micro-benchmark timing significantly (~60ns to ~22ns in matched case and 58ns to 25ns in unmatched case). While it doesn't dramatically shift the overall `quantlib` macro benchmark, replacing heavier DFAs with manual `memchr` combined with bounds-checked peeking is a strong pattern for simple, predictable match sets in tight per-line parsing loops.
+
+## 2026-04-15
 - **String Allocation in Loops**: \`format!\` macro calls in tight loops (e.g. \`cleanse_raw_strings\`) can be a significant performance bottleneck due to runtime format string parsing and multiple allocations. Replacing them with pre-allocated \`String::with_capacity\` and sequential \`push_str\` or \`push\` operations yields a measurable ~24% performance improvement in the hot path.
