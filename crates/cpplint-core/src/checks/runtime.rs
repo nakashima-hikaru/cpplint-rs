@@ -1437,3 +1437,35 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
         return;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::Options;
+    use crate::state::CppLintState;
+    use std::path::PathBuf;
+
+    fn test_ampersand(line: &str) -> bool {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
+        check_unary_operator_ampersand(&mut linter, line, 1);
+        state.error_count() > 0
+    }
+
+    #[test]
+    fn test_check_unary_operator_ampersand() {
+        assert!(test_ampersand("operator&()"));
+        assert!(test_ampersand("operator& ()"));
+        assert!(test_ampersand("operator & ()"));
+        assert!(test_ampersand("operator &()"));
+        assert!(test_ampersand("void operator&()"));
+        assert!(test_ampersand("operator&() const"));
+
+        assert!(!test_ampersand("operator&(int)"));
+        assert!(!test_ampersand("operator&(int x)"));
+        assert!(!test_ampersand("operator=(x & y)"));
+        assert!(!test_ampersand("operator & (int)"));
+        assert!(!test_ampersand("Foo& operator=(const Foo&);"));
+    }
+}
