@@ -83,8 +83,7 @@ static BRACE_MISSING_SPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"([^ ({>])\{"#).unwrap());
 static PAREN_SPACE_FUNC_CALL_BEFORE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"([A-Za-z_~][\w:]*)\s+\("#).unwrap());
-static PAREN_SPACE_AFTER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\(\s+"#).unwrap());
+static PAREN_SPACE_AFTER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\(\s+"#).unwrap());
 static PAREN_SPACE_BEFORE_CLOSE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+\)"#).unwrap());
 static INHERITANCE_VIRTUAL_RE: LazyLock<Regex> =
@@ -93,11 +92,8 @@ static INHERITANCE_OVERRIDE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boverride\s+"#).unwrap());
 static MEMSET_FIX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"memset\s*\(([^,]*),\s*([^,]*),\s*0\s*\)"#).unwrap());
-static UNARY_NOT_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"!\s+"#).unwrap());
-static UNARY_COMPL_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"~\s+"#).unwrap());
-
+static UNARY_NOT_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"!\s+"#).unwrap());
+static UNARY_COMPL_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"~\s+"#).unwrap());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NewlineStyle {
@@ -1037,9 +1033,7 @@ fn fix_range_for_colon(line: &mut String) -> bool {
 
 fn fix_brace_spacing(line: &mut String, message: &str) -> bool {
     let fixed = if message == "Extra space before [" {
-        BRACE_SPACE_BEFORE_RE
-            .replace_all(line, "$1[")
-            .into_owned()
+        BRACE_SPACE_BEFORE_RE.replace_all(line, "$1[").into_owned()
     } else if message == "Missing space before {" {
         BRACE_MISSING_SPACE_RE
             .replace_all(line, "$1 {")
@@ -1213,13 +1207,9 @@ fn fix_inheritance_redundancy(line: &mut String, message: &str) -> bool {
     let fixed = if message
         == "virtual is redundant since override/final already implies a virtual function"
     {
-        INHERITANCE_VIRTUAL_RE
-            .replace(line, "")
-            .into_owned()
+        INHERITANCE_VIRTUAL_RE.replace(line, "").into_owned()
     } else if message == "override is redundant when final is present" {
-        INHERITANCE_OVERRIDE_RE
-            .replace(line, "")
-            .into_owned()
+        INHERITANCE_OVERRIDE_RE.replace(line, "").into_owned()
     } else {
         return false;
     };
@@ -1487,12 +1477,8 @@ fn add_spaces_around_operator(code: &str, op: &str) -> String {
 
 fn remove_spaces_after_unary_operator(code: &str, op: &str) -> String {
     match op.trim() {
-        "!" => UNARY_NOT_SPACE_RE
-            .replace_all(code, "!")
-            .into_owned(),
-        "~" => UNARY_COMPL_SPACE_RE
-            .replace_all(code, "~")
-            .into_owned(),
+        "!" => UNARY_NOT_SPACE_RE.replace_all(code, "!").into_owned(),
+        "~" => UNARY_COMPL_SPACE_RE.replace_all(code, "~").into_owned(),
         _ => code.to_string(),
     }
 }
@@ -1503,9 +1489,9 @@ fn normalize_control_parentheses(line: &str) -> String {
         .replace("for(", "for (")
         .replace("while(", "while (")
         .replace("switch(", "switch (");
-    fixed = PAREN_SPACE_AFTER_RE.replace_all(&fixed, "(")
-        .into_owned();
-    PAREN_SPACE_BEFORE_CLOSE_RE.replace_all(&fixed, ")")
+    fixed = PAREN_SPACE_AFTER_RE.replace_all(&fixed, "(").into_owned();
+    PAREN_SPACE_BEFORE_CLOSE_RE
+        .replace_all(&fixed, ")")
         .into_owned()
 }
 
