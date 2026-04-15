@@ -1,7 +1,7 @@
 #![feature(portable_simd)]
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x32;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 pub fn get_indent_level_simd(line: &str) -> usize {
     let bytes = line.as_bytes();
@@ -28,24 +28,33 @@ pub fn get_indent_level_simd(line: &str) -> usize {
 }
 
 pub fn get_indent_level_simple(line: &str) -> usize {
-    line.as_bytes()
-        .iter()
-        .take_while(|&&b| b == b' ')
-        .count()
+    line.as_bytes().iter().take_while(|&&b| b == b' ').count()
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
     let line1 = "    hello world";
     let line2 = "                                hello world";
     let line3 = "hello world";
-    c.bench_function("simd_short", |b| b.iter(|| get_indent_level_simd(black_box(line1))));
-    c.bench_function("simple_short", |b| b.iter(|| get_indent_level_simple(black_box(line1))));
+    c.bench_function("simd_short", |b| {
+        b.iter(|| get_indent_level_simd(black_box(line1)))
+    });
+    c.bench_function("simple_short", |b| {
+        b.iter(|| get_indent_level_simple(black_box(line1)))
+    });
 
-    c.bench_function("simd_long", |b| b.iter(|| get_indent_level_simd(black_box(line2))));
-    c.bench_function("simple_long", |b| b.iter(|| get_indent_level_simple(black_box(line2))));
+    c.bench_function("simd_long", |b| {
+        b.iter(|| get_indent_level_simd(black_box(line2)))
+    });
+    c.bench_function("simple_long", |b| {
+        b.iter(|| get_indent_level_simple(black_box(line2)))
+    });
 
-    c.bench_function("simd_none", |b| b.iter(|| get_indent_level_simd(black_box(line3))));
-    c.bench_function("simple_none", |b| b.iter(|| get_indent_level_simple(black_box(line3))));
+    c.bench_function("simd_none", |b| {
+        b.iter(|| get_indent_level_simd(black_box(line3)))
+    });
+    c.bench_function("simple_none", |b| {
+        b.iter(|| get_indent_level_simple(black_box(line3)))
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);

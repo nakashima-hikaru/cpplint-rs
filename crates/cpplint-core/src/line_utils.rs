@@ -1,10 +1,7 @@
 use crate::cleanse::CleansedLines;
 
 pub fn get_indent_level(line: &str) -> usize {
-    line.as_bytes()
-        .iter()
-        .take_while(|&&b| b == b' ')
-        .count()
+    line.as_bytes().iter().take_while(|&&b| b == b' ').count()
 }
 
 pub fn is_blank_line(line: &str) -> bool {
