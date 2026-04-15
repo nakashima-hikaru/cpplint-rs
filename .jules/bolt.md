@@ -6,7 +6,4 @@
 **Action:** Use `thread_local!` with `std::cell::RefCell` and a `FxHashMap` cache for compiled `std::sync::Arc<Regex>` objects to gain performance without incurring multi-threaded locking overheads.
 
 ## 2026-04-15
-- **String Allocation in Loops**:  macro calls in tight loops (e.g. ) can be a significant performance bottleneck due to runtime format string parsing and multiple allocations. Replacing them with pre-allocated  and sequential  or  operations yields a measurable ~24% performance improvement in the hot path.
-
-## 2026-04-15
-- **String Allocation in Loops**: `format!` macro calls in tight loops (e.g. `cleanse_raw_strings`) can be a significant performance bottleneck due to runtime format string parsing and multiple allocations. Replacing them with pre-allocated `String::with_capacity` and sequential `push_str` or `push` operations yields a measurable ~24% performance improvement in the hot path.
+- **String Allocation in Loops**: \`format!\` macro calls in tight loops (e.g. \`cleanse_raw_strings\`) can be a significant performance bottleneck due to runtime format string parsing and multiple allocations. Replacing them with pre-allocated \`String::with_capacity\` and sequential \`push_str\` or \`push\` operations yields a measurable ~24% performance improvement in the hot path.
