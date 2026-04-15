@@ -68,6 +68,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_note_stream_properties() {
         let stream_out = NoteStream::Stdout;
         let stream_err = NoteStream::Stderr;
