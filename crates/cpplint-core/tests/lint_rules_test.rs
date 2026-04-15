@@ -3202,3 +3202,16 @@ fn test_distributions_line_246() {
     ]);
     assert!(state.has_error(cpplint_core::categories::Category::BuildIncludeWhatYouUse));
 }
+
+#[test]
+fn test_expect_true_comparison() {
+    let state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "TEST(MathTest, Addition) {".to_string(),
+        "  int x = 5;".to_string(),
+        "  EXPECT_TRUE(x == 5);".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(state.has_error(cpplint_core::categories::Category::ReadabilityCheck));
+}

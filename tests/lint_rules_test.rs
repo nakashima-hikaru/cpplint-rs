@@ -1,6 +1,6 @@
 use cpplint_core::file_linter::FileLinter;
-use cpplint_core::state::CppLintState;
 use cpplint_core::options::Options;
+use cpplint_core::state::CppLintState;
 use std::path::PathBuf;
 
 fn run_lint(lines: Vec<String>) -> CppLintState {
