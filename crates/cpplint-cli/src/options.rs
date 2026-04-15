@@ -297,6 +297,82 @@ mod tests {
         assert_eq!(parse_num_threads(Some(-1)).unwrap(), available);
     }
 
+    fn get_default_check_args() -> CheckArgs {
+        LegacyCheckCli::parse_from(["cpplint", "foo.cc"]).check
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_negative_verbosity() {
+        let mut args = get_default_check_args();
+        args.verbose = -1;
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Verbosity should be a non-negative integer. (--verbose=-1)"
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_invalid_config_filename() {
+        let mut args = get_default_check_args();
+        args.config = "dir/CPPLINT.cfg".to_string();
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Config file name must not include directory components."
+        );
+
+        args.config = "dir\\CPPLINT.cfg".to_string();
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Config file name must not include directory components."
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_missing_root_directory() {
+        let mut args = get_default_check_args();
+        args.root = Some(PathBuf::from("does_not_exist_dir_12345"));
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Root directory does not exist")
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_missing_repository() {
+        let mut args = get_default_check_args();
+        args.repository = Some(PathBuf::from("does_not_exist_dir_12345"));
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Repository path does not exist")
+        );
+    }
+
+    #[test]
+    fn to_runner_config_returns_error_for_invalid_threads() {
+        let mut args = get_default_check_args();
+        args.threads = Some(-2);
+        let result = args.to_runner_config();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Number of threads should be a positive integer, 0, or -1")
+        );
+    }
+
+
     #[test]
     fn test_parse_args_legacy_check() {
         let args: Vec<OsString> = vec!["cpplint".into(), "--verbose=3".into(), "foo.cpp".into()];

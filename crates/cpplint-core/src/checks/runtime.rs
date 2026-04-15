@@ -1481,6 +1481,7 @@ mod tests {
         state.error_count() > 0
     }
 
+
     #[test]
     fn test_check_variable_length_arrays() {
         // Failing cases (should be flagged)
@@ -1525,6 +1526,7 @@ mod tests {
         assert!(!test_printf("snprintf(buf, 0, \"%s\", \"abc\");"));
         assert!(!test_printf("printf(\"%s\", \"abc\");"));
     }
+
 
     #[test]
     fn test_check_unary_operator_ampersand() {

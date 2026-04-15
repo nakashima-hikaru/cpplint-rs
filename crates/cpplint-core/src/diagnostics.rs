@@ -38,76 +38,107 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn test_note_creation() {
-        let text: Arc<str> = Arc::from("test message");
-        let note = Note {
+    fn test_diagnostic_properties() {
+        let diag1 = Diagnostic {
             file_index: 1,
-            order: 42,
-            stream: NoteStream::Stdout,
-            text: Arc::clone(&text),
+            filename: Arc::from("test.cpp"),
+            linenum: 42,
+            category: Category::BuildInclude,
+            confidence: 5,
+            message: Arc::from("Include error"),
         };
 
-        assert_eq!(note.file_index, 1);
-        assert_eq!(note.order, 42);
-        assert_eq!(note.stream, NoteStream::Stdout);
-        assert_eq!(note.text, text);
+        let diag2 = diag1.clone();
+
+        // Test PartialEq and Eq
+        assert_eq!(diag1, diag2);
+
+        // Test fields
+        assert_eq!(diag1.file_index, 1);
+        assert_eq!(&*diag1.filename, "test.cpp");
+        assert_eq!(diag1.linenum, 42);
+        assert_eq!(diag1.category, Category::BuildInclude);
+        assert_eq!(diag1.confidence, 5);
+        assert_eq!(&*diag1.message, "Include error");
+
+        // Test Debug
+        let debug_str = format!("{:?}", diag1);
+        assert!(debug_str.contains("Diagnostic"));
+        assert!(debug_str.contains("test.cpp"));
     }
 
     #[test]
-    fn test_note_equality() {
-        let note1 = Note {
-            file_index: 0,
-            order: 10,
-            stream: NoteStream::Stderr,
-            text: Arc::from("error occurred"),
-        };
+    fn test_note_stream_properties() {
+        let stream_out = NoteStream::Stdout;
+        let stream_err = NoteStream::Stderr;
 
-        let note2 = Note {
-            file_index: 0,
-            order: 10,
-            stream: NoteStream::Stderr,
-            text: Arc::from("error occurred"),
-        };
+        // Test PartialEq and Eq
+        assert_eq!(stream_out, NoteStream::Stdout);
+        assert_ne!(stream_out, stream_err);
 
-        let note3 = Note {
-            file_index: 1,
-            order: 10,
-            stream: NoteStream::Stderr,
-            text: Arc::from("error occurred"),
-        };
+        // Test Copy
+        let stream_out_copy = stream_out;
+        assert_eq!(stream_out, stream_out_copy);
 
-        assert_eq!(note1, note2);
-        assert_ne!(note1, note3);
+        // Test Debug
+        let debug_str = format!("{:?}", stream_out);
+        assert_eq!(debug_str, "Stdout");
     }
 
     #[test]
-    fn test_note_clone() {
+    fn test_note_properties() {
         let note1 = Note {
             file_index: 2,
-            order: 5,
-            stream: NoteStream::Stdout,
-            text: Arc::from("info"),
+            order: 1,
+            stream: NoteStream::Stderr,
+            text: Arc::from("Warning message"),
         };
 
         let note2 = note1.clone();
 
+        // Test PartialEq and Eq
         assert_eq!(note1, note2);
+
+        // Inequality
+        let note3 = Note {
+            file_index: 1,
+            ..note1.clone()
+        };
+        assert_ne!(note1, note3);
+
+        // Test fields
+        assert_eq!(note1.file_index, 2);
+        assert_eq!(note1.order, 1);
+        assert_eq!(note1.stream, NoteStream::Stderr);
+        assert_eq!(&*note1.text, "Warning message");
+
+        // Test Debug
+        let debug_str = format!("{:?}", note1);
+        assert!(debug_str.contains("Note"));
+        assert!(debug_str.contains("Warning message"));
     }
 
     #[test]
-    fn test_note_debug() {
-        let note = Note {
+    fn test_processed_file_properties() {
+        let pf1 = ProcessedFile {
             file_index: 3,
-            order: 7,
-            stream: NoteStream::Stderr,
-            text: Arc::from("debug info"),
+            filename: Arc::from("main.cpp"),
+            had_error: true,
         };
 
-        let debug_str = format!("{:?}", note);
-        assert!(debug_str.contains("Note"));
-        assert!(debug_str.contains("file_index: 3"));
-        assert!(debug_str.contains("order: 7"));
-        assert!(debug_str.contains("stream: Stderr"));
-        assert!(debug_str.contains("text: \"debug info\""));
+        let pf2 = pf1.clone();
+
+        // Test PartialEq and Eq
+        assert_eq!(pf1, pf2);
+
+        // Test fields
+        assert_eq!(pf1.file_index, 3);
+        assert_eq!(&*pf1.filename, "main.cpp");
+        assert!(pf1.had_error);
+
+        // Test Debug
+        let debug_str = format!("{:?}", pf1);
+        assert!(debug_str.contains("ProcessedFile"));
+        assert!(debug_str.contains("main.cpp"));
     }
 }

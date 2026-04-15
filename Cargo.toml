@@ -14,7 +14,7 @@ publish = false
 [workspace.dependencies]
 # Core utilities
 aho-corasick = "1.1"
-regex = { version = "1.10", features = [
+regex = { version = "1.12", features = [
     "perf-dfa",
     "perf-inline",
     "perf-literal",
@@ -22,18 +22,18 @@ regex = { version = "1.10", features = [
     "perf-backtrack",
 ] }
 thiserror = "2.0"
-memchr = "2.7"
+memchr = "2.8"
 
 # ripgrep ecosystem
 ignore = { version = "0.4", features = ["simd-accel"] }
 globset = { version = "0.4", features = ["simd-accel"] }
 encoding_rs_io = "0.1"
 unicode-width = "0.2"
-parking_lot = "0.12.1"
+parking_lot = "0.12"
 fxhash = "0.2"
 
 # CLI & Concurrency
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 rayon = "1.12.0"
 
 # Testing & Benchmarking

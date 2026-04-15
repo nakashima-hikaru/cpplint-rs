@@ -518,12 +518,14 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
                     .map(|(i, _)| i)
                     .unwrap_or(line.len());
                 let leading_space = &line[..non_space_idx];
+                let suffix = &line[pos + delimiter.len()..];
 
-                new_line = std::borrow::Cow::Owned(format!(
-                    "{}\"\"{}",
-                    leading_space,
-                    &line[pos + delimiter.len()..]
-                ));
+                let mut buf = String::with_capacity(leading_space.len() + 2 + suffix.len());
+                buf.push_str(leading_space);
+                buf.push_str("\"\"");
+                buf.push_str(suffix);
+                new_line = std::borrow::Cow::Owned(buf);
+
                 delimiter.clear();
             } else {
                 new_line = std::borrow::Cow::Borrowed("\"\"");
@@ -539,23 +541,32 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
                 break;
             }
 
-            delimiter = format!("){}\"", raw_delimiter);
+            delimiter.clear();
+            delimiter.reserve(raw_delimiter.len() + 2);
+            delimiter.push(')');
+            delimiter.push_str(raw_delimiter);
+            delimiter.push('"');
+
             if let Some(end) = suffix.find(&delimiter) {
-                new_line = std::borrow::Cow::Owned(format!(
-                    "{}\"\"{}",
-                    prefix,
-                    &suffix[end + delimiter.len()..]
-                ));
+                let suffix_rest = &suffix[end + delimiter.len()..];
+                let mut buf = String::with_capacity(prefix.len() + 2 + suffix_rest.len());
+                buf.push_str(prefix);
+                buf.push_str("\"\"");
+                buf.push_str(suffix_rest);
+                new_line = std::borrow::Cow::Owned(buf);
+
                 delimiter.clear();
             } else {
-                new_line = std::borrow::Cow::Owned(format!("{}\"\"", prefix));
+                let mut buf = String::with_capacity(prefix.len() + 2);
+                buf.push_str(prefix);
+                buf.push_str("\"\"");
+                new_line = std::borrow::Cow::Owned(buf);
             }
         }
         result.push(new_line.into_owned());
     }
     result
 }
-
 fn find_raw_string_start(line: &str) -> Option<(&str, &str, &str)> {
     for mat in RAW_STRING_PREFIXES_AC.find_iter(line) {
         let start = mat.start();

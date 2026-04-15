@@ -60,11 +60,17 @@ pub fn contains_word(s: &str, word: &str) -> bool {
 }
 
 pub fn trimmed_starts_with_word(s: &str, word: &str) -> bool {
-    let trimmed = s.trim_start();
-    let Some(rest) = trimmed.strip_prefix(word) else {
-        return false;
-    };
-    rest.is_empty() || !is_word_char(rest.as_bytes()[0])
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let rest = &s[i..];
+    if let Some(rest) = rest.strip_prefix(word) {
+        rest.is_empty() || !is_word_char(rest.as_bytes()[0])
+    } else {
+        false
+    }
 }
 
 pub fn ends_with_word(s: &str, word: &str) -> bool {
@@ -88,8 +94,12 @@ pub fn contains_word_start(s: &str, word: &str) -> bool {
 }
 
 pub fn ends_with_word_and_optional_spaces(s: &str, word: &str) -> bool {
-    let trimmed = s.trim_end();
-    ends_with_word(trimmed, word)
+    let mut i = s.len();
+    let bytes = s.as_bytes();
+    while i > 0 && bytes[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    ends_with_word(&s[..i], word)
 }
 
 #[cfg(test)]
