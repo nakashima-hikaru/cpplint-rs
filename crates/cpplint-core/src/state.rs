@@ -586,6 +586,79 @@ mod tests {
     }
 
     #[test]
+    fn test_check_next_include_order() {
+        // Normal transitions
+        let mut state = IncludeState::new();
+        assert_eq!(
+            state.check_next_include_order(IncludeKind::LikelyMyHeader),
+            None
+        );
+        assert_eq!(state.check_next_include_order(IncludeKind::CSystem), None);
+        assert_eq!(state.check_next_include_order(IncludeKind::CppSystem), None);
+        assert_eq!(
+            state.check_next_include_order(IncludeKind::OtherSystem),
+            None
+        );
+        assert_eq!(
+            state.check_next_include_order(IncludeKind::OtherHeader),
+            None
+        );
+
+        // Errors when out of order
+        let mut state2 = IncludeState::new();
+        state2.check_next_include_order(IncludeKind::OtherHeader);
+        assert_eq!(
+            state2.check_next_include_order(IncludeKind::CSystem),
+            Some("Found C system header after other header".to_string())
+        );
+
+        let mut state3 = IncludeState::new();
+        state3.check_next_include_order(IncludeKind::OtherHeader);
+        assert_eq!(
+            state3.check_next_include_order(IncludeKind::CppSystem),
+            Some("Found C++ system header after other header".to_string())
+        );
+
+        let mut state4 = IncludeState::new();
+        state4.check_next_include_order(IncludeKind::OtherHeader);
+        assert_eq!(
+            state4.check_next_include_order(IncludeKind::OtherSystem),
+            Some("Found other system header after other header".to_string())
+        );
+
+        // Fallbacks for MyHeaders out of order
+        let mut state5 = IncludeState::new();
+        state5.check_next_include_order(IncludeKind::CSystem); // sets section to CSystem
+        assert_eq!(
+            state5.check_next_include_order(IncludeKind::LikelyMyHeader),
+            None
+        );
+        // It should have fallen back to OtherHeader section, so including CSystem again should fail
+        assert_eq!(
+            state5.check_next_include_order(IncludeKind::CSystem),
+            Some("Found C system header after other header".to_string())
+        );
+
+        let mut state6 = IncludeState::new();
+        state6.check_next_include_order(IncludeKind::CSystem);
+        assert_eq!(
+            state6.check_next_include_order(IncludeKind::PossibleMyHeader),
+            None
+        );
+        assert_eq!(
+            state6.check_next_include_order(IncludeKind::CSystem),
+            Some("Found C system header after other header".to_string())
+        );
+
+        // Ensure last_header is cleared on section transition
+        let mut state7 = IncludeState::new();
+        state7.check_next_include_order(IncludeKind::CSystem);
+        state7.set_last_header("foo.h");
+        state7.check_next_include_order(IncludeKind::CppSystem); // Changes section
+        assert_eq!(state7.last_header, "");
+    }
+
+    #[test]
     fn test_is_in_alphabetical_order() {
         let mut include_state = IncludeState::new();
         include_state.set_last_header("foo/m.h");

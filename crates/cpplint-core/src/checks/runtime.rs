@@ -23,8 +23,6 @@ const BASIC_CAST_NEEDLES: [&str; 12] = [
     "(int64_t)",
     "(uint64_t)",
 ];
-static BASIC_CAST_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(BASIC_CAST_NEEDLES).unwrap());
 static DEPRECATED_CAST_STYLE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"((?:\bnew\s+(?:const\s+)?|\S<\s*(?:const\s+)?)?\b)(int|float|double|bool|char|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t)(\([^)].*)"#,
@@ -373,20 +371,34 @@ fn check_casts(
         }
 
         if !expecting_function {
-            for mat in BASIC_CAST_AC.find_iter(elided_line) {
-                let type_str = &elided_line[mat.start() + 1..mat.end() - 1];
-                if check_c_style_cast_internal(
-                    linter,
-                    clean_lines,
-                    elided_line,
-                    linenum,
-                    "static_cast",
-                    type_str,
-                    mat.start() + 1,
-                    mat.end(),
-                ) {
-                    break;
+            let mut current_pos = 0;
+            let bytes = elided_line.as_bytes();
+            'outer: while let Some(idx) = memchr::memchr(b'(', &bytes[current_pos..]) {
+                let start = current_pos + idx;
+                if start + 1 < bytes.len() {
+                    let next_byte = bytes[start + 1];
+                    if matches!(next_byte, b'i' | b'f' | b'd' | b'b' | b'c' | b's' | b'u') {
+                        let rest = &elided_line[start..];
+                        for needle in BASIC_CAST_NEEDLES {
+                            if rest.starts_with(needle) {
+                                let type_str = &needle[1..needle.len() - 1];
+                                if check_c_style_cast_internal(
+                                    linter,
+                                    clean_lines,
+                                    elided_line,
+                                    linenum,
+                                    "static_cast",
+                                    type_str,
+                                    start + 1,
+                                    start + needle.len(),
+                                ) {
+                                    break 'outer;
+                                }
+                            }
+                        }
+                    }
                 }
+                current_pos = start + 1;
             }
         }
 
@@ -1453,12 +1465,51 @@ mod tests {
         state.error_count() > 0
     }
 
+    fn test_vla(line: &str) -> bool {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
+        check_variable_length_arrays(&mut linter, line, 1);
+        state.error_count() > 0
+    }
+
     fn test_printf(line: &str) -> bool {
         let state = CppLintState::new();
         let options = Options::new();
         let mut linter = FileLinter::new(PathBuf::from("test.cpp"), &state, options);
         check_printf(&mut linter, line, 1);
         state.error_count() > 0
+    }
+
+    #[test]
+    fn test_check_variable_length_arrays() {
+        // Failing cases (should be flagged)
+        assert!(test_vla("int a[x];"));
+        assert!(test_vla("int a[x * 2];"));
+        assert!(test_vla("int a[x + 2];"));
+        assert!(test_vla("int a[x / 2];"));
+        assert!(test_vla("int a[x - 2];"));
+        assert!(test_vla("int a[x << 2];"));
+        assert!(test_vla("int a[x >> 2];"));
+        assert!(test_vla("int a[some_var];"));
+        assert!(test_vla("int a[some_var + kConstant];"));
+        assert!(test_vla("int a[kConstant + some_var];"));
+
+        // Passing cases (should be ignored)
+        assert!(!test_vla("int a[10];"));
+        assert!(!test_vla("int a[kMaxSize];"));
+        assert!(!test_vla("int a[sizeof(int)];"));
+        assert!(!test_vla("int a[arraysize(b)];"));
+        assert!(!test_vla("int a[0x10];"));
+        assert!(!test_vla("int a[SOME_CONSTANT];"));
+        assert!(!test_vla("int a[MyClass::SOME_CONSTANT];"));
+        assert!(!test_vla("int a[MyClass::kConstant];"));
+        assert!(!test_vla("return a[x];"));
+        assert!(!test_vla("delete[] a;"));
+        assert!(!test_vla("int a[sizeof(MyClass)];"));
+        assert!(!test_vla("int a[sizeof(MyClass::Nested)];"));
+        assert!(!test_vla("int a[sizeof(MyClass<T>)];"));
+        assert!(!test_vla("int a[kConstant * 2];")); // Handled correctly by regex tokenization
     }
 
     #[test]
