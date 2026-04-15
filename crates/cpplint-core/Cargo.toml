@@ -36,3 +36,7 @@ criterion.workspace = true
 [[bench]]
 name = "quantlib"
 harness = false
+
+[[bench]]
+name = "cleanse"
+harness = false

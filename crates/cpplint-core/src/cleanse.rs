@@ -512,11 +512,20 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
             if let Some(pos) = line.find(&delimiter) {
                 // End of raw string
                 // Match leading space
-                let leading_space = line
+                let leading_space_len = line
                     .chars()
                     .take_while(|ch| ch.is_whitespace())
-                    .collect::<String>();
-                new_line = format!("{}\"\"{}", leading_space, &line[pos + delimiter.len()..]);
+                    .map(|ch| ch.len_utf8())
+                    .sum::<usize>();
+                let leading_space = &line[..leading_space_len];
+                let suffix = &line[pos + delimiter.len()..];
+
+                let mut buf = String::with_capacity(leading_space.len() + 2 + suffix.len());
+                buf.push_str(leading_space);
+                buf.push_str("\"\"");
+                buf.push_str(suffix);
+                new_line = buf;
+
                 delimiter.clear();
             } else {
                 new_line = "\"\"".to_string();
@@ -532,12 +541,26 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
                 break;
             }
 
-            delimiter = format!("){}\"", raw_delimiter);
+            delimiter.clear();
+            delimiter.reserve(raw_delimiter.len() + 2);
+            delimiter.push(')');
+            delimiter.push_str(raw_delimiter);
+            delimiter.push('"');
+
             if let Some(end) = suffix.find(&delimiter) {
-                new_line = format!("{}\"\"{}", prefix, &suffix[end + delimiter.len()..]);
+                let suffix_rest = &suffix[end + delimiter.len()..];
+                let mut buf = String::with_capacity(prefix.len() + 2 + suffix_rest.len());
+                buf.push_str(prefix);
+                buf.push_str("\"\"");
+                buf.push_str(suffix_rest);
+                new_line = buf;
+
                 delimiter.clear();
             } else {
-                new_line = format!("{}\"\"", prefix);
+                let mut buf = String::with_capacity(prefix.len() + 2);
+                buf.push_str(prefix);
+                buf.push_str("\"\"");
+                new_line = buf;
             }
         }
         result.push(new_line);
