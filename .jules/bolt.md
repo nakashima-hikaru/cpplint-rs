@@ -1,4 +1,4 @@
-## 2024-05-23
+## 2026-04-16
 When extracting string prefixes or slices, avoid character iteration loops that 'collect::<String>()', as this triggers redundant allocations. Use slice indices or functions like `char_indices()` combined with slice creation `&str[..]` to avoid heap allocations. Replaced `String::clone()` in hot loops with `std::borrow::Cow` to lazily clone, eliminating allocations on unmodified inputs.
 
 ## 2026-04-15 - Extract Regex compilation to LazyLock
