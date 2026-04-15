@@ -5,38 +5,37 @@ use std::sync::{Arc, LazyLock};
 
 enum CachedRegex {
     Standard(Arc<Regex>),
-    Invalid,
+    Invalid(regex::Error),
 }
 
 static REGEX_CACHE: LazyLock<RwLock<FxHashMap<String, CachedRegex>>> =
     LazyLock::new(|| RwLock::new(FxHashMap::default()));
 
-fn get_cached_regex(pattern: &str) -> Option<Arc<Regex>> {
+pub(crate) fn get_cached_regex(pattern: &str) -> Result<Arc<Regex>, regex::Error> {
     if let Some(cached) = REGEX_CACHE.read().get(pattern) {
         return match cached {
-            CachedRegex::Standard(re) => Some(Arc::clone(re)),
-            CachedRegex::Invalid => None,
+            CachedRegex::Standard(re) => Ok(Arc::clone(re)),
+            CachedRegex::Invalid(err) => Err(err.clone()),
         };
     }
 
-    let compiled = if let Ok(re) = Regex::new(pattern) {
-        CachedRegex::Standard(Arc::new(re))
-    } else {
-        CachedRegex::Invalid
+    let compiled = match Regex::new(pattern) {
+        Ok(re) => CachedRegex::Standard(Arc::new(re)),
+        Err(err) => CachedRegex::Invalid(err),
     };
 
     let mut cache = REGEX_CACHE.write();
     let entry = cache.entry(pattern.to_string()).or_insert(compiled);
     match entry {
-        CachedRegex::Standard(re) => Some(Arc::clone(re)),
-        CachedRegex::Invalid => None,
+        CachedRegex::Standard(re) => Ok(Arc::clone(re)),
+        CachedRegex::Invalid(err) => Err(err.clone()),
     }
 }
 
 /// Checks if a pattern matches anywhere in the string.
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn regex_search(pattern: &str, s: &str) -> bool {
-    if let Some(re) = get_cached_regex(pattern) {
+    if let Ok(re) = get_cached_regex(pattern) {
         return re.is_match(s);
     }
     false

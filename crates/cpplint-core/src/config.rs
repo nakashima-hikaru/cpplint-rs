@@ -61,14 +61,14 @@ impl Default for ConfigFile {
 #[derive(Debug, Clone)]
 struct ExcludePattern {
     raw: String,
-    regex: Option<Regex>,
+    regex: Option<Arc<Regex>>,
 }
 
 #[derive(Debug, Clone)]
 struct PreparedExcludePattern {
     cfg_path: PathBuf,
     raw: String,
-    regex: Regex,
+    regex: Arc<Regex>,
 }
 
 #[derive(Debug, Clone)]
@@ -442,7 +442,7 @@ fn read_config_file(path: &Path) -> Arc<ConfigFile> {
                 }
             }
             "exclude_files" => {
-                let regex = match Regex::new(value) {
+                let regex = match crate::regex_utils::get_cached_regex(value) {
                     Ok(regex) => Some(regex),
                     Err(error) => {
                         messages.push(ConfigMessage {

@@ -19,3 +19,6 @@ When extracting string prefixes or slices, avoid character iteration loops that 
 ## 2026-04-15 - String Allocation in Loops
 **Learning:** `format!` macro calls in tight loops (e.g. `cleanse_raw_strings`) can be a significant performance bottleneck due to runtime format string parsing and multiple allocations.
 **Action:** Replacing them with pre-allocated `String::with_capacity` and sequential `push_str` or `push` operations yields a measurable ~24% performance improvement in the hot path.
+
+## 2026-04-15 - Regex Compilation Caching
+**Learning:** When compiling identical regex strings multiple times across config parsing boundaries (or similar contexts), cache the compiled `Regex` (or its parsing `Error`) inside an `Arc` to avoid the overhead of repeatedly calling `Regex::new`. Caching the `Result<Arc<Regex>, regex::Error>` allows preserving validation errors while still avoiding duplicate compilation overhead for repeatedly seen valid *and* invalid strings.
