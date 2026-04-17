@@ -1,36 +1,43 @@
 use fxhash::FxHashMap;
-use parking_lot::RwLock;
 use regex::Regex;
-use std::sync::{Arc, LazyLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 enum CachedRegex {
     Standard(Arc<Regex>),
     Invalid,
 }
 
-static REGEX_CACHE: LazyLock<RwLock<FxHashMap<String, CachedRegex>>> =
-    LazyLock::new(|| RwLock::new(FxHashMap::default()));
+// ⚡ Bolt: Using a thread_local! RefCell instead of a global RwLock eliminates lock
+// contention on the hot path under multi-threaded execution with rayon.
+// This trades off compiling regexes up to N times (where N = number of threads)
+// for zero atomic operations during frequent lookups.
+thread_local! {
+    static REGEX_CACHE: RefCell<FxHashMap<String, CachedRegex>> = RefCell::new(FxHashMap::default());
+}
 
 fn get_cached_regex(pattern: &str) -> Option<Arc<Regex>> {
-    if let Some(cached) = REGEX_CACHE.read().get(pattern) {
-        return match cached {
+    REGEX_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(cached) = cache.get(pattern) {
+            return match cached {
+                CachedRegex::Standard(re) => Some(Arc::clone(re)),
+                CachedRegex::Invalid => None,
+            };
+        }
+
+        let compiled = if let Ok(re) = Regex::new(pattern) {
+            CachedRegex::Standard(Arc::new(re))
+        } else {
+            CachedRegex::Invalid
+        };
+
+        let entry = cache.entry(pattern.to_string()).or_insert(compiled);
+        match entry {
             CachedRegex::Standard(re) => Some(Arc::clone(re)),
             CachedRegex::Invalid => None,
-        };
-    }
-
-    let compiled = if let Ok(re) = Regex::new(pattern) {
-        CachedRegex::Standard(Arc::new(re))
-    } else {
-        CachedRegex::Invalid
-    };
-
-    let mut cache = REGEX_CACHE.write();
-    let entry = cache.entry(pattern.to_string()).or_insert(compiled);
-    match entry {
-        CachedRegex::Standard(re) => Some(Arc::clone(re)),
-        CachedRegex::Invalid => None,
-    }
+        }
+    })
 }
 
 /// Checks if a pattern matches anywhere in the string.
