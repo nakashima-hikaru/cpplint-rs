@@ -31,10 +31,6 @@ static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
 
 static OPERATOR_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator_*\b"#).unwrap());
-static VA_OPT_COMMA_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b__VA_OPT__\s*\(,\)"#).unwrap());
-static OPERATOR_COMMA_CALL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\boperator\s*,\s*\("#).unwrap());
 
 static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
@@ -98,17 +94,12 @@ static HEADER_BLANK_LINE_SET: LazyLock<RegexSet> = LazyLock::new(|| {
 
 static MULTI_COMMAND_INITLIST_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[^{};]*\[[^\[\]]*\][^{}]*\{[^{}\n\r]*\}"#).unwrap());
-static OPEN_BRACE_NEEDS_SPACE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(.*[^ ({>])\{"#).unwrap());
 static BRACED_INIT_TRAILING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[\s}]*[{.;,)<>\]:]"#).unwrap());
 static FIXED_WIDTH_BRACED_INT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\s*\{"#)
         .unwrap()
 });
-
-static SPACE_BEFORE_LAST_SEMICOLON_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\s+;\s*$"#).unwrap());
 static CLASS_OR_STRUCT_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(["class", "struct"]).unwrap());
 static SKIP_LINE_LENGTH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
@@ -516,10 +507,8 @@ fn has_missing_assignment_space(s: &str) -> bool {
                 continue;
             }
         }
-        if let Some(&next) = bytes.get(i + 1) {
-            if next == b'=' {
-                continue;
-            }
+        if bytes.get(i + 1).is_some_and(|&next| next == b'=') {
+            continue;
         }
 
         let mut missing = false;
@@ -548,9 +537,7 @@ fn find_less_spacing(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut offset = bytes.len().saturating_sub(1);
     while offset > 1 {
-        let Some(idx) = s[1..offset].rfind('<') else {
-            return None;
-        };
+        let idx = s[1..offset].rfind('<')?;
         let i = 1 + idx;
         offset = i;
         
@@ -571,9 +558,7 @@ fn find_greater_spacing(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut offset = bytes.len().saturating_sub(1);
     while offset > 1 {
-        let Some(idx) = s[1..offset].rfind('>') else {
-            return None;
-        };
+        let idx = s[1..offset].rfind('>')?;
         let i = 1 + idx;
         offset = i;
         
@@ -965,7 +950,7 @@ fn check_spacing_for_function_call_base(
 
 fn is_braced_initialization(
     clean_lines: &CleansedLines<'_>,
-    elided_line: &str,
+    _elided_line: &str,
     leading_text: &str,
     brace_pos: usize,
     linenum: usize,
@@ -1520,13 +1505,12 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
                     }
                     if !is_exception && keywords.has_va_opt() && prefix.ends_with('(') {
                         let before_paren = prefix[..prefix.len() - 1].trim_end();
-                        if before_paren.ends_with("__VA_OPT__") {
-                            let before_va = &before_paren[..before_paren.len() - 10]; // 10 is len of "__VA_OPT__"
-                            if before_va.is_empty() || !before_va.chars().last().unwrap().is_ascii_alphanumeric() {
-                                if elided_line[i + 1..].trim_start().starts_with(')') {
-                                    is_exception = true;
-                                }
-                            }
+                        if before_paren.strip_suffix("__VA_OPT__").is_some_and(|before_va| {
+                            (before_va.is_empty()
+                                || !before_va.chars().last().unwrap().is_ascii_alphanumeric())
+                                && elided_line[i + 1..].trim_start().starts_with(')')
+                        }) {
+                            is_exception = true;
                         }
                     }
 
@@ -1668,9 +1652,12 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             5,
             r#"Line contains only semicolon. If this should be an empty statement, use {} instead."#,
         );
-    } else if elided_line.ends_with(';') {
-        let before_semi = elided_line[..elided_line.len() - 1].as_bytes();
-        if before_semi.last().copied().is_some_and(|c| c.is_ascii_whitespace())
+    } else if let Some(stripped) = elided_line.strip_suffix(';') {
+        let before_semi = stripped.as_bytes();
+        if before_semi
+            .last()
+            .copied()
+            .is_some_and(|c| c.is_ascii_whitespace())
             && !string_utils::contains_word(elided_line, "for")
         {
             linter.error(
