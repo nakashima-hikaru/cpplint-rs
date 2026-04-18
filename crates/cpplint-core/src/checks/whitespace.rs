@@ -492,17 +492,7 @@ fn has_missing_assignment_space(s: &str) -> bool {
             let prev = bytes[i - 1];
             if matches!(
                 prev,
-                b'>' | b'<'
-                    | b'='
-                    | b'!'
-                    | b'&'
-                    | b'^'
-                    | b'|'
-                    | b'+'
-                    | b'-'
-                    | b'*'
-                    | b'/'
-                    | b'%'
+                b'>' | b'<' | b'=' | b'!' | b'&' | b'^' | b'|' | b'+' | b'-' | b'*' | b'/' | b'%'
             ) {
                 continue;
             }
@@ -540,7 +530,7 @@ fn find_less_spacing(s: &str) -> Option<usize> {
         let idx = s[1..offset].rfind('<')?;
         let i = 1 + idx;
         offset = i;
-        
+
         let prev = bytes[i - 1];
         if prev.is_ascii_whitespace() || prev == b'<' {
             continue;
@@ -561,7 +551,7 @@ fn find_greater_spacing(s: &str) -> Option<usize> {
         let idx = s[1..offset].rfind('>')?;
         let i = 1 + idx;
         offset = i;
-        
+
         let prev = bytes[i - 1];
         if prev.is_ascii_whitespace() || prev == b'-' || prev == b'>' {
             continue;
@@ -677,9 +667,8 @@ fn find_missing_comparison_space(s: &str) -> Option<&'static str> {
 
         let prev_is_op_char =
             matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
-        let next_is_op_char =
-            matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
-                || next.is_ascii_whitespace();
+        let next_is_op_char = matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
+            || next.is_ascii_whitespace();
 
         if !prev_is_op_char && !next_is_op_char {
             return Some(op);
@@ -1480,12 +1469,12 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             let check_line_bytes = elided_line.as_bytes();
             let original_line_bytes = line.as_bytes();
             let mut missing_comma_space = false;
-            
+
             let mut offset = 0;
             while let Some(idx) = elided_line[offset..].find(',') {
                 let i = offset + idx;
                 offset = i + 1;
-                
+
                 if i + 1 < check_line_bytes.len()
                     && !matches!(check_line_bytes[i + 1], b',' | b' ' | b'\t' | b'\n' | b'\r')
                     && i + 1 < original_line_bytes.len()
@@ -1499,17 +1488,22 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
                     let prefix = elided_line[..i].trim_end();
                     if keywords.has_operator() && prefix.ends_with("operator") {
                         let before_op = &prefix[..prefix.len() - 8]; // 8 is len of "operator"
-                        if before_op.is_empty() || !before_op.chars().last().unwrap().is_ascii_alphanumeric() {
+                        if before_op.is_empty()
+                            || !before_op.chars().last().unwrap().is_ascii_alphanumeric()
+                        {
                             is_exception = true;
                         }
                     }
                     if !is_exception && keywords.has_va_opt() && prefix.ends_with('(') {
                         let before_paren = prefix[..prefix.len() - 1].trim_end();
-                        if before_paren.strip_suffix("__VA_OPT__").is_some_and(|before_va| {
-                            (before_va.is_empty()
-                                || !before_va.chars().last().unwrap().is_ascii_alphanumeric())
-                                && elided_line[i + 1..].trim_start().starts_with(')')
-                        }) {
+                        if before_paren
+                            .strip_suffix("__VA_OPT__")
+                            .is_some_and(|before_va| {
+                                (before_va.is_empty()
+                                    || !before_va.chars().last().unwrap().is_ascii_alphanumeric())
+                                    && elided_line[i + 1..].trim_start().starts_with(')')
+                            })
+                        {
                             is_exception = true;
                         }
                     }
@@ -1654,9 +1648,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         );
     } else if let Some(stripped) = elided_line.strip_suffix(';') {
         let before_semi = stripped.as_bytes();
-        if before_semi
-            .last()
-            .is_some_and(|c| c.is_ascii_whitespace())
+        if before_semi.last().is_some_and(|c| c.is_ascii_whitespace())
             && !string_utils::contains_word(elided_line, "for")
         {
             linter.error(
