@@ -434,8 +434,7 @@ fn build_class_facts<S: AsRef<str>>(
         }
 
         let mut class_end = None;
-        for end in (linenum + 1)..lines.len() {
-            let (l, r) = line_braces[end];
+        for (end, &(l, r)) in line_braces.iter().enumerate().skip(linenum + 1) {
             depth += l as isize;
             depth -= r as isize;
             if depth == 0 {
