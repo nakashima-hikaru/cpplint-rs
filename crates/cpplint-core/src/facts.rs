@@ -383,8 +383,21 @@ impl FileFacts {
     }
 }
 
-static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
-    LazyLock::new(|| aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap());
+fn contains_class_keywords(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while let Some(pos) = memchr::memchr3(b'c', b's', b'u', &bytes[i..]) {
+        i += pos;
+        if (bytes[i] == b'c' && line[i..].starts_with("class"))
+            || (bytes[i] == b's' && line[i..].starts_with("struct"))
+            || (bytes[i] == b'u' && line[i..].starts_with("union"))
+        {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
 
 fn build_class_facts<S: AsRef<str>>(
     lines: &[S],
@@ -395,7 +408,7 @@ fn build_class_facts<S: AsRef<str>>(
 
     for (linenum, line) in lines.iter().enumerate() {
         let line = line.as_ref();
-        if !CLASS_KEYWORDS_AC.is_match(line) && pending.is_none() {
+        if !contains_class_keywords(line) && pending.is_none() {
             continue;
         }
         let trimmed = line.trim();

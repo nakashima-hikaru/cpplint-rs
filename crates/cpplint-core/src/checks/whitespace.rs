@@ -100,8 +100,6 @@ static FIXED_WIDTH_BRACED_INT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\s*\{"#)
         .unwrap()
 });
-static CLASS_OR_STRUCT_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(["class", "struct"]).unwrap());
 static SKIP_LINE_LENGTH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"^\s*#(ifndef|endif)\b"#,
@@ -121,9 +119,22 @@ fn should_skip_line_length(raw_line: &str) -> bool {
 }
 
 fn contains_class_or_struct_word(line: &str) -> bool {
-    CLASS_OR_STRUCT_AC
-        .find_iter(line)
-        .any(|mat| string_utils::is_word_match(line, mat.start(), mat.end()))
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while let Some(pos) = memchr::memchr2(b'c', b's', &bytes[i..]) {
+        i += pos;
+        if (bytes[i] == b'c'
+            && line[i..].starts_with("class")
+            && string_utils::is_word_match(line, i, i + 5))
+            || (bytes[i] == b's'
+                && line[i..].starts_with("struct")
+                && string_utils::is_word_match(line, i, i + 6))
+        {
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
