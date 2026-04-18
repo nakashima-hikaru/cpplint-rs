@@ -38,61 +38,61 @@ if [ -f "${CPPLINT_RS}.exe" ]; then
 fi
 
 # Build/Download cpplint-cpp
-if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
-    echo "Building cpplint-cpp..."
-    if [ ! -d "$BENCH_DIR/cpplint-cpp-src/.git" ]; then
-        rm -rf "$BENCH_DIR/cpplint-cpp-src"
-        git clone --depth 1 https://github.com/matyalatte/cpplint-cpp.git "$BENCH_DIR/cpplint-cpp-src"
-    fi
+# if [ ! -f "$BENCH_DIR/cpplint-cpp" ]; then
+#     echo "Building cpplint-cpp..."
+#     if [ ! -d "$BENCH_DIR/cpplint-cpp-src/.git" ]; then
+#         rm -rf "$BENCH_DIR/cpplint-cpp-src"
+#         git clone --depth 1 https://github.com/matyalatte/cpplint-cpp.git "$BENCH_DIR/cpplint-cpp-src"
+#     fi
 
-    cd "$BENCH_DIR/cpplint-cpp-src"
+#     cd "$BENCH_DIR/cpplint-cpp-src"
 
-    # Verify meson.build exists
-    if [ ! -f "meson.build" ]; then
-        echo "Error: meson.build not found in cpplint-cpp-src"
-        exit 1
-    fi
+#     # Verify meson.build exists
+#     if [ ! -f "meson.build" ]; then
+#         echo "Error: meson.build not found in cpplint-cpp-src"
+#         exit 1
+#     fi
 
-    # Build using meson
-    rm -rf build
-    meson setup build --native-file=presets/release.ini
-    meson compile -C build
+#     # Build using meson
+#     rm -rf build
+#     meson setup build --native-file=presets/release.ini
+#     meson compile -C build
 
-    # Find the binary (prioritize .exe for Windows MSYS compat)
-    if [ -f "build/cpplint-cpp.exe" ]; then
-        CPP_BIN="build/cpplint-cpp.exe"
-    elif [ -f "build/cpplint.exe" ]; then
-        CPP_BIN="build/cpplint.exe"
-    elif [ -f "build/src/cpplint-cpp.exe" ]; then
-        CPP_BIN="build/src/cpplint-cpp.exe"
-    elif [ -f "build/cpplint-cpp" ]; then
-        CPP_BIN="build/cpplint-cpp"
-    elif [ -f "build/cpplint" ]; then
-        CPP_BIN="build/cpplint"
-    elif [ -f "build/src/cpplint-cpp" ]; then
-        CPP_BIN="build/src/cpplint-cpp"
-    else
-        CPP_BIN=$(find build -type f \( -name "cpplint-cpp.exe" -o -name "cpplint.exe" -o -name "cpplint-cpp" -o -name "cpplint" \) -executable | grep -v "subprojects" | head -n 1)
-    fi
+#     # Find the binary (prioritize .exe for Windows MSYS compat)
+#     if [ -f "build/cpplint-cpp.exe" ]; then
+#         CPP_BIN="build/cpplint-cpp.exe"
+#     elif [ -f "build/cpplint.exe" ]; then
+#         CPP_BIN="build/cpplint.exe"
+#     elif [ -f "build/src/cpplint-cpp.exe" ]; then
+#         CPP_BIN="build/src/cpplint-cpp.exe"
+#     elif [ -f "build/cpplint-cpp" ]; then
+#         CPP_BIN="build/cpplint-cpp"
+#     elif [ -f "build/cpplint" ]; then
+#         CPP_BIN="build/cpplint"
+#     elif [ -f "build/src/cpplint-cpp" ]; then
+#         CPP_BIN="build/src/cpplint-cpp"
+#     else
+#         CPP_BIN=$(find build -type f \( -name "cpplint-cpp.exe" -o -name "cpplint.exe" -o -name "cpplint-cpp" -o -name "cpplint" \) -executable | grep -v "subprojects" | head -n 1)
+#     fi
 
-    if [ -z "$CPP_BIN" ]; then
-        echo "Error: Could not find cpplint executable in build directory after explicit build"
-        find build -maxdepth 3
-        exit 1
-    fi
+#     if [ -z "$CPP_BIN" ]; then
+#         echo "Error: Could not find cpplint executable in build directory after explicit build"
+#         find build -maxdepth 3
+#         exit 1
+#     fi
 
-    echo "Found cpplint-cpp binary at: $CPP_BIN"
-    if [[ "$CPP_BIN" == *.exe ]]; then
-        cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp.exe"
-    else
-        cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp"
-    fi
-    cd "$BASE_DIR"
-fi
-CPPLINT_CPP="$BENCH_DIR/cpplint-cpp"
-if [ -f "${CPPLINT_CPP}.exe" ]; then
-    CPPLINT_CPP="${CPPLINT_CPP}.exe"
-fi
+#     echo "Found cpplint-cpp binary at: $CPP_BIN"
+#     if [[ "$CPP_BIN" == *.exe ]]; then
+#         cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp.exe"
+#     else
+#         cp "$CPP_BIN" "$BENCH_DIR/cpplint-cpp"
+#     fi
+#     cd "$BASE_DIR"
+# fi
+# CPPLINT_CPP="$BENCH_DIR/cpplint-cpp"
+# if [ -f "${CPPLINT_CPP}.exe" ]; then
+#     CPPLINT_CPP="${CPPLINT_CPP}.exe"
+# fi
 
 # Benchmarking function
 run_bench() {
