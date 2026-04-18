@@ -134,13 +134,13 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_multiline_strings(linter, clean_lines, linenum);
     }
 
-    let has_control = (keywords.bits()
-        & (MatchedKeywords::IF
+    let has_control = keywords.intersects(
+        MatchedKeywords::IF
             | MatchedKeywords::ELSE
             | MatchedKeywords::FOR
             | MatchedKeywords::WHILE
-            | MatchedKeywords::DO))
-        != 0;
+            | MatchedKeywords::DO,
+    );
     if has_brace
         || has_control
         || keywords.has_virtual()

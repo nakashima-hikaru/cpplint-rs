@@ -1,5 +1,6 @@
 use crate::options::Options;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
+use bitflags::bitflags;
 use bumpalo::Bump;
 use bumpalo::collections::Vec as BumpVec;
 use std::borrow::Cow;
@@ -71,46 +72,48 @@ const KEYWORDS: &[&str] = &[
 
 static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KEYWORDS).unwrap());
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub struct MatchedKeywords(u32);
+bitflags! {
+    #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct MatchedKeywords: u32 {
+        const IF          = 1 << 0;
+        const FOR         = 1 << 1;
+        const WHILE       = 1 << 2;
+        const SWITCH      = 1 << 3;
+        const CASE        = 1 << 4;
+        const DEFAULT     = 1 << 5;
+        const RETURN      = 1 << 6;
+        const NEW         = 1 << 7;
+        const DELETE      = 1 << 8;
+        const CATCH       = 1 << 9;
+        const OPERATOR    = 1 << 10;
+        const VA_OPT      = 1 << 11;
+        const ACCESS      = 1 << 12;
+        const SIZEOF      = 1 << 13;
+        const ELIF        = 1 << 14;
+        const TYPEDEF     = 1 << 15;
+        const USING       = 1 << 16;
+        const CAST        = 1 << 17;
+        const ELSE        = 1 << 18;
+        const DO          = 1 << 19;
+        const NAMESPACE   = 1 << 20;
+        const VIRTUAL     = 1 << 21;
+        const OVERRIDE    = 1 << 22;
+        const FINAL       = 1 << 23;
+        const INLINE      = 1 << 24;
+        const CONSTEXPR   = 1 << 25;
+        const STATIC      = 1 << 26;
+        const HAS_ALT_TOKEN = 1 << 27;
 
-const KEYWORDS_NOT_CALCULATED: u32 = u32::MAX;
+        const NOT_CALCULATED = u32::MAX;
+    }
+}
 
 impl MatchedKeywords {
-    pub(crate) const IF: u32 = 1 << 0;
-    pub(crate) const FOR: u32 = 1 << 1;
-    pub(crate) const WHILE: u32 = 1 << 2;
-    pub(crate) const SWITCH: u32 = 1 << 3;
-    pub(crate) const CASE: u32 = 1 << 4;
-    pub(crate) const DEFAULT: u32 = 1 << 5;
-    pub(crate) const RETURN: u32 = 1 << 6;
-    pub(crate) const NEW: u32 = 1 << 7;
-    pub(crate) const DELETE: u32 = 1 << 8;
-    pub(crate) const CATCH: u32 = 1 << 9;
-    pub(crate) const OPERATOR: u32 = 1 << 10;
-    pub(crate) const VA_OPT: u32 = 1 << 11;
-    pub(crate) const ACCESS: u32 = 1 << 12;
-    pub(crate) const SIZEOF: u32 = 1 << 13;
-    pub(crate) const ELIF: u32 = 1 << 14;
-    pub(crate) const TYPEDEF: u32 = 1 << 15;
-    pub(crate) const USING: u32 = 1 << 16;
-    pub(crate) const CAST: u32 = 1 << 17;
-    pub(crate) const ELSE: u32 = 1 << 18;
-    pub(crate) const DO: u32 = 1 << 19;
-    pub(crate) const NAMESPACE: u32 = 1 << 20;
-    pub(crate) const VIRTUAL: u32 = 1 << 21;
-    pub(crate) const OVERRIDE: u32 = 1 << 22;
-    pub(crate) const FINAL: u32 = 1 << 23;
-    pub(crate) const INLINE: u32 = 1 << 24;
-    pub(crate) const CONSTEXPR: u32 = 1 << 25;
-    pub(crate) const STATIC: u32 = 1 << 26;
-    pub(crate) const HAS_ALT_TOKEN: u32 = 1 << 27;
-
     pub fn from_line(line: &str) -> Self {
         if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
             return Self::default();
         }
-        let mut bits = 0u32;
+        let mut bits = Self::empty();
         for mat in KEYWORDS_AC.find_iter(line) {
             bits |= match mat.pattern().as_usize() {
                 0 => Self::IF,
@@ -140,145 +143,143 @@ impl MatchedKeywords {
                 30 => Self::INLINE,
                 31 => Self::CONSTEXPR,
                 32 => Self::STATIC,
-                _ => 0,
+                _ => Self::empty(),
             };
         }
-        Self(bits)
+        bits
     }
 
     #[inline(always)]
     pub fn has_if(&self) -> bool {
-        (self.0 & Self::IF) != 0
+        self.contains(Self::IF)
     }
     #[inline(always)]
     pub fn has_for(&self) -> bool {
-        (self.0 & Self::FOR) != 0
+        self.contains(Self::FOR)
     }
     #[inline(always)]
     pub fn has_while(&self) -> bool {
-        (self.0 & Self::WHILE) != 0
+        self.contains(Self::WHILE)
     }
     #[inline(always)]
     pub fn has_switch(&self) -> bool {
-        (self.0 & Self::SWITCH) != 0
+        self.contains(Self::SWITCH)
     }
     #[inline(always)]
     pub fn has_case(&self) -> bool {
-        (self.0 & Self::CASE) != 0
+        self.contains(Self::CASE)
     }
     #[inline(always)]
     pub fn has_default(&self) -> bool {
-        (self.0 & Self::DEFAULT) != 0
+        self.contains(Self::DEFAULT)
     }
     #[inline(always)]
     pub fn has_return(&self) -> bool {
-        (self.0 & Self::RETURN) != 0
+        self.contains(Self::RETURN)
     }
     #[inline(always)]
     pub fn has_new(&self) -> bool {
-        (self.0 & Self::NEW) != 0
+        self.contains(Self::NEW)
     }
     #[inline(always)]
     pub fn has_delete(&self) -> bool {
-        (self.0 & Self::DELETE) != 0
+        self.contains(Self::DELETE)
     }
     #[inline(always)]
     pub fn has_catch(&self) -> bool {
-        (self.0 & Self::CATCH) != 0
+        self.contains(Self::CATCH)
     }
     #[inline(always)]
     pub fn has_operator(&self) -> bool {
-        (self.0 & Self::OPERATOR) != 0
+        self.contains(Self::OPERATOR)
     }
     #[inline(always)]
     pub fn has_va_opt(&self) -> bool {
-        (self.0 & Self::VA_OPT) != 0
+        self.contains(Self::VA_OPT)
     }
     #[inline(always)]
     pub fn has_access(&self) -> bool {
-        (self.0 & Self::ACCESS) != 0
+        self.contains(Self::ACCESS)
     }
     #[inline(always)]
     pub fn has_sizeof(&self) -> bool {
-        (self.0 & Self::SIZEOF) != 0
+        self.contains(Self::SIZEOF)
     }
     #[inline(always)]
     pub fn has_elif(&self) -> bool {
-        (self.0 & Self::ELIF) != 0
+        self.contains(Self::ELIF)
     }
     #[inline(always)]
     pub fn has_typedef(&self) -> bool {
-        (self.0 & Self::TYPEDEF) != 0
+        self.contains(Self::TYPEDEF)
     }
     #[inline(always)]
     pub fn has_using(&self) -> bool {
-        (self.0 & Self::USING) != 0
+        self.contains(Self::USING)
     }
     #[inline(always)]
     pub fn has_else(&self) -> bool {
-        (self.0 & Self::ELSE) != 0
+        self.contains(Self::ELSE)
     }
     #[inline(always)]
     pub fn has_do(&self) -> bool {
-        (self.0 & Self::DO) != 0
+        self.contains(Self::DO)
     }
     #[inline(always)]
     pub fn has_any_cast(&self) -> bool {
-        (self.0 & Self::CAST) != 0
+        self.contains(Self::CAST)
     }
     #[inline(always)]
     pub fn has_namespace(&self) -> bool {
-        (self.0 & Self::NAMESPACE) != 0
+        self.contains(Self::NAMESPACE)
     }
     #[inline(always)]
     pub fn has_virtual(&self) -> bool {
-        (self.0 & Self::VIRTUAL) != 0
+        self.contains(Self::VIRTUAL)
     }
     #[inline(always)]
     pub fn has_override(&self) -> bool {
-        (self.0 & Self::OVERRIDE) != 0
+        self.contains(Self::OVERRIDE)
     }
     #[inline(always)]
     pub fn has_final(&self) -> bool {
-        (self.0 & Self::FINAL) != 0
+        self.contains(Self::FINAL)
     }
     #[inline(always)]
     pub fn has_inline(&self) -> bool {
-        (self.0 & Self::INLINE) != 0
+        self.contains(Self::INLINE)
     }
     #[inline(always)]
     pub fn has_constexpr(&self) -> bool {
-        (self.0 & Self::CONSTEXPR) != 0
+        self.contains(Self::CONSTEXPR)
     }
     #[inline(always)]
     pub fn has_static(&self) -> bool {
-        (self.0 & Self::STATIC) != 0
+        self.contains(Self::STATIC)
     }
     #[inline(always)]
     pub fn has_alt_token(&self) -> bool {
-        (self.0 & Self::HAS_ALT_TOKEN) != 0
-    }
-
-    #[inline(always)]
-    pub fn bits(&self) -> u32 {
-        self.0
+        self.contains(Self::HAS_ALT_TOKEN)
     }
 
     #[inline(always)]
     pub fn has_any_control_struct(&self) -> bool {
-        const MASK: u32 = MatchedKeywords::IF
-            | MatchedKeywords::ELIF
-            | MatchedKeywords::FOR
-            | MatchedKeywords::WHILE
-            | MatchedKeywords::SWITCH
-            | MatchedKeywords::RETURN
-            | MatchedKeywords::NEW
-            | MatchedKeywords::DELETE
-            | MatchedKeywords::CATCH
-            | MatchedKeywords::SIZEOF;
-        (self.0 & MASK) != 0
+        const MASK: MatchedKeywords = MatchedKeywords::from_bits_truncate(
+            MatchedKeywords::IF.bits()
+                | MatchedKeywords::ELIF.bits()
+                | MatchedKeywords::FOR.bits()
+                | MatchedKeywords::WHILE.bits()
+                | MatchedKeywords::SWITCH.bits()
+                | MatchedKeywords::RETURN.bits()
+                | MatchedKeywords::NEW.bits()
+                | MatchedKeywords::DELETE.bits()
+                | MatchedKeywords::CATCH.bits()
+                | MatchedKeywords::SIZEOF.bits(),
+        );
+        self.intersects(MASK)
     }
 }
+
 
 const RAW_STRING_PREFIXES: &[&str] = &["u8R\"", "uR\"", "UR\"", "LR\"", "R\""];
 static RAW_STRING_PREFIXES_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
@@ -447,21 +448,21 @@ impl<'a> CleansedLines<'a> {
                     line_collapsed_ref
                 };
 
-                let mut bits = MatchedKeywords::from_line(line_elided_ref).0;
+                let mut bits = MatchedKeywords::from_line(line_elided_ref);
                 if has_alt {
                     bits |= MatchedKeywords::HAS_ALT_TOKEN;
                 }
-                keywords.push(MatchedKeywords(bits));
+                keywords.push(bits);
                 elided.push(line_elided_ref);
             } else {
                 let elided_line = line_collapsed_ref;
                 elided.push(elided_line);
                 if has_alt {
-                    let mut bits = MatchedKeywords::from_line(elided.last().unwrap()).0;
+                    let mut bits = MatchedKeywords::from_line(elided.last().unwrap());
                     bits |= MatchedKeywords::HAS_ALT_TOKEN;
-                    keywords.push(MatchedKeywords(bits));
+                    keywords.push(bits);
                 } else {
-                    keywords.push(MatchedKeywords(KEYWORDS_NOT_CALCULATED));
+                    keywords.push(MatchedKeywords::NOT_CALCULATED);
                 }
             }
         }
@@ -487,7 +488,7 @@ impl<'a> CleansedLines<'a> {
 
     pub fn keywords(&self, linenum: usize) -> MatchedKeywords {
         let val = self.keywords[linenum];
-        if val.0 != KEYWORDS_NOT_CALCULATED {
+        if val != MatchedKeywords::NOT_CALCULATED {
             return val;
         }
 

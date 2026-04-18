@@ -3,6 +3,7 @@ use crate::cleanse::{CleansedLines, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
+use bitflags::bitflags;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -29,38 +30,43 @@ static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
     .unwrap()
 });
 
-const WS_COLON_BIT: u32 = 1 << 0;
-const WS_PAREN_BIT: u32 = 1 << 1;
-const WS_COMMA_BIT: u32 = 1 << 2;
-const WS_SEMI_BIT: u32 = 1 << 3;
-const WS_BRACE_BIT: u32 = 1 << 4;
-const WS_BRACKET_BIT: u32 = 1 << 5;
-const WS_OP_BIT: u32 = 1 << 6;
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct WhitespaceBits: u32 {
+        const COLON   = 1 << 0;
+        const PAREN   = 1 << 1;
+        const COMMA   = 1 << 2;
+        const SEMI    = 1 << 3;
+        const BRACE   = 1 << 4;
+        const BRACKET = 1 << 5;
+        const OP      = 1 << 6;
+    }
+}
 
-static WHITESPACE_LUT: [u32; 256] = {
-    let mut lut = [0; 256];
-    lut[b':' as usize] |= WS_COLON_BIT;
-    lut[b'(' as usize] |= WS_PAREN_BIT;
-    lut[b')' as usize] |= WS_PAREN_BIT;
-    lut[b',' as usize] |= WS_COMMA_BIT;
-    lut[b';' as usize] |= WS_SEMI_BIT;
-    lut[b'{' as usize] |= WS_BRACE_BIT;
-    lut[b'}' as usize] |= WS_BRACE_BIT;
-    lut[b'[' as usize] |= WS_BRACKET_BIT;
-    lut[b']' as usize] |= WS_BRACKET_BIT;
-    lut[b'=' as usize] |= WS_OP_BIT;
-    lut[b'<' as usize] |= WS_OP_BIT;
-    lut[b'>' as usize] |= WS_OP_BIT;
-    lut[b'!' as usize] |= WS_OP_BIT;
-    lut[b'~' as usize] |= WS_OP_BIT;
-    lut[b'+' as usize] |= WS_OP_BIT;
-    lut[b'-' as usize] |= WS_OP_BIT;
-    lut[b'*' as usize] |= WS_OP_BIT;
-    lut[b'/' as usize] |= WS_OP_BIT;
-    lut[b'%' as usize] |= WS_OP_BIT;
-    lut[b'&' as usize] |= WS_OP_BIT;
-    lut[b'|' as usize] |= WS_OP_BIT;
-    lut[b'^' as usize] |= WS_OP_BIT;
+static WHITESPACE_LUT: [WhitespaceBits; 256] = {
+    let mut lut = [WhitespaceBits::empty(); 256];
+    lut[b':' as usize] = WhitespaceBits::COLON;
+    lut[b'(' as usize] = WhitespaceBits::PAREN;
+    lut[b')' as usize] = WhitespaceBits::PAREN;
+    lut[b',' as usize] = WhitespaceBits::COMMA;
+    lut[b';' as usize] = WhitespaceBits::SEMI;
+    lut[b'{' as usize] = WhitespaceBits::BRACE;
+    lut[b'}' as usize] = WhitespaceBits::BRACE;
+    lut[b'[' as usize] = WhitespaceBits::BRACKET;
+    lut[b']' as usize] = WhitespaceBits::BRACKET;
+    lut[b'=' as usize] = WhitespaceBits::OP;
+    lut[b'<' as usize] = WhitespaceBits::OP;
+    lut[b'>' as usize] = WhitespaceBits::OP;
+    lut[b'!' as usize] = WhitespaceBits::OP;
+    lut[b'~' as usize] = WhitespaceBits::OP;
+    lut[b'+' as usize] = WhitespaceBits::OP;
+    lut[b'-' as usize] = WhitespaceBits::OP;
+    lut[b'*' as usize] = WhitespaceBits::OP;
+    lut[b'/' as usize] = WhitespaceBits::OP;
+    lut[b'%' as usize] = WhitespaceBits::OP;
+    lut[b'&' as usize] = WhitespaceBits::OP;
+    lut[b'|' as usize] = WhitespaceBits::OP;
+    lut[b'^' as usize] = WhitespaceBits::OP;
     lut
 };
 
@@ -399,8 +405,7 @@ fn check_operator_spacing(
     let line_to_check = masked_line.as_ref();
 
     if line_to_check.contains('=')
-        && (keywords.bits() & (MatchedKeywords::IF | MatchedKeywords::WHILE | MatchedKeywords::FOR))
-            == 0
+        && !keywords.intersects(MatchedKeywords::IF | MatchedKeywords::WHILE | MatchedKeywords::FOR)
         && !line_to_check.contains("operator=")
         && has_missing_assignment_space(line_to_check)
     {
@@ -744,13 +749,12 @@ fn check_parenthesis_spacing(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if (keywords.bits()
-        & (MatchedKeywords::IF
+    if keywords.intersects(
+        MatchedKeywords::IF
             | MatchedKeywords::FOR
             | MatchedKeywords::WHILE
-            | MatchedKeywords::SWITCH))
-        != 0
-    {
+            | MatchedKeywords::SWITCH,
+    ) {
         if let Some(captures) = CONTROL_PARENS_MISSING_SPACE_RE.captures(elided_line) {
             linter.error(
                 linenum,
@@ -812,9 +816,7 @@ fn check_spacing_for_function_call(
     if !elided_line.contains('(') && !elided_line.contains(')') {
         return;
     }
-    if (keywords.bits() & (MatchedKeywords::IF | MatchedKeywords::FOR | MatchedKeywords::SWITCH))
-        != 0
-    {
+    if keywords.intersects(MatchedKeywords::IF | MatchedKeywords::FOR | MatchedKeywords::SWITCH) {
         if let Some(captures) = IF_FOR_SWITCH_CALL_RE.captures(elided_line) {
             check_spacing_for_function_call_base(
                 linter,
@@ -911,7 +913,7 @@ fn check_spacing_for_function_call_base(
     let spacing_matches = CALL_SPACING_SET.matches(fncall);
     if spacing_matches.matched(CALL_SPACING_MAIN) && !spacing_matches.matched(CALL_SPACING_FUNC_PTR)
     {
-        let mut exception_mask = 0u32;
+        let mut exception_mask = MatchedKeywords::empty();
         if spacing_matches.matched(CALL_SPACING_ASM) {
             exception_mask |= MatchedKeywords::VA_OPT;
         }
@@ -922,7 +924,7 @@ fn check_spacing_for_function_call_base(
             exception_mask |= MatchedKeywords::CASE;
         }
 
-        if (keywords.bits() & exception_mask) == 0 {
+        if !keywords.intersects(exception_mask) {
             let confidence = if keywords.has_operator() && OPERATOR_NAME_RE.is_match(line) {
                 0
             } else {
@@ -1419,27 +1421,27 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let has_slash = raw_line.contains('/');
 
     let bytes = elided_line.as_bytes();
-    let mut mask = 0u32;
+    let mut mask = WhitespaceBits::empty();
     let mut i = 0;
     while i + 32 <= bytes.len() {
         let chunk = u8x32::from_slice(&bytes[i..i + 32]);
         if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
-            mask |= WS_PAREN_BIT;
+            mask |= WhitespaceBits::PAREN;
         }
         if chunk.simd_eq(u8x32::splat(b':')).any() {
-            mask |= WS_COLON_BIT;
+            mask |= WhitespaceBits::COLON;
         }
         if chunk.simd_eq(u8x32::splat(b';')).any() {
-            mask |= WS_SEMI_BIT;
+            mask |= WhitespaceBits::SEMI;
         }
         if chunk.simd_eq(u8x32::splat(b',')).any() {
-            mask |= WS_COMMA_BIT;
+            mask |= WhitespaceBits::COMMA;
         }
         if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
-            mask |= WS_BRACE_BIT;
+            mask |= WhitespaceBits::BRACE;
         }
         if (chunk.simd_eq(u8x32::splat(b'[')) | chunk.simd_eq(u8x32::splat(b']'))).any() {
-            mask |= WS_BRACKET_BIT;
+            mask |= WhitespaceBits::BRACKET;
         }
         if (chunk.simd_eq(u8x32::splat(b'='))
             | chunk.simd_eq(u8x32::splat(b'<'))
@@ -1456,7 +1458,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             | chunk.simd_eq(u8x32::splat(b'^')))
         .any()
         {
-            mask |= WS_OP_BIT;
+            mask |= WhitespaceBits::OP;
         }
         i += 32;
     }
@@ -1464,13 +1466,13 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         mask |= WHITESPACE_LUT[b as usize];
     }
 
-    let has_colon = (mask & WS_COLON_BIT) != 0;
-    let has_paren = (mask & WS_PAREN_BIT) != 0;
-    let has_comma = (mask & WS_COMMA_BIT) != 0;
-    let has_semicolon = (mask & WS_SEMI_BIT) != 0;
-    let has_brace = (mask & WS_BRACE_BIT) != 0;
-    let has_bracket = (mask & WS_BRACKET_BIT) != 0;
-    let has_operator = (mask & WS_OP_BIT) != 0;
+    let has_colon = mask.contains(WhitespaceBits::COLON);
+    let has_paren = mask.contains(WhitespaceBits::PAREN);
+    let has_comma = mask.contains(WhitespaceBits::COMMA);
+    let has_semicolon = mask.contains(WhitespaceBits::SEMI);
+    let has_brace = mask.contains(WhitespaceBits::BRACE);
+    let has_bracket = mask.contains(WhitespaceBits::BRACKET);
+    let has_operator = mask.contains(WhitespaceBits::OP);
 
     let keywords = clean_lines.keywords(linenum);
 
