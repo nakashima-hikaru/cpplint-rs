@@ -492,52 +492,53 @@ fn find_operator_method(s: &str) -> Option<(&str, &str, &str)> {
 
 fn has_missing_assignment_space(s: &str) -> bool {
     let bytes = s.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
-        if b == b'=' {
-            // Check for compound assignments or comparisons (e.g., +=, ==, !=, >=)
-            if i > 0 {
-                let prev = bytes[i - 1];
-                if matches!(
-                    prev,
-                    b'>' | b'<'
-                        | b'='
-                        | b'!'
-                        | b'&'
-                        | b'^'
-                        | b'|'
-                        | b'+'
-                        | b'-'
-                        | b'*'
-                        | b'/'
-                        | b'%'
-                ) {
-                    continue;
-                }
-            }
-            if let Some(&next) = bytes.get(i + 1)
-                && next == b'='
-            {
+    let mut offset = 0;
+    while let Some(i) = s[offset..].find('=') {
+        let i = offset + i;
+        offset = i + 1;
+        // Check for compound assignments or comparisons (e.g., +=, ==, !=, >=)
+        if i > 0 {
+            let prev = bytes[i - 1];
+            if matches!(
+                prev,
+                b'>' | b'<'
+                    | b'='
+                    | b'!'
+                    | b'&'
+                    | b'^'
+                    | b'|'
+                    | b'+'
+                    | b'-'
+                    | b'*'
+                    | b'/'
+                    | b'%'
+            ) {
                 continue;
             }
+        }
+        if let Some(&next) = bytes.get(i + 1) {
+            if next == b'=' {
+                continue;
+            }
+        }
 
-            let mut missing = false;
-            if i > 0 {
-                let prev = bytes[i - 1];
-                if (prev.is_ascii_alphanumeric() || prev == b'.')
-                    && (i < 8 || &s[i - 8..i] != "operator")
-                {
-                    missing = true;
-                }
+        let mut missing = false;
+        if i > 0 {
+            let prev = bytes[i - 1];
+            if (prev.is_ascii_alphanumeric() || prev == b'.')
+                && (i < 8 || &s[i - 8..i] != "operator")
+            {
+                missing = true;
             }
-            if !missing && i + 1 < bytes.len() {
-                let next = bytes[i + 1];
-                if next.is_ascii_alphanumeric() || next == b'.' {
-                    missing = true;
-                }
+        }
+        if !missing && i + 1 < bytes.len() {
+            let next = bytes[i + 1];
+            if next.is_ascii_alphanumeric() || next == b'.' {
+                missing = true;
             }
-            if missing {
-                return true;
-            }
+        }
+        if missing {
+            return true;
         }
     }
     false
@@ -545,42 +546,46 @@ fn has_missing_assignment_space(s: &str) -> bool {
 
 fn find_less_spacing(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
-    if bytes.len() < 2 {
-        return None;
-    }
-    for i in (1..bytes.len() - 1).rev() {
-        if bytes[i] == b'<' {
-            let prev = bytes[i - 1];
-            if prev.is_ascii_whitespace() || prev == b'<' {
-                continue;
-            }
-            let next = bytes[i + 1];
-            if next.is_ascii_whitespace() || next == b'=' || next == b'<' || next == b',' {
-                continue;
-            }
-            return Some(i);
+    let mut offset = bytes.len().saturating_sub(1);
+    while offset > 1 {
+        let Some(idx) = s[1..offset].rfind('<') else {
+            return None;
+        };
+        let i = 1 + idx;
+        offset = i;
+        
+        let prev = bytes[i - 1];
+        if prev.is_ascii_whitespace() || prev == b'<' {
+            continue;
         }
+        let next = bytes[i + 1];
+        if next.is_ascii_whitespace() || next == b'=' || next == b'<' || next == b',' {
+            continue;
+        }
+        return Some(i);
     }
     None
 }
 
 fn find_greater_spacing(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
-    if bytes.len() < 2 {
-        return None;
-    }
-    for i in (1..bytes.len() - 1).rev() {
-        if bytes[i] == b'>' {
-            let prev = bytes[i - 1];
-            if prev.is_ascii_whitespace() || prev == b'-' || prev == b'>' {
-                continue;
-            }
-            let next = bytes[i + 1];
-            if next.is_ascii_whitespace() || next == b'=' || next == b'>' || next == b',' {
-                continue;
-            }
-            return Some(i);
+    let mut offset = bytes.len().saturating_sub(1);
+    while offset > 1 {
+        let Some(idx) = s[1..offset].rfind('>') else {
+            return None;
+        };
+        let i = 1 + idx;
+        offset = i;
+        
+        let prev = bytes[i - 1];
+        if prev.is_ascii_whitespace() || prev == b'-' || prev == b'>' {
+            continue;
         }
+        let next = bytes[i + 1];
+        if next.is_ascii_whitespace() || next == b'=' || next == b'>' || next == b',' {
+            continue;
+        }
+        return Some(i);
     }
     None
 }
@@ -599,63 +604,62 @@ fn ends_with_case_insensitive(s: &str, suffix: &str) -> bool {
 
 fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
     let bytes = s.as_bytes();
-    if bytes.len() < 3 {
-        return None;
-    }
-    for i in 1..bytes.len().saturating_sub(1) {
-        if bytes[i] == b'<' && bytes[i + 1] == b'<' {
-            let next_idx = i + 2;
-            if next_idx >= bytes.len() {
-                continue;
-            }
-            let next_b = bytes[next_idx];
-            if next_b.is_ascii_whitespace() || next_b == b',' || next_b == b'=' || next_b == b'<' {
-                continue;
-            }
-
-            let mut prefix_end = i;
-            let prefix_str = &s[..i];
-            if ends_with_case_insensitive(prefix_str, "ULL") {
-                prefix_end = prefix_end.saturating_sub(3);
-            } else if ends_with_case_insensitive(prefix_str, "LL")
-                || ends_with_case_insensitive(prefix_str, "UL")
-            {
-                prefix_end = prefix_end.saturating_sub(2);
-            } else if ends_with_case_insensitive(prefix_str, "L") {
-                prefix_end = prefix_end.saturating_sub(1);
-            }
-
-            if prefix_end == 0 {
-                continue;
-            }
-            let prefix = &s[..prefix_end];
-            let left = if prefix.ends_with("operator") {
-                "operator"
-            } else {
-                let prev_char = prefix.chars().last().unwrap();
-                if prev_char.is_ascii_whitespace() || prev_char == '(' || prev_char == '<' {
-                    continue;
-                }
-                &prefix[prefix.len() - prev_char.len_utf8()..]
-            };
-
-            let next_char = s[next_idx..].chars().next().unwrap();
-            let right = &s[next_idx..next_idx + next_char.len_utf8()];
-
-            return Some((left, right));
+    let mut offset = 1;
+    while let Some(idx) = s[offset..bytes.len().saturating_sub(1)].find("<<") {
+        let i = offset + idx;
+        offset = i + 2;
+        let next_idx = i + 2;
+        if next_idx >= bytes.len() {
+            continue;
         }
+        let next_b = bytes[next_idx];
+        if next_b.is_ascii_whitespace() || next_b == b',' || next_b == b'=' || next_b == b'<' {
+            continue;
+        }
+
+        let mut prefix_end = i;
+        let prefix_str = &s[..i];
+        if ends_with_case_insensitive(prefix_str, "ULL") {
+            prefix_end = prefix_end.saturating_sub(3);
+        } else if ends_with_case_insensitive(prefix_str, "LL")
+            || ends_with_case_insensitive(prefix_str, "UL")
+        {
+            prefix_end = prefix_end.saturating_sub(2);
+        } else if ends_with_case_insensitive(prefix_str, "L") {
+            prefix_end = prefix_end.saturating_sub(1);
+        }
+
+        if prefix_end == 0 {
+            continue;
+        }
+        let prefix = &s[..prefix_end];
+        let left = if prefix.ends_with("operator") {
+            "operator"
+        } else {
+            let prev_char = prefix.chars().last().unwrap();
+            if prev_char.is_ascii_whitespace() || prev_char == '(' || prev_char == '<' {
+                continue;
+            }
+            &prefix[prefix.len() - prev_char.len_utf8()..]
+        };
+
+        let next_char = s[next_idx..].chars().next().unwrap();
+        let right = &s[next_idx..next_idx + next_char.len_utf8()];
+
+        return Some((left, right));
     }
     None
 }
 
 fn has_rshift_spacing(s: &str) -> bool {
     let bytes = s.as_bytes();
-    for i in 0..bytes.len().saturating_sub(2) {
-        if bytes[i] == b'>' && bytes[i + 1] == b'>' {
-            let next = bytes[i + 2];
-            if next.is_ascii_alphabetic() || next == b'_' {
-                return true;
-            }
+    let mut offset = 0;
+    while let Some(idx) = s[offset..bytes.len().saturating_sub(2)].find(">>") {
+        let i = offset + idx;
+        offset = i + 2;
+        let next = bytes[i + 2];
+        if next.is_ascii_alphabetic() || next == b'_' {
+            return true;
         }
     }
     false
@@ -667,38 +671,46 @@ fn find_missing_comparison_space(s: &str) -> Option<&'static str> {
         return None;
     }
 
-    for (i, window) in bytes.windows(2).enumerate() {
-        let op = match window {
-            b"==" => "==",
-            b"!=" => "!=",
-            b"<=" => "<=",
-            b">=" => ">=",
-            b"||" => "||",
-            _ => continue,
+    let mut i = 1;
+    while i < bytes.len() - 2 {
+        let b = bytes[i];
+        let op = match b {
+            b'=' if bytes[i + 1] == b'=' => "==",
+            b'!' if bytes[i + 1] == b'=' => "!=",
+            b'<' if bytes[i + 1] == b'=' => "<=",
+            b'>' if bytes[i + 1] == b'=' => ">=",
+            b'|' if bytes[i + 1] == b'|' => "||",
+            _ => {
+                i += 1;
+                continue;
+            }
         };
 
         // op is at i, i+1
-        if i > 0 && i + 2 < bytes.len() {
-            let prev = bytes[i - 1];
-            let next = bytes[i + 2];
+        let prev = bytes[i - 1];
+        let next = bytes[i + 2];
 
-            let prev_is_op_char =
-                matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
-            let next_is_op_char =
-                matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
-                    || next.is_ascii_whitespace();
+        let prev_is_op_char =
+            matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
+        let next_is_op_char =
+            matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
+                || next.is_ascii_whitespace();
 
-            if !prev_is_op_char && !next_is_op_char {
-                return Some(op);
-            }
+        if !prev_is_op_char && !next_is_op_char {
+            return Some(op);
         }
+        i += 2;
     }
     None
 }
 
 fn find_extra_unary_space(s: &str) -> Option<&'static str> {
     let bytes = s.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
+    let mut offset = 0;
+    while let Some(idx) = s[offset..].find(&['!', '~', '-', '+'][..]) {
+        let i = offset + idx;
+        offset = i + 1;
+        let b = bytes[i];
         match b {
             b'!' | b'~' => {
                 if let Some(&next) = bytes.get(i + 1)
@@ -725,6 +737,7 @@ fn find_extra_unary_space(s: &str) -> Option<&'static str> {
     None
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_parenthesis_spacing(
     linter: &mut FileLinter,
     elided_line: &str,
@@ -788,6 +801,7 @@ fn check_parenthesis_spacing(
     }
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_spacing_for_function_call(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines<'_>,
@@ -855,6 +869,7 @@ fn is_interior_block_comment_line(raw_line: &str) -> bool {
         && !trimmed.starts_with('*')
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_spacing_for_function_call_base(
     linter: &mut FileLinter,
     line: &str,
@@ -951,13 +966,11 @@ fn check_spacing_for_function_call_base(
 fn is_braced_initialization(
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
+    leading_text: &str,
+    brace_pos: usize,
     linenum: usize,
 ) -> bool {
-    let Some(captures) = OPEN_BRACE_NEEDS_SPACE_RE.captures(elided_line) else {
-        return false;
-    };
-    let leading_text = captures.get(1).map(|m| m.as_str()).unwrap_or("");
-    let start_pos = captures.get(1).map(|m| m.end()).unwrap_or(0);
+    let start_pos = brace_pos;
     let Some((end_linenum, end_pos)) =
         crate::line_utils::close_expression(clean_lines, linenum, start_pos)
     else {
@@ -1124,6 +1137,7 @@ fn check_blank_line_rules(
     }
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_section_spacing(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines<'_>,
@@ -1215,6 +1229,7 @@ fn check_section_spacing(
     }
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_access_specifier_indentation(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines<'_>,
@@ -1273,6 +1288,7 @@ fn check_access_specifier_indentation(
     );
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_class_closing_brace_alignment(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines<'_>,
@@ -1475,34 +1491,49 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     }
 
     if has_comma || has_semicolon || raw_line.contains(";/*") {
-        // 9. Check comma and semicolon spacing.
-        let comma_check_line: Cow<'_, str> = if keywords.has_operator() || keywords.has_va_opt() {
-            let replaced = VA_OPT_COMMA_RE.replace_all(elided_line, "");
-            Cow::Owned(
-                OPERATOR_COMMA_CALL_RE
-                    .replace_all(&replaced, "F(")
-                    .into_owned(),
-            )
-        } else {
-            Cow::Borrowed(elided_line)
-        };
-
         if has_comma {
-            let check_line_bytes = comma_check_line.as_bytes();
+            let check_line_bytes = elided_line.as_bytes();
             let original_line_bytes = line.as_bytes();
             let mut missing_comma_space = false;
-            for i in 0..check_line_bytes.len().saturating_sub(1) {
-                if check_line_bytes[i] == b','
+            
+            let mut offset = 0;
+            while let Some(idx) = elided_line[offset..].find(',') {
+                let i = offset + idx;
+                offset = i + 1;
+                
+                if i + 1 < check_line_bytes.len()
                     && !matches!(check_line_bytes[i + 1], b',' | b' ' | b'\t' | b'\n' | b'\r')
-                    && i < original_line_bytes.len().saturating_sub(1)
+                    && i + 1 < original_line_bytes.len()
                     && original_line_bytes[i] == b','
                     && !matches!(
                         original_line_bytes[i + 1],
                         b',' | b' ' | b'\t' | b'\n' | b'\r'
                     )
                 {
-                    missing_comma_space = true;
-                    break;
+                    let mut is_exception = false;
+                    let prefix = elided_line[..i].trim_end();
+                    if keywords.has_operator() && prefix.ends_with("operator") {
+                        let before_op = &prefix[..prefix.len() - 8]; // 8 is len of "operator"
+                        if before_op.is_empty() || !before_op.chars().last().unwrap().is_ascii_alphanumeric() {
+                            is_exception = true;
+                        }
+                    }
+                    if !is_exception && keywords.has_va_opt() && prefix.ends_with('(') {
+                        let before_paren = prefix[..prefix.len() - 1].trim_end();
+                        if before_paren.ends_with("__VA_OPT__") {
+                            let before_va = &before_paren[..before_paren.len() - 10]; // 10 is len of "__VA_OPT__"
+                            if before_va.is_empty() || !before_va.chars().last().unwrap().is_ascii_alphanumeric() {
+                                if elided_line[i + 1..].trim_start().starts_with(')') {
+                                    is_exception = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if !is_exception {
+                        missing_comma_space = true;
+                        break;
+                    }
                 }
             }
 
@@ -1516,68 +1547,71 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             }
         }
 
-        if has_semicolon || raw_line.contains(";/*") {
+        let mut missing_semicolon_space = false;
+        let mut semicolon_count = 0;
+        if has_semicolon {
             let elided_bytes = elided_line.as_bytes();
-            let mut missing_semicolon_space = false;
-            for i in 0..elided_bytes.len().saturating_sub(1) {
-                if elided_bytes[i] == b';'
+            let mut offset = 0;
+            while let Some(idx) = elided_line[offset..].find(';') {
+                semicolon_count += 1;
+                let i = offset + idx;
+                offset = i + 1;
+                if i + 1 < elided_bytes.len()
                     && !matches!(
                         elided_bytes[i + 1],
                         b' ' | b'\t' | b'\n' | b'\r' | b'}' | b';' | b'\\' | b')' | b'/'
                     )
                 {
                     missing_semicolon_space = true;
-                    break;
                 }
-            }
-
-            let semicolon_before_block_comment = raw_line.contains(";/*");
-            if missing_semicolon_space || semicolon_before_block_comment {
-                let mut target_linenum = linenum;
-                if semicolon_before_block_comment && !raw_line.contains("*/") {
-                    while target_linenum + 1 < clean_lines.raw_lines.len() {
-                        target_linenum += 1;
-                        if clean_lines.raw_lines[target_linenum].contains("*/") {
-                            break;
-                        }
-                    }
-                }
-                linter.error(
-                    target_linenum,
-                    Category::WhitespaceSemicolon,
-                    3,
-                    r#"Missing space after ;"#,
-                );
             }
         }
-    }
 
-    if has_semicolon {
-        let semicolon_count = elided_line.bytes().filter(|&b| b == b';').count();
-        let switch_case_single_line =
-            (keywords.has_case() || keywords.has_default()) && elided_line.contains("break;");
+        let semicolon_before_block_comment = raw_line.contains(";/*");
+        if missing_semicolon_space || semicolon_before_block_comment {
+            let mut target_linenum = linenum;
+            if semicolon_before_block_comment && !raw_line.contains("*/") {
+                while target_linenum + 1 < clean_lines.raw_lines.len() {
+                    target_linenum += 1;
+                    if clean_lines.raw_lines[target_linenum].contains("*/") {
+                        break;
+                    }
+                }
+            }
+            linter.error(
+                target_linenum,
+                Category::WhitespaceSemicolon,
+                3,
+                r#"Missing space after ;"#,
+            );
+        }
 
-        if semicolon_count > 1 && !keywords.has_for() && !switch_case_single_line {
-            let prev_line = if linenum > 0 {
-                crate::line_utils::get_previous_non_blank_line(
-                    &clean_lines.lines_without_raw_strings,
-                    linenum,
-                )
-                .map(|(_, line)| line)
-                .unwrap_or("")
-            } else {
-                ""
-            };
+        if semicolon_count > 1 {
+            let switch_case_single_line =
+                (keywords.has_case() || keywords.has_default()) && elided_line.contains("break;");
 
-            if !MULTI_COMMAND_INITLIST_RE.is_match(line)
-                && (!prev_line.contains("for") || prev_line.contains(';'))
-            {
-                linter.error(
-                    linenum,
-                    Category::WhitespaceNewline,
-                    0,
-                    "More than one command on the same line",
-                );
+            if !keywords.has_for() && !switch_case_single_line {
+                let prev_line = if linenum > 0 {
+                    crate::line_utils::get_previous_non_blank_line(
+                        &clean_lines.lines_without_raw_strings,
+                        linenum,
+                    )
+                    .map(|(_, line)| line)
+                    .unwrap_or("")
+                } else {
+                    ""
+                };
+
+                if !MULTI_COMMAND_INITLIST_RE.is_match(line)
+                    && (!prev_line.contains("for") || prev_line.contains(';'))
+                {
+                    linter.error(
+                        linenum,
+                        Category::WhitespaceNewline,
+                        0,
+                        "More than one command on the same line",
+                    );
+                }
             }
         }
     }
@@ -1593,7 +1627,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             && !matches!(c, ' ' | '(' | '{' | '>')
         {
             let missing_space_before_qualified_brace = QUALIFIED_BRACE_RE.is_match(elided_line);
-            if (!is_braced_initialization(clean_lines, elided_line, linenum)
+            if (!is_braced_initialization(clean_lines, elided_line, prefix, brace_pos, linenum)
                 || missing_space_before_qualified_brace)
                 && !FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line)
             {
@@ -1634,15 +1668,18 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             5,
             r#"Line contains only semicolon. If this should be an empty statement, use {} instead."#,
         );
-    } else if SPACE_BEFORE_LAST_SEMICOLON_RE.is_match(elided_line)
-        && !string_utils::contains_word(elided_line, "for")
-    {
-        linter.error(
-            linenum,
-            Category::WhitespaceSemicolon,
-            5,
-            r#"Extra space before last semicolon. If this should be an empty statement, use {} instead."#,
-        );
+    } else if elided_line.ends_with(';') {
+        let before_semi = elided_line[..elided_line.len() - 1].as_bytes();
+        if before_semi.last().copied().is_some_and(|c| c.is_ascii_whitespace())
+            && !string_utils::contains_word(elided_line, "for")
+        {
+            linter.error(
+                linenum,
+                Category::WhitespaceSemicolon,
+                5,
+                r#"Extra space before last semicolon. If this should be an empty statement, use {} instead."#,
+            );
+        }
     }
 }
 
