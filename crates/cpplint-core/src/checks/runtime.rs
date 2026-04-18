@@ -81,10 +81,6 @@ static VLA_DECL_RE: LazyLock<Regex> =
 static TOKEN_SPLIT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+|\+|\-|\*|/|<<|>>|\]"#).unwrap());
 
-const STRCPY_CAT_NEEDLES: [&str; 2] = ["strcpy(", "strcat("];
-static STRCPY_CAT_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(STRCPY_CAT_NEEDLES).unwrap());
-
 static POINTER_INCREMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*\*\w+(\+\+|--);"#).unwrap());
 static MIN_MAX_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -207,9 +203,6 @@ const RUNTIME_CHECK_NEEDLES: &[&str] = &[
     "ttyname",
 ];
 
-static RUNTIME_CHECK_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(RUNTIME_CHECK_NEEDLES).unwrap());
-
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let line = &clean_lines.lines[linenum];
@@ -223,7 +216,13 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let has_bracket = line_features.contains(LineFeatures::BRACKET);
 
     // Keyword based skip
-    let has_keyword = RUNTIME_CHECK_AC.is_match(elided_line);
+    let mut has_keyword = false;
+    for &needle in RUNTIME_CHECK_NEEDLES {
+        if elided_line.contains(needle) {
+            has_keyword = true;
+            break;
+        }
+    }
 
     if has_paren || has_ampersand || has_keyword {
         check_casts(linter, clean_lines, elided_line, linenum);
@@ -1094,50 +1093,65 @@ fn has_self_initializer(line: &str) -> bool {
 }
 
 fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
-    if !line.contains("printf") && !STRCPY_CAT_AC.is_match(line) {
-        return;
-    }
-
-    if let Some(mat) = STRCPY_CAT_AC.find(line) {
-        let func = ["strcpy", "strcat"][mat.pattern()];
-        let start = mat.start();
-
-        let before_ok = start == 0 || !string_utils::is_word_char(line.as_bytes()[start - 1]);
-        if before_ok {
-            linter.error(
-                linenum,
-                Category::RuntimePrintf,
-                4,
-                &format!("Almost always, snprintf is better than {}", func),
-            );
-        }
-    }
-
-    if line.contains("printf") {
-        if let Some(captures) = SNPRINTF_RE.captures(line) {
-            let buffer = captures.get(1).map(|m| m.as_str()).unwrap_or("").trim();
-            let size = captures.get(2).map(|m| m.as_str()).unwrap_or("").trim();
-            if size != "0" && !size.is_empty() {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while let Some(pos) = memchr::memchr(b's', &bytes[i..]) {
+        i += pos;
+        if line[i..].starts_with("strcpy(") {
+            let start = i;
+            let before_ok = start == 0 || !string_utils::is_word_char(bytes[start - 1]);
+            if before_ok {
                 linter.error(
                     linenum,
                     Category::RuntimePrintf,
-                    3,
-                    &format!(
-                        "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
-                        buffer, size
-                    ),
+                    4,
+                    "Almost always, snprintf is better than strcpy",
                 );
+                break;
+            }
+        } else if line[i..].starts_with("strcat(") {
+            let start = i;
+            let before_ok = start == 0 || !string_utils::is_word_char(bytes[start - 1]);
+            if before_ok {
+                linter.error(
+                    linenum,
+                    Category::RuntimePrintf,
+                    4,
+                    "Almost always, snprintf is better than strcat",
+                );
+                break;
             }
         }
+        i += 1;
+    }
 
-        if SPRINTF_RE.is_match(line) {
+    if !line.contains("printf") {
+        return;
+    }
+
+    if let Some(captures) = SNPRINTF_RE.captures(line) {
+        let buffer = captures.get(1).map(|m| m.as_str()).unwrap_or("").trim();
+        let size = captures.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+        if size != "0" && !size.is_empty() {
             linter.error(
                 linenum,
                 Category::RuntimePrintf,
-                5,
-                "Never use sprintf. Use snprintf instead.",
+                3,
+                &format!(
+                    "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
+                    buffer, size
+                ),
             );
         }
+    }
+
+    if SPRINTF_RE.is_match(line) {
+        linter.error(
+            linenum,
+            Category::RuntimePrintf,
+            5,
+            "Never use sprintf. Use snprintf instead.",
+        );
     }
 }
 

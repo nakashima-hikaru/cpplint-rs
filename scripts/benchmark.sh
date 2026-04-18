@@ -114,8 +114,12 @@ run_bench() {
 
     if command -v cygpath &> /dev/null; then
         run_path=$(cygpath -w "$target_path")
-        cpp_bin=$(cygpath -w "$CPPLINT_CPP")
-        rs_bin=$(cygpath -w "$CPPLINT_RS")
+        if [ -n "$CPPLINT_CPP" ]; then
+            cpp_bin=$(cygpath -w "$CPPLINT_CPP")
+        fi
+        if [ -n "$CPPLINT_RS" ]; then
+            rs_bin=$(cygpath -w "$CPPLINT_RS")
+        fi
     fi
 
     echo "Debugging paths before hyperfine:"
