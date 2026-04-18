@@ -1656,7 +1656,6 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         let before_semi = stripped.as_bytes();
         if before_semi
             .last()
-            .copied()
             .is_some_and(|c| c.is_ascii_whitespace())
             && !string_utils::contains_word(elided_line, "for")
         {
