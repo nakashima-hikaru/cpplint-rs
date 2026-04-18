@@ -923,8 +923,8 @@ pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
         return Cow::Borrowed(elided);
     }
 
-    // Remove escapes
-    let result = if has_backslash {
+    // Remove escapes — only needed when both backslash and quotes are present
+    let result = if has_backslash && has_quote {
         Cow::Owned(ESCAPE_RE.replace_all(elided, "").to_string())
     } else {
         Cow::Borrowed(elided)

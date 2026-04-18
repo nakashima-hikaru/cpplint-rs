@@ -151,7 +151,9 @@ impl<'a> FileLinter<'a> {
         registry.run_raw_source(self, &lines);
 
         for &line in &lines {
-            self.process_global_suppressions(line);
+            if line.contains("LINT") || line.contains("filetype") {
+                self.process_global_suppressions(line);
+            }
         }
 
         self.remove_multiline_comments(lines.as_mut_slice());

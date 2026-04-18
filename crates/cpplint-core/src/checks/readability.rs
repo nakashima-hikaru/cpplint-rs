@@ -84,8 +84,10 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_unnamed_namespace_in_header(linter, elided_line, linenum);
     }
 
-    // Always check namespace indentation as it depends on context facts, not just keywords
-    check_namespace_indentation(linter, clean_lines, elided_line, linenum);
+    // Fast-path: only lines starting with whitespace can violate namespace indentation
+    if !elided_line.is_empty() && elided_line.as_bytes()[0].is_ascii_whitespace() {
+        check_namespace_indentation(linter, clean_lines, elided_line, linenum);
+    }
 
     if has_brace || has_slash || has_semicolon {
         check_namespace_termination_comment(linter, clean_lines, linenum);
@@ -134,7 +136,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     }
 
     if line_features.contains(LineFeatures::PAREN) {
-        check_missing_function_body(linter, clean_lines, linenum);
+        check_missing_function_body(linter, clean_lines, linenum, &keywords);
     }
 }
 
@@ -412,8 +414,9 @@ fn check_missing_function_body(
     linter: &mut FileLinter,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
+    keywords: &MatchedKeywords,
 ) {
-    if let Some(function_name) = find_function_without_body(clean_lines, linenum) {
+    if let Some(function_name) = find_function_without_body(clean_lines, linenum, keywords) {
         linter.error(
             linenum,
             Category::ReadabilityFnSize,
@@ -429,6 +432,7 @@ fn check_missing_function_body(
 fn find_function_without_body<'a>(
     clean_lines: &'a CleansedLines,
     linenum: usize,
+    keywords: &MatchedKeywords,
 ) -> Option<Cow<'a, str>> {
     let first_line = clean_lines.elided[linenum].trim();
     if first_line.is_empty()
@@ -436,7 +440,14 @@ fn find_function_without_body<'a>(
         || first_line.contains('{')
         || first_line.contains(';')
         || first_line.contains('}')
-        || is_control_statement_start(first_line)
+        || keywords.intersects(
+            MatchedKeywords::IF
+                | MatchedKeywords::FOR
+                | MatchedKeywords::WHILE
+                | MatchedKeywords::SWITCH
+                | MatchedKeywords::CATCH
+                | MatchedKeywords::ELSE,
+        )
     {
         return None;
     }

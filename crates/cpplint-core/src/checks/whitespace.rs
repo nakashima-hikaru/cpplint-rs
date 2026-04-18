@@ -142,7 +142,8 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
         return;
     };
 
-    if crate::cleanse::is_cpp_string(&line[..comment_pos]) {
+    let prefix = &line[..comment_pos];
+    if prefix.contains('"') && crate::cleanse::is_cpp_string(prefix) {
         return;
     }
 
@@ -345,6 +346,7 @@ fn check_operator_spacing(
 ) {
     let mut masked_line: std::borrow::Cow<'_, str> = std::borrow::Cow::Borrowed(elided_line);
     if keywords.has_operator()
+        && elided_line.contains('(')
         && let Some((prefix, operator, suffix)) = find_operator_method(elided_line)
     {
         let mut replaced = String::with_capacity(prefix.len() + operator.len() + suffix.len());
@@ -583,6 +585,18 @@ fn find_greater_spacing(s: &str) -> Option<usize> {
     None
 }
 
+fn ends_with_case_insensitive(s: &str, suffix: &str) -> bool {
+    let s_bytes = s.as_bytes();
+    let suf_bytes = suffix.as_bytes();
+    if s_bytes.len() < suf_bytes.len() {
+        return false;
+    }
+    s_bytes[s_bytes.len() - suf_bytes.len()..]
+        .iter()
+        .zip(suf_bytes)
+        .all(|(a, b)| a.to_ascii_uppercase() == *b)
+}
+
 fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
     let bytes = s.as_bytes();
     if bytes.len() < 3 {
@@ -600,12 +614,14 @@ fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
             }
 
             let mut prefix_end = i;
-            let upper = &s[..i].to_ascii_uppercase();
-            if upper.ends_with("ULL") {
+            let prefix_str = &s[..i];
+            if ends_with_case_insensitive(prefix_str, "ULL") {
                 prefix_end = prefix_end.saturating_sub(3);
-            } else if upper.ends_with("LL") || upper.ends_with("UL") {
+            } else if ends_with_case_insensitive(prefix_str, "LL")
+                || ends_with_case_insensitive(prefix_str, "UL")
+            {
                 prefix_end = prefix_end.saturating_sub(2);
-            } else if upper.ends_with("L") {
+            } else if ends_with_case_insensitive(prefix_str, "L") {
                 prefix_end = prefix_end.saturating_sub(1);
             }
 

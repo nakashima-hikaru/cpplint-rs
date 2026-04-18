@@ -294,7 +294,8 @@ impl FileFacts {
             matching_block_starts[linenum] = last_popped;
         }
 
-        let (class_facts, class_fact_by_line) = build_class_facts(&clean_lines.elided);
+        let (class_facts, class_fact_by_line) =
+            build_class_facts(&clean_lines.elided, &line_braces);
 
         Self {
             in_namespace_or_extern_block,
@@ -385,7 +386,10 @@ impl FileFacts {
 static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
     LazyLock::new(|| aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap());
 
-fn build_class_facts<S: AsRef<str>>(lines: &[S]) -> (Vec<ClassFact>, Vec<Option<usize>>) {
+fn build_class_facts<S: AsRef<str>>(
+    lines: &[S],
+    line_braces: &[(u32, u32)],
+) -> (Vec<ClassFact>, Vec<Option<usize>>) {
     let mut class_facts = Vec::new();
     let mut pending: Option<(usize, String, bool)> = None;
 
@@ -422,17 +426,18 @@ fn build_class_facts<S: AsRef<str>>(lines: &[S]) -> (Vec<ClassFact>, Vec<Option<
             continue;
         }
 
-        let mut depth = brace_count(line, '{') as isize - brace_count(line, '}') as isize;
+        let (l, r) = line_braces[linenum];
+        let mut depth = l as isize - r as isize;
         if depth <= 0 {
             pending = None;
             continue;
         }
 
         let mut class_end = None;
-        for (end, candidate) in lines.iter().enumerate().skip(linenum + 1) {
-            let candidate = candidate.as_ref();
-            depth += brace_count(candidate, '{') as isize;
-            depth -= brace_count(candidate, '}') as isize;
+        for end in (linenum + 1)..lines.len() {
+            let (l, r) = line_braces[end];
+            depth += l as isize;
+            depth -= r as isize;
             if depth == 0 {
                 class_end = Some(end);
                 break;
