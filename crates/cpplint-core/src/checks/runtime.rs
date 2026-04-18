@@ -1,12 +1,10 @@
 use crate::categories::Category;
-use crate::cleanse::CleansedLines;
+use crate::cleanse::{CleansedLines, LineFeatures};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
-use std::simd::cmp::SimdPartialEq;
-use std::simd::u8x32;
 use std::sync::LazyLock;
 
 const BASIC_CAST_NEEDLES: [&str; 12] = [
@@ -212,66 +210,16 @@ const RUNTIME_CHECK_NEEDLES: &[&str] = &[
 static RUNTIME_CHECK_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(RUNTIME_CHECK_NEEDLES).unwrap());
 
-const RT_PAREN_BIT: u16 = 1 << 0;
-const RT_AMP_BIT: u16 = 1 << 1;
-const RT_PLUS_MINUS_BIT: u16 = 1 << 2;
-const RT_ANGLE_QUESTION_BIT: u16 = 1 << 3;
-const RT_HASH_BIT: u16 = 1 << 4;
-
-static RUNTIME_LUT: [u16; 256] = {
-    let mut lut = [0; 256];
-    lut[b'(' as usize] |= RT_PAREN_BIT;
-    lut[b')' as usize] |= RT_PAREN_BIT;
-    lut[b'&' as usize] |= RT_AMP_BIT;
-    lut[b'+' as usize] |= RT_PLUS_MINUS_BIT;
-    lut[b'-' as usize] |= RT_PLUS_MINUS_BIT;
-    lut[b'<' as usize] |= RT_ANGLE_QUESTION_BIT;
-    lut[b'>' as usize] |= RT_ANGLE_QUESTION_BIT;
-    lut[b'?' as usize] |= RT_ANGLE_QUESTION_BIT;
-    lut[b'#' as usize] |= RT_HASH_BIT;
-    lut
-};
-
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
-
-    let bytes = elided_line.as_bytes();
-    let mut mask = 0u16;
-    let mut i = 0;
-    while i + 32 <= bytes.len() {
-        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
-        if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
-            mask |= RT_PAREN_BIT;
-        }
-        if chunk.simd_eq(u8x32::splat(b'&')).any() {
-            mask |= RT_AMP_BIT;
-        }
-        if (chunk.simd_eq(u8x32::splat(b'+')) | chunk.simd_eq(u8x32::splat(b'-'))).any() {
-            mask |= RT_PLUS_MINUS_BIT;
-        }
-        if (chunk.simd_eq(u8x32::splat(b'<'))
-            | chunk.simd_eq(u8x32::splat(b'>'))
-            | chunk.simd_eq(u8x32::splat(b'?')))
-        .any()
-        {
-            mask |= RT_ANGLE_QUESTION_BIT;
-        }
-        if chunk.simd_eq(u8x32::splat(b'#')).any() {
-            mask |= RT_HASH_BIT;
-        }
-        i += 32;
-    }
-    for &b in &bytes[i..] {
-        mask |= RUNTIME_LUT[b as usize];
-    }
-
-    let has_paren = (mask & RT_PAREN_BIT) != 0;
-    let has_ampersand = (mask & RT_AMP_BIT) != 0;
-    let has_plus_minus = (mask & RT_PLUS_MINUS_BIT) != 0;
-    let has_angle_question = (mask & RT_ANGLE_QUESTION_BIT) != 0;
-    let has_hash = (mask & RT_HASH_BIT) != 0;
+    let line_features = clean_lines.line_features[linenum];
+    let has_paren = line_features.contains(LineFeatures::PAREN);
+    let has_ampersand = line_features.contains(LineFeatures::AMP);
+    let has_plus_minus = line_features.contains(LineFeatures::PLUS_MINUS);
+    let has_angle_question = line_features.contains(LineFeatures::ANGLE_QUESTION);
+    let has_hash = line_features.contains(LineFeatures::HASH);
 
     // Keyword based skip
     let has_keyword = RUNTIME_CHECK_AC.is_match(elided_line);

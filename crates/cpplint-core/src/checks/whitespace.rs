@@ -1,9 +1,8 @@
 use crate::categories::Category;
-use crate::cleanse::{CleansedLines, MatchedKeywords};
+use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
-use bitflags::bitflags;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -29,49 +28,6 @@ static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
     ])
     .unwrap()
 });
-
-bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct WhitespaceBits: u32 {
-        const COLON   = 1 << 0;
-        const PAREN   = 1 << 1;
-        const COMMA   = 1 << 2;
-        const SEMI    = 1 << 3;
-        const BRACE   = 1 << 4;
-        const BRACKET = 1 << 5;
-        const OP      = 1 << 6;
-    }
-}
-
-static WHITESPACE_LUT: [WhitespaceBits; 256] = {
-    let mut lut = [WhitespaceBits::empty(); 256];
-    lut[b':' as usize] = WhitespaceBits::COLON;
-    lut[b'(' as usize] = WhitespaceBits::PAREN;
-    lut[b')' as usize] = WhitespaceBits::PAREN;
-    lut[b',' as usize] = WhitespaceBits::COMMA;
-    lut[b';' as usize] = WhitespaceBits::SEMI;
-    lut[b'{' as usize] = WhitespaceBits::BRACE;
-    lut[b'}' as usize] = WhitespaceBits::BRACE;
-    lut[b'[' as usize] = WhitespaceBits::BRACKET;
-    lut[b']' as usize] = WhitespaceBits::BRACKET;
-    lut[b'=' as usize] = WhitespaceBits::OP;
-    lut[b'<' as usize] = WhitespaceBits::OP;
-    lut[b'>' as usize] = WhitespaceBits::OP;
-    lut[b'!' as usize] = WhitespaceBits::OP;
-    lut[b'~' as usize] = WhitespaceBits::OP;
-    lut[b'+' as usize] = WhitespaceBits::OP;
-    lut[b'-' as usize] = WhitespaceBits::OP;
-    lut[b'*' as usize] = WhitespaceBits::OP;
-    lut[b'/' as usize] = WhitespaceBits::OP;
-    lut[b'%' as usize] = WhitespaceBits::OP;
-    lut[b'&' as usize] = WhitespaceBits::OP;
-    lut[b'|' as usize] = WhitespaceBits::OP;
-    lut[b'^' as usize] = WhitespaceBits::OP;
-    lut
-};
-
-use std::simd::cmp::SimdPartialEq;
-use std::simd::u8x32;
 
 static OPERATOR_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator_*\b"#).unwrap());
@@ -1346,7 +1302,8 @@ fn check_tabs_and_line_length(
     line_without_raw_strings: &str,
     linenum: usize,
 ) {
-    if raw_line.contains('\t') {
+    let has_tab = raw_line.contains('\t');
+    if has_tab {
         linter.error(
             linenum,
             Category::WhitespaceTab,
@@ -1355,16 +1312,18 @@ fn check_tabs_and_line_length(
         );
     }
 
-    let width = UnicodeWidthStr::width(line_without_raw_strings);
-    if width > linter.options().line_length && !should_skip_line_length(line_without_raw_strings) {
+    let line_length_limit = linter.options().line_length;
+    let width = if !has_tab && line_without_raw_strings.is_ascii() {
+        line_without_raw_strings.len()
+    } else {
+        UnicodeWidthStr::width(line_without_raw_strings)
+    };
+    if width > line_length_limit && !should_skip_line_length(line_without_raw_strings) {
         linter.error(
             linenum,
             Category::WhitespaceLineLength,
             2,
-            &format!(
-                "Lines should be <= {} characters long",
-                linter.options().line_length
-            ),
+            &format!("Lines should be <= {} characters long", line_length_limit),
         );
     }
 }
@@ -1386,18 +1345,20 @@ fn check_indentation(
         );
     }
 
+    let initial_spaces = crate::line_utils::get_indent_level(raw_line);
+    if initial_spaces != 1 && initial_spaces != 3 {
+        return;
+    }
+
     let comment_only_line = clean_lines.has_comment[linenum] && line.trim().is_empty();
     let indent_line = if comment_only_line { raw_line } else { line };
-    let initial_spaces = crate::line_utils::get_indent_level(raw_line);
     let prev_line_allows_continuation = linenum > 0
         && PREV_LINE_CONTINUATION_RE.is_match(clean_lines.lines_without_raw_strings[linenum - 1]);
     let is_scope_or_label = SCOPE_OR_LABEL_RE.is_match(indent_line);
     let is_raw_string_line =
         clean_lines.raw_lines[linenum] != line && line.trim_start().starts_with("\"\"");
-    let should_check_indent = !raw_line.trim().is_empty() || initial_spaces > 0;
 
-    if should_check_indent
-        && !prev_line_allows_continuation
+    if !prev_line_allows_continuation
         && (initial_spaces == 1 || initial_spaces == 3)
         && !is_scope_or_label
         && !is_raw_string_line
@@ -1417,62 +1378,16 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let line_without_raw_strings = &clean_lines.lines_without_raw_strings[linenum];
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
+    let line_features = clean_lines.line_features[linenum];
 
     let has_slash = raw_line.contains('/');
-
-    let bytes = elided_line.as_bytes();
-    let mut mask = WhitespaceBits::empty();
-    let mut i = 0;
-    while i + 32 <= bytes.len() {
-        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
-        if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
-            mask |= WhitespaceBits::PAREN;
-        }
-        if chunk.simd_eq(u8x32::splat(b':')).any() {
-            mask |= WhitespaceBits::COLON;
-        }
-        if chunk.simd_eq(u8x32::splat(b';')).any() {
-            mask |= WhitespaceBits::SEMI;
-        }
-        if chunk.simd_eq(u8x32::splat(b',')).any() {
-            mask |= WhitespaceBits::COMMA;
-        }
-        if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
-            mask |= WhitespaceBits::BRACE;
-        }
-        if (chunk.simd_eq(u8x32::splat(b'[')) | chunk.simd_eq(u8x32::splat(b']'))).any() {
-            mask |= WhitespaceBits::BRACKET;
-        }
-        if (chunk.simd_eq(u8x32::splat(b'='))
-            | chunk.simd_eq(u8x32::splat(b'<'))
-            | chunk.simd_eq(u8x32::splat(b'>'))
-            | chunk.simd_eq(u8x32::splat(b'!'))
-            | chunk.simd_eq(u8x32::splat(b'~'))
-            | chunk.simd_eq(u8x32::splat(b'+'))
-            | chunk.simd_eq(u8x32::splat(b'-'))
-            | chunk.simd_eq(u8x32::splat(b'*'))
-            | chunk.simd_eq(u8x32::splat(b'/'))
-            | chunk.simd_eq(u8x32::splat(b'%'))
-            | chunk.simd_eq(u8x32::splat(b'&'))
-            | chunk.simd_eq(u8x32::splat(b'|'))
-            | chunk.simd_eq(u8x32::splat(b'^')))
-        .any()
-        {
-            mask |= WhitespaceBits::OP;
-        }
-        i += 32;
-    }
-    for &b in &bytes[i..] {
-        mask |= WHITESPACE_LUT[b as usize];
-    }
-
-    let has_colon = mask.contains(WhitespaceBits::COLON);
-    let has_paren = mask.contains(WhitespaceBits::PAREN);
-    let has_comma = mask.contains(WhitespaceBits::COMMA);
-    let has_semicolon = mask.contains(WhitespaceBits::SEMI);
-    let has_brace = mask.contains(WhitespaceBits::BRACE);
-    let has_bracket = mask.contains(WhitespaceBits::BRACKET);
-    let has_operator = mask.contains(WhitespaceBits::OP);
+    let has_colon = line_features.contains(LineFeatures::COLON);
+    let has_paren = line_features.contains(LineFeatures::PAREN);
+    let has_comma = line_features.contains(LineFeatures::COMMA);
+    let has_semicolon = line_features.contains(LineFeatures::SEMI);
+    let has_brace = line_features.contains(LineFeatures::BRACE);
+    let has_bracket = line_features.contains(LineFeatures::BRACKET);
+    let has_operator = line_features.contains(LineFeatures::OP);
 
     let keywords = clean_lines.keywords(linenum);
 

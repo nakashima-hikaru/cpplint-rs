@@ -1,5 +1,5 @@
 use crate::categories::Category;
-use crate::cleanse::{CleansedLines, MatchedKeywords, collapse_strings};
+use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords, collapse_strings};
 use crate::file_linter::FileLinter;
 use crate::line_utils;
 use crate::regex_utils;
@@ -7,8 +7,6 @@ use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use regex::Regex;
 use std::borrow::Cow;
-use std::simd::cmp::SimdPartialEq;
-use std::simd::u8x32;
 use std::sync::LazyLock;
 
 fn is_control_statement_start(s: &str) -> bool {
@@ -62,17 +60,6 @@ static ANONYMOUS_NAMESPACE_TERM_MSG_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^\s*}.*\b(namespace anonymous|anonymous namespace)\b"#).unwrap()
 });
 
-const RD_BRACE_BIT: u8 = 1 << 0;
-const RD_SEMI_BIT: u8 = 1 << 1;
-
-static READABILITY_LUT: [u8; 256] = {
-    let mut lut = [0; 256];
-    lut[b'{' as usize] |= RD_BRACE_BIT;
-    lut[b'}' as usize] |= RD_BRACE_BIT;
-    lut[b';' as usize] |= RD_SEMI_BIT;
-    lut
-};
-
 fn is_test_like_function(name: &str) -> bool {
     name.starts_with("TEST") || name.starts_with("Test")
 }
@@ -81,25 +68,9 @@ fn is_test_like_function(name: &str) -> bool {
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let elided_line = &clean_lines.elided[linenum];
     let raw_line = &clean_lines.raw_lines[linenum];
-
-    let bytes = elided_line.as_bytes();
-    let mut mask = 0u8;
-    let mut i = 0;
-    while i + 32 <= bytes.len() {
-        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
-        if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
-            mask |= RD_BRACE_BIT;
-        }
-        if chunk.simd_eq(u8x32::splat(b';')).any() {
-            mask |= RD_SEMI_BIT;
-        }
-        i += 32;
-    }
-    for &b in &bytes[i..] {
-        mask |= READABILITY_LUT[b as usize];
-    }
-    let has_brace = (mask & RD_BRACE_BIT) != 0;
-    let has_semicolon = (mask & RD_SEMI_BIT) != 0;
+    let line_features = clean_lines.line_features[linenum];
+    let has_brace = line_features.contains(LineFeatures::BRACE);
+    let has_semicolon = line_features.contains(LineFeatures::SEMI);
 
     let has_slash = raw_line.contains('/');
     let keywords = clean_lines.keywords(linenum);
@@ -162,7 +133,9 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_trailing_semicolon(linter, clean_lines, elided_line, linenum);
     }
 
-    check_missing_function_body(linter, clean_lines, linenum);
+    if line_features.contains(LineFeatures::PAREN) {
+        check_missing_function_body(linter, clean_lines, linenum);
+    }
 }
 
 fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {

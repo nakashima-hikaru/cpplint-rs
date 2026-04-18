@@ -103,10 +103,54 @@ bitflags! {
         const CONSTEXPR   = 1 << 25;
         const STATIC      = 1 << 26;
         const HAS_ALT_TOKEN = 1 << 27;
-
-        const NOT_CALCULATED = u32::MAX;
     }
 }
+
+bitflags! {
+    #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+    pub struct LineFeatures: u16 {
+        const COLON          = 1 << 0;
+        const PAREN          = 1 << 1;
+        const COMMA          = 1 << 2;
+        const SEMI           = 1 << 3;
+        const BRACE          = 1 << 4;
+        const BRACKET        = 1 << 5;
+        const OP             = 1 << 6;
+        const AMP            = 1 << 7;
+        const PLUS_MINUS     = 1 << 8;
+        const ANGLE_QUESTION = 1 << 9;
+        const HASH           = 1 << 10;
+    }
+}
+
+static LINE_FEATURE_LUT: [u16; 256] = {
+    let mut lut = [0; 256];
+    lut[b':' as usize] |= 1 << 0;
+    lut[b'(' as usize] |= 1 << 1;
+    lut[b')' as usize] |= 1 << 1;
+    lut[b',' as usize] |= 1 << 2;
+    lut[b';' as usize] |= 1 << 3;
+    lut[b'{' as usize] |= 1 << 4;
+    lut[b'}' as usize] |= 1 << 4;
+    lut[b'[' as usize] |= 1 << 5;
+    lut[b']' as usize] |= 1 << 5;
+    lut[b'=' as usize] |= 1 << 6;
+    lut[b'<' as usize] |= (1 << 6) | (1 << 9);
+    lut[b'>' as usize] |= (1 << 6) | (1 << 9);
+    lut[b'!' as usize] |= 1 << 6;
+    lut[b'~' as usize] |= 1 << 6;
+    lut[b'+' as usize] |= (1 << 6) | (1 << 8);
+    lut[b'-' as usize] |= (1 << 6) | (1 << 8);
+    lut[b'*' as usize] |= 1 << 6;
+    lut[b'/' as usize] |= 1 << 6;
+    lut[b'%' as usize] |= 1 << 6;
+    lut[b'&' as usize] |= (1 << 6) | (1 << 7);
+    lut[b'|' as usize] |= 1 << 6;
+    lut[b'^' as usize] |= 1 << 6;
+    lut[b'?' as usize] |= 1 << 9;
+    lut[b'#' as usize] |= 1 << 10;
+    lut
+};
 
 impl MatchedKeywords {
     pub fn from_line(line: &str) -> Self {
@@ -280,7 +324,6 @@ impl MatchedKeywords {
     }
 }
 
-
 const RAW_STRING_PREFIXES: &[&str] = &["u8R\"", "uR\"", "UR\"", "LR\"", "R\""];
 static RAW_STRING_PREFIXES_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
     AhoCorasickBuilder::new()
@@ -309,12 +352,78 @@ pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
     matches
 }
 
+fn scan_line_features(line: &str) -> LineFeatures {
+    let bytes = line.as_bytes();
+    let mut mask = 0u16;
+    let mut i = 0;
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        if chunk.simd_eq(u8x32::splat(b':')).any() {
+            mask |= LineFeatures::COLON.bits();
+        }
+        if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
+            mask |= LineFeatures::PAREN.bits();
+        }
+        if chunk.simd_eq(u8x32::splat(b',')).any() {
+            mask |= LineFeatures::COMMA.bits();
+        }
+        if chunk.simd_eq(u8x32::splat(b';')).any() {
+            mask |= LineFeatures::SEMI.bits();
+        }
+        if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
+            mask |= LineFeatures::BRACE.bits();
+        }
+        if (chunk.simd_eq(u8x32::splat(b'[')) | chunk.simd_eq(u8x32::splat(b']'))).any() {
+            mask |= LineFeatures::BRACKET.bits();
+        }
+        if (chunk.simd_eq(u8x32::splat(b'='))
+            | chunk.simd_eq(u8x32::splat(b'<'))
+            | chunk.simd_eq(u8x32::splat(b'>'))
+            | chunk.simd_eq(u8x32::splat(b'!'))
+            | chunk.simd_eq(u8x32::splat(b'~'))
+            | chunk.simd_eq(u8x32::splat(b'+'))
+            | chunk.simd_eq(u8x32::splat(b'-'))
+            | chunk.simd_eq(u8x32::splat(b'*'))
+            | chunk.simd_eq(u8x32::splat(b'/'))
+            | chunk.simd_eq(u8x32::splat(b'%'))
+            | chunk.simd_eq(u8x32::splat(b'&'))
+            | chunk.simd_eq(u8x32::splat(b'|'))
+            | chunk.simd_eq(u8x32::splat(b'^')))
+        .any()
+        {
+            mask |= LineFeatures::OP.bits();
+        }
+        if chunk.simd_eq(u8x32::splat(b'&')).any() {
+            mask |= LineFeatures::AMP.bits();
+        }
+        if (chunk.simd_eq(u8x32::splat(b'+')) | chunk.simd_eq(u8x32::splat(b'-'))).any() {
+            mask |= LineFeatures::PLUS_MINUS.bits();
+        }
+        if (chunk.simd_eq(u8x32::splat(b'<'))
+            | chunk.simd_eq(u8x32::splat(b'>'))
+            | chunk.simd_eq(u8x32::splat(b'?')))
+        .any()
+        {
+            mask |= LineFeatures::ANGLE_QUESTION.bits();
+        }
+        if chunk.simd_eq(u8x32::splat(b'#')).any() {
+            mask |= LineFeatures::HASH.bits();
+        }
+        i += 32;
+    }
+    for &b in &bytes[i..] {
+        mask |= LINE_FEATURE_LUT[b as usize];
+    }
+    LineFeatures::from_bits_retain(mask)
+}
+
 pub struct CleansedLines<'a> {
     pub raw_lines: BumpVec<'a, &'a str>,
     pub lines: BumpVec<'a, &'a str>,
     pub elided: BumpVec<'a, &'a str>,
     pub lines_without_raw_strings: BumpVec<'a, &'a str>,
     pub has_comment: BumpVec<'a, bool>,
+    pub(crate) line_features: BumpVec<'a, LineFeatures>,
     pub(crate) keywords: BumpVec<'a, MatchedKeywords>,
     pub(crate) elided_without_alternate_tokens: Option<BumpVec<'a, &'a str>>,
 }
@@ -335,6 +444,7 @@ impl<'a> CleansedLines<'a> {
         let mut elided = BumpVec::with_capacity_in(n, arena);
         let mut has_comment = BumpVec::with_capacity_in(n, arena);
         let mut lines_without_raw_strings = BumpVec::with_capacity_in(n, arena);
+        let mut line_features = BumpVec::with_capacity_in(n, arena);
         let mut keywords = BumpVec::with_capacity_in(n, arena);
         let mut raw_lines_arena = BumpVec::with_capacity_in(n, arena);
         raw_lines_arena.extend_from_slice(raw_lines);
@@ -452,18 +562,18 @@ impl<'a> CleansedLines<'a> {
                 if has_alt {
                     bits |= MatchedKeywords::HAS_ALT_TOKEN;
                 }
+                line_features.push(scan_line_features(line_elided_ref));
                 keywords.push(bits);
                 elided.push(line_elided_ref);
             } else {
                 let elided_line = line_collapsed_ref;
                 elided.push(elided_line);
+                let mut bits = MatchedKeywords::from_line(elided_line);
                 if has_alt {
-                    let mut bits = MatchedKeywords::from_line(elided.last().unwrap());
                     bits |= MatchedKeywords::HAS_ALT_TOKEN;
-                    keywords.push(bits);
-                } else {
-                    keywords.push(MatchedKeywords::NOT_CALCULATED);
                 }
+                line_features.push(scan_line_features(elided_line));
+                keywords.push(bits);
             }
         }
 
@@ -473,6 +583,7 @@ impl<'a> CleansedLines<'a> {
             elided,
             lines_without_raw_strings,
             has_comment,
+            line_features,
             keywords,
             elided_without_alternate_tokens,
         }
@@ -487,18 +598,7 @@ impl<'a> CleansedLines<'a> {
     }
 
     pub fn keywords(&self, linenum: usize) -> MatchedKeywords {
-        let val = self.keywords[linenum];
-        if val != MatchedKeywords::NOT_CALCULATED {
-            return val;
-        }
-
-        let calculated = MatchedKeywords::from_line(self.elided[linenum]);
-        // NOTE: In single-threaded use, we'd just update this.
-        // If we want thread-safety here, we'd need Atomic back, but FileLinter is &mut.
-        // However, CleansedLines might be shared. Let's assume FileLinter ownership for now.
-        // Actually keywords is not pub(crate) so we can't easily mut it from a &self ref.
-        // For simplicity during optimization, let's keep it as is.
-        calculated
+        self.keywords[linenum]
     }
 }
 
