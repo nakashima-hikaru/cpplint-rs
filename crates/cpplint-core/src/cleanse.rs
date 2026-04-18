@@ -352,6 +352,14 @@ pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
     matches
 }
 
+/// Returns true if the line contains at least one alternate token, without allocating.
+fn has_alternate_tokens(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    ALT_TOKEN_AC
+        .find_iter(line)
+        .any(|mat| is_valid_alt_token_match(bytes, mat.start(), mat.end()))
+}
+
 fn scan_line_features(line: &str) -> LineFeatures {
     let bytes = line.as_bytes();
     let mut mask = 0u16;
@@ -546,7 +554,7 @@ impl<'a> CleansedLines<'a> {
                 line_comment_removed_ref
             };
 
-            let has_alt = !find_alternate_tokens(line_collapsed_ref).is_empty();
+            let has_alt = has_alternate_tokens(line_collapsed_ref);
 
             if let Some(lines_without_alt_tokens) = &mut elided_without_alternate_tokens {
                 let elided_line = replace_alternate_tokens(line_collapsed_ref);
@@ -884,7 +892,7 @@ pub fn is_cpp_string(line: &str) -> bool {
 }
 
 pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
-    if INCLUDE_RE.is_match(elided) {
+    if elided.trim_start().starts_with('#') && INCLUDE_RE.is_match(elided) {
         return Cow::Borrowed(elided);
     }
 

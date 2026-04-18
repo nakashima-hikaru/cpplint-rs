@@ -27,7 +27,15 @@ pub fn get_indent_level(line: &str) -> usize {
 }
 
 pub fn is_blank_line(line: &str) -> bool {
-    line.trim().is_empty()
+    let bytes = line.as_bytes();
+    if bytes.is_empty() {
+        return true;
+    }
+    // Fast path: most non-blank lines start with a non-whitespace character
+    if !bytes[0].is_ascii_whitespace() {
+        return false;
+    }
+    bytes.iter().all(|b| b.is_ascii_whitespace())
 }
 
 pub fn get_previous_non_blank_line<S: AsRef<str>>(

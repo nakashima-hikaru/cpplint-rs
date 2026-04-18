@@ -220,6 +220,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let has_plus_minus = line_features.contains(LineFeatures::PLUS_MINUS);
     let has_angle_question = line_features.contains(LineFeatures::ANGLE_QUESTION);
     let has_hash = line_features.contains(LineFeatures::HASH);
+    let has_bracket = line_features.contains(LineFeatures::BRACKET);
 
     // Keyword based skip
     let has_keyword = RUNTIME_CHECK_AC.is_match(elided_line);
@@ -244,7 +245,9 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_endif_comment(linter, elided_line, linenum);
     }
 
-    check_const_string_member(linter, elided_line, linenum);
+    if has_ampersand && has_keyword {
+        check_const_string_member(linter, elided_line, linenum);
+    }
 
     if has_keyword {
         check_memset(linter, elided_line, linenum);
@@ -256,12 +259,16 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_global_strings(linter, elided_line, linenum);
     }
 
-    check_init_with_self(linter, clean_lines, linenum);
+    if has_paren {
+        check_init_with_self(linter, clean_lines, linenum);
+    }
 
     if has_keyword {
         check_printf(linter, elided_line, linenum);
     }
-    check_printf_format(linter, line, linenum);
+    if has_keyword {
+        check_printf_format(linter, line, linenum);
+    }
 
     if has_ampersand {
         check_unary_operator_ampersand(linter, elided_line, linenum);
@@ -274,7 +281,9 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     if has_ampersand {
         check_non_const_references(linter, elided_line, linenum);
     }
-    check_variable_length_arrays(linter, elided_line, linenum);
+    if has_bracket {
+        check_variable_length_arrays(linter, elided_line, linenum);
+    }
 }
 
 fn check_casts(

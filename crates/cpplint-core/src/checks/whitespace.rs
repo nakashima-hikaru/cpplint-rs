@@ -35,8 +35,7 @@ static VA_OPT_COMMA_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\b__VA_OPT__\s*\(,\)"#).unwrap());
 static OPERATOR_COMMA_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\boperator\s*,\s*\("#).unwrap());
-static BRACE_INLINE_COMMENT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^.*\{\s*//"#).unwrap());
+
 static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"^//[^ ]*\w"#,        // 0: COMMENT_WITHOUT_SPACE
@@ -154,7 +153,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
         .unwrap_or(0);
 
     let allows_single_space_after_scope =
-        BRACE_INLINE_COMMENT_RE.is_match(line) && next_line_start == comment_pos;
+        has_brace_before_comment(line, comment_pos) && next_line_start == comment_pos;
     if !allows_single_space_after_scope
         && ((comment_pos >= 1 && !line.as_bytes()[comment_pos - 1].is_ascii_whitespace())
             || (comment_pos >= 2 && !line.as_bytes()[comment_pos - 2].is_ascii_whitespace()))
@@ -208,6 +207,18 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
             "Should have a space between // and comment",
         );
     }
+}
+
+/// Manual replacement for BRACE_INLINE_COMMENT_RE (`^.*\{\s*//`).
+/// Checks whether there is a `{` followed only by whitespace before the comment at `comment_pos`.
+fn has_brace_before_comment(line: &str, comment_pos: usize) -> bool {
+    let prefix = &line.as_bytes()[..comment_pos];
+    // Walk backwards from comment_pos, skipping whitespace, looking for '{'
+    let mut i = prefix.len();
+    while i > 0 && prefix[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    i > 0 && prefix[i - 1] == b'{'
 }
 
 fn is_word_byte(byte: u8) -> bool {
@@ -1335,6 +1346,7 @@ fn check_indentation(
     raw_line: &str,
     line: &str,
     linenum: usize,
+    keywords: &MatchedKeywords,
 ) {
     if raw_line.ends_with(' ') || raw_line.ends_with('\t') {
         linter.error(
@@ -1354,7 +1366,7 @@ fn check_indentation(
     let indent_line = if comment_only_line { raw_line } else { line };
     let prev_line_allows_continuation = linenum > 0
         && PREV_LINE_CONTINUATION_RE.is_match(clean_lines.lines_without_raw_strings[linenum - 1]);
-    let is_scope_or_label = SCOPE_OR_LABEL_RE.is_match(indent_line);
+    let is_scope_or_label = keywords.has_access() && SCOPE_OR_LABEL_RE.is_match(indent_line);
     let is_raw_string_line =
         clean_lines.raw_lines[linenum] != line && line.trim_start().starts_with("\"\"");
 
@@ -1410,7 +1422,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     }
 
     check_tabs_and_line_length(linter, raw_line, line_without_raw_strings, linenum);
-    check_indentation(linter, clean_lines, raw_line, line, linenum);
+    check_indentation(linter, clean_lines, raw_line, line, linenum, &keywords);
 
     if has_bracket && has_extra_space_before_bracket(elided_line) {
         linter.error(
