@@ -1,5 +1,4 @@
 use std::fmt;
-use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Category {
@@ -149,83 +148,6 @@ impl Category {
 impl fmt::Display for Category {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for Category {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "build/c++11" => Ok(Self::BuildCpp11),
-            "build/c++17" => Ok(Self::BuildCpp17),
-            "build/deprecated" => Ok(Self::BuildDeprecated),
-            "build/endif_comment" => Ok(Self::BuildEndifComment),
-            "build/explicit_make_pair" => Ok(Self::BuildExplicitMakePair),
-            "build/forward_decl" => Ok(Self::BuildForwardDecl),
-            "build/header_guard" => Ok(Self::BuildHeaderGuard),
-            "build/include" => Ok(Self::BuildInclude),
-            "build/include_subdir" => Ok(Self::BuildIncludeSubdir),
-            "build/include_alpha" => Ok(Self::BuildIncludeAlpha),
-            "build/include_order" => Ok(Self::BuildIncludeOrder),
-            "build/include_what_you_use" => Ok(Self::BuildIncludeWhatYouUse),
-            "build/namespaces_headers" => Ok(Self::BuildNamespacesHeaders),
-            "build/namespaces_literals" => Ok(Self::BuildNamespacesLiterals),
-            "build/namespaces" => Ok(Self::BuildNamespaces),
-            "build/printf_format" => Ok(Self::BuildPrintfFormat),
-            "build/storage_class" => Ok(Self::BuildStorageClass),
-            "legal/copyright" => Ok(Self::LegalCopyright),
-            "readability/alt_tokens" => Ok(Self::ReadabilityAltTokens),
-            "readability/braces" => Ok(Self::ReadabilityBraces),
-            "readability/casting" => Ok(Self::ReadabilityCasting),
-            "readability/check" => Ok(Self::ReadabilityCheck),
-            "readability/constructors" => Ok(Self::ReadabilityConstructors),
-            "readability/fn_size" => Ok(Self::ReadabilityFnSize),
-            "readability/inheritance" => Ok(Self::ReadabilityInheritance),
-            "readability/multiline_comment" => Ok(Self::ReadabilityMultilineComment),
-            "readability/multiline_string" => Ok(Self::ReadabilityMultilineString),
-            "readability/namespace" => Ok(Self::ReadabilityNamespace),
-            "readability/nolint" => Ok(Self::ReadabilityNolint),
-            "readability/nul" => Ok(Self::ReadabilityNul),
-            "readability/strings" => Ok(Self::ReadabilityStrings),
-            "readability/todo" => Ok(Self::ReadabilityTodo),
-            "readability/utf8" => Ok(Self::ReadabilityUtf8),
-            "runtime/arrays" => Ok(Self::RuntimeArrays),
-            "runtime/casting" => Ok(Self::RuntimeCasting),
-            "runtime/explicit" => Ok(Self::RuntimeExplicit),
-            "runtime/int" => Ok(Self::RuntimeInt),
-            "runtime/init" => Ok(Self::RuntimeInit),
-            "runtime/invalid_increment" => Ok(Self::RuntimeInvalidIncrement),
-            "runtime/member_string_references" => Ok(Self::RuntimeMemberStringReferences),
-            "runtime/memset" => Ok(Self::RuntimeMemset),
-            "runtime/operator" => Ok(Self::RuntimeOperator),
-            "runtime/printf" => Ok(Self::RuntimePrintf),
-            "runtime/printf_format" => Ok(Self::RuntimePrintfFormat),
-            "runtime/references" => Ok(Self::RuntimeReferences),
-            "runtime/string" => Ok(Self::RuntimeString),
-            "runtime/threadsafe_fn" => Ok(Self::RuntimeThreadsafeFn),
-            "runtime/vlog" => Ok(Self::RuntimeVlog),
-            "whitespace/blank_line" => Ok(Self::WhitespaceBlankLine),
-            "whitespace/braces" => Ok(Self::WhitespaceBraces),
-            "whitespace/comma" => Ok(Self::WhitespaceComma),
-            "whitespace/comments" => Ok(Self::WhitespaceComments),
-            "whitespace/empty_conditional_body" => Ok(Self::WhitespaceEmptyConditionalBody),
-            "whitespace/empty_if_body" => Ok(Self::WhitespaceEmptyIfBody),
-            "whitespace/empty_loop_body" => Ok(Self::WhitespaceEmptyLoopBody),
-            "whitespace/end_of_line" => Ok(Self::WhitespaceEndOfLine),
-            "whitespace/ending_newline" => Ok(Self::WhitespaceEndingNewline),
-            "whitespace/forcolon" => Ok(Self::WhitespaceForcolon),
-            "whitespace/indent" => Ok(Self::WhitespaceIndent),
-            "whitespace/indent_namespace" => Ok(Self::WhitespaceIndentNamespace),
-            "whitespace/line_length" => Ok(Self::WhitespaceLineLength),
-            "whitespace/newline" => Ok(Self::WhitespaceNewline),
-            "whitespace/operators" => Ok(Self::WhitespaceOperators),
-            "whitespace/parens" => Ok(Self::WhitespaceParens),
-            "whitespace/semicolon" => Ok(Self::WhitespaceSemicolon),
-            "whitespace/tab" => Ok(Self::WhitespaceTab),
-            "whitespace/todo" => Ok(Self::WhitespaceTodo),
-            _ => Err(()),
-        }
     }
 }
 
