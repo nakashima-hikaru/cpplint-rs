@@ -550,9 +550,11 @@ fn fix_brace_placement(diagnostics: &[Diagnostic], lines: &mut Vec<String>) -> b
     use crate::messages::LintMessage;
     let mut targets: Vec<usize> = diagnostics
         .iter()
-        .filter(|diagnostic| match &diagnostic.message {
-            LintMessage::MissingSpaceBeforeOpenBrace => true,
-            _ => false,
+        .filter(|diagnostic| {
+            matches!(
+                &diagnostic.message,
+                LintMessage::MissingSpaceBeforeOpenBrace
+            )
         })
         .map(|diagnostic| diagnostic.linenum.saturating_sub(1))
         .collect();
