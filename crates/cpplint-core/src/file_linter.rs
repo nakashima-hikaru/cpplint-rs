@@ -192,12 +192,7 @@ impl<'a> FileLinter<'a> {
         PathBuf::from(normalized)
     }
 
-    fn process_line(
-        &mut self,
-        clean_lines: &CleansedLines,
-        facts: &FileFacts<'_>,
-        linenum: usize,
-    ) {
+    fn process_line(&mut self, clean_lines: &CleansedLines, facts: &FileFacts<'_>, linenum: usize) {
         let raw_line = &clean_lines.raw_lines[linenum];
         if clean_lines
             .has_comment

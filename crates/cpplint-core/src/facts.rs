@@ -302,8 +302,11 @@ impl<'a> FileFacts<'a> {
             matching_block_starts[linenum] = last_popped;
         }
 
-        let (class_facts, class_fact_by_line) =
-            build_class_facts(clean_lines.elided.as_slice(), &line_braces, &matching_block_ends);
+        let (class_facts, class_fact_by_line) = build_class_facts(
+            clean_lines.elided.as_slice(),
+            &line_braces,
+            &matching_block_ends,
+        );
 
         Self {
             in_namespace_or_extern_block,

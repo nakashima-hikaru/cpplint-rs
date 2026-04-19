@@ -1494,30 +1494,41 @@ fn check_access_specifier_indentation(
         return;
     }
 
-    let kind = if facts.enclosing_class_is_struct(linenum).unwrap_or(false) {
-        "struct"
-    } else {
-        "class"
-    };
-    let class_name = match facts.nearest_class_name(linenum) {
-        Some(name) if !name.is_empty() => format!("{} {}", kind, name),
-        _ => kind.to_string(),
-    };
-
     let access = specifier;
     let slots = if has_slots { " slots" } else { "" };
     if prefix_len != class_indent + 1 {
+        let message = match (
+            facts.enclosing_class_is_struct(linenum).unwrap_or(false),
+            facts.nearest_class_name(linenum),
+        ) {
+            (true, Some(name)) if !name.is_empty() => {
+                format!(
+                    "{}{}: should be indented +1 space inside struct {}",
+                    access, slots, name
+                )
+            }
+            (false, Some(name)) if !name.is_empty() => {
+                format!(
+                    "{}{}: should be indented +1 space inside class {}",
+                    access, slots, name
+                )
+            }
+            (true, _) => format!(
+                "{}{}: should be indented +1 space inside struct",
+                access, slots
+            ),
+            (false, _) => {
+                format!(
+                    "{}{}: should be indented +1 space inside class",
+                    access, slots
+                )
+            }
+        };
         linter.error(
             linenum,
             Category::WhitespaceIndent,
             3,
-            crate::messages::LintMessage::ShouldBeIndented(
-                format!(
-                    "{}{}: should be indented +1 space inside {}",
-                    access, slots, class_name
-                )
-                .into(),
-            ),
+            crate::messages::LintMessage::ShouldBeIndented(message.into()),
         );
     }
 }
@@ -1549,14 +1560,14 @@ fn check_class_closing_brace_alignment(
         return;
     }
 
-    let kind = if facts.enclosing_class_is_struct(linenum).unwrap_or(false) {
-        "struct"
-    } else {
-        "class"
-    };
-    let parent = match facts.nearest_class_name(linenum) {
-        Some(name) if !name.is_empty() => format!("{} {}", kind, name),
-        _ => kind.to_string(),
+    let parent = match (
+        facts.enclosing_class_is_struct(linenum).unwrap_or(false),
+        facts.nearest_class_name(linenum),
+    ) {
+        (true, Some(name)) if !name.is_empty() => format!("struct {}", name),
+        (false, Some(name)) if !name.is_empty() => format!("class {}", name),
+        (true, _) => "struct".to_string(),
+        (false, _) => "class".to_string(),
     };
     linter.error(
         linenum,
