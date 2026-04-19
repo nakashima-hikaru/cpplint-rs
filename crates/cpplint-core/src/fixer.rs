@@ -551,9 +551,6 @@ fn fix_brace_placement(diagnostics: &[Diagnostic], lines: &mut Vec<String>) -> b
         .iter()
         .filter(|diagnostic| match &diagnostic.message {
             LintMessage::MissingSpaceBeforeOpenBrace => true,
-            LintMessage::Raw(m) => {
-                m.as_ref() == "{ should almost always be at the end of the previous line"
-            }
             _ => false,
         })
         .map(|diagnostic| diagnostic.linenum.saturating_sub(1))
@@ -752,7 +749,7 @@ fn apply_line_fixes(
                     changed |= fix_inheritance_redundancy(line, m);
                 }
             }
-            _m @ (LintMessage::EndifCommentMissing(_) | LintMessage::Raw(_))
+            _m @ (LintMessage::EndifCommentMissing(_) | LintMessage::EndifLineShouldBe(_))
                 if diagnostic.category.as_str() == "build/endif_comment" =>
             {
                 let idx = diagnostic.linenum.saturating_sub(1);

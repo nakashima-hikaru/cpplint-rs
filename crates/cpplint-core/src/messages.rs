@@ -273,8 +273,6 @@ pub enum LintMessage {
     AlreadyIncluded(Box<str>, Box<str>, usize), // include, filename, first_line
     DoNotIncludeExtensionFromOtherPackages(Box<str>),
 
-    // Catch-all for migration
-    Raw(Box<str>),
 }
 
 impl LintMessage {
@@ -678,7 +676,6 @@ impl fmt::Display for LintMessage {
             Self::DoNotIncludeExtensionFromOtherPackages(ext) => {
                 write!(f, "Do not include .{} files from other packages", ext)
             }
-            Self::Raw(msg) => f.write_str(msg),
             _ => unreachable!("unhandled LintMessage variant in Display"),
         }
     }
