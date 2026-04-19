@@ -203,7 +203,7 @@ static LINE_FEATURE_LUT: [u32; 256] = {
 
 impl MatchedKeywords {
     pub fn from_line(line: &str) -> Self {
-        if !line.bytes().any(|b| b.is_ascii_alphabetic()) {
+        if line.is_empty() {
             return Self::default();
         }
         let mut bits = Self::empty();
@@ -632,7 +632,7 @@ impl<'a> CleansedLines<'a> {
             lines_without_raw_strings.push(line_without_raw_ref);
 
             // 2. Cleanse comments
-            let (comment_removed, is_comment, still_in_block) =
+            let (comment_removed, is_comment, still_in_block, has_quote_or_backslash) =
                 cleanse_comments_line(line_without_raw_ref, in_block_comment);
 
             let line_comment_removed_ref: &'a str = if let Cow::Owned(s) = comment_removed {
@@ -645,7 +645,11 @@ impl<'a> CleansedLines<'a> {
             in_block_comment = still_in_block;
 
             // 3. Collapse strings
-            let collapsed_line = collapse_strings(line_comment_removed_ref);
+            let collapsed_line = if has_quote_or_backslash {
+                collapse_strings(line_comment_removed_ref)
+            } else {
+                Cow::Borrowed(line_comment_removed_ref)
+            };
             let line_collapsed_ref: &'a str = if let Cow::Owned(s) = collapsed_line {
                 arena.alloc_str(s.as_ref())
             } else {
@@ -828,7 +832,7 @@ fn cleanse_comments_from_lines(lines: &[String]) -> (Vec<String>, Vec<bool>) {
     let mut in_block_comment = false;
 
     for line in lines {
-        let (comment_removed, is_comment, still_in_block) =
+        let (comment_removed, is_comment, still_in_block, _) =
             cleanse_comments_line(line, in_block_comment);
         result.push(comment_removed.into_owned());
         has_comment.push(is_comment);
@@ -841,9 +845,9 @@ fn cleanse_comments_from_lines(lines: &[String]) -> (Vec<String>, Vec<bool>) {
 fn cleanse_comments_line<'a>(
     line: &'a str,
     mut in_block_comment: bool,
-) -> (Cow<'a, str>, bool, bool) {
+) -> (Cow<'a, str>, bool, bool, bool) {
     if line.is_empty() {
-        return (Cow::Borrowed(""), false, in_block_comment);
+        return (Cow::Borrowed(""), false, in_block_comment, false);
     }
 
     // Quick check if we need to do anything.
@@ -876,12 +880,13 @@ fn cleanse_comments_line<'a>(
         }
         if !has_special {
             let trimmed = line.trim_end();
-            return (Cow::Borrowed(trimmed), false, false);
+            return (Cow::Borrowed(trimmed), false, false, false);
         }
     }
 
     let mut result = String::with_capacity(line.len());
     let mut is_comment = false;
+    let mut has_quote_or_backslash = false;
     let mut in_string = false;
     let mut in_char = false;
     let mut escaped = false;
@@ -924,6 +929,7 @@ fn cleanse_comments_line<'a>(
         }
 
         if b == b'\\' && (in_string || in_char) {
+            has_quote_or_backslash = true;
             result.push('\\');
             escaped = true;
             just_closed_block_comment = false;
@@ -932,6 +938,7 @@ fn cleanse_comments_line<'a>(
         }
 
         if b == b'"' && !in_char {
+            has_quote_or_backslash = true;
             in_string = !in_string;
             result.push('"');
             just_closed_block_comment = false;
@@ -940,6 +947,7 @@ fn cleanse_comments_line<'a>(
         }
 
         if b == b'\'' && !in_string {
+            has_quote_or_backslash = true;
             in_char = !in_char;
             result.push('\'');
             just_closed_block_comment = false;
@@ -972,13 +980,19 @@ fn cleanse_comments_line<'a>(
         && !in_char
         && result.len() == line.trim_end().len()
     {
-        return (Cow::Borrowed(line.trim_end()), false, false);
+        return (
+            Cow::Borrowed(line.trim_end()),
+            false,
+            false,
+            has_quote_or_backslash,
+        );
     }
 
     (
         Cow::Owned(result.trim_end().to_string()),
         is_comment,
         in_block_comment,
+        has_quote_or_backslash,
     )
 }
 
