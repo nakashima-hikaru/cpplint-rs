@@ -366,22 +366,22 @@ fn render_counts(counting_style: CountingStyle, diagnostics: &[Diagnostic]) -> S
 }
 
 fn sed_fixup(message: &crate::messages::LintMessage) -> Option<&'static str> {
-    use crate::messages::LintMessage;
+    use crate::messages::{LintMessage, OperatorSymbol};
     match message {
-        LintMessage::MissingSpacesAround(op) if op.as_ref() == "=" => Some(r"s/ = /=/"),
-        LintMessage::MissingSpacesAround(op) if op.as_ref() == "!=" => Some(r"s/ != /!=/"),
-        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in if (" => Some(r"s/if (/if(/"),
-        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in for (" => {
+        LintMessage::MissingSpacesAround(OperatorSymbol::Eq) => Some(r"s/ = /=/"),
+        LintMessage::MissingSpacesAround(OperatorSymbol::Ne) => Some(r"s/ != /!=/"),
+        LintMessage::ExtraSpaceBeforeParenIn(ctx) if ctx.as_ref() == "if" => Some(r"s/if (/if(/"),
+        LintMessage::ExtraSpaceBeforeParenIn(ctx) if ctx.as_ref() == "for" => {
             Some(r"s/for (/for(/")
         }
-        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in while (" => {
+        LintMessage::ExtraSpaceBeforeParenIn(ctx) if ctx.as_ref() == "while" => {
             Some(r"s/while (/while(/")
         }
-        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in switch (" => {
+        LintMessage::ExtraSpaceBeforeParenIn(ctx) if ctx.as_ref() == "switch" => {
             Some(r"s/switch (/switch(/")
         }
         LintMessage::ShouldHaveSpaceBetweenSlashesAndComment => Some(r"s/\/\//\/\/ /"),
-        LintMessage::Raw(m) if m.as_ref() == "Missing space before {" => Some(r"s/\([^ ]\){/\1 {/"),
+        LintMessage::MissingSpaceBeforeOpenBrace => Some(r"s/\([^ ]\){/\1 {/"),
         LintMessage::TabFound => Some(r"s/\t/  /g"),
         LintMessage::TrailingWhitespace => Some(r"s/\s*$//"),
         LintMessage::BracesRedundant(kind) if kind.as_ref() == "}" => Some(r"s/};/}/"),

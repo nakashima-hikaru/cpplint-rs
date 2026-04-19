@@ -587,7 +587,9 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            "Extra space for operator ! ",
+            crate::messages::LintMessage::ExtraSpaceForOperator(
+                crate::messages::OperatorSymbol::BangSpaced,
+            ),
         );
         return;
     }
@@ -603,17 +605,21 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            crate::messages::LintMessage::MissingSpacesAround("=".into()),
+            crate::messages::LintMessage::MissingSpacesAround(
+                crate::messages::OperatorSymbol::Eq,
+            ),
         );
     }
 
     if let Some(op) = analysis.missing_comparison_space {
-        linter.error(
-            linenum,
-            Category::WhitespaceOperators,
-            3,
-            crate::messages::LintMessage::MissingSpacesAround(op.to_string().into()),
-        );
+        if let Some(op) = crate::messages::OperatorSymbol::from_str(op) {
+            linter.error(
+                linenum,
+                Category::WhitespaceOperators,
+                3,
+                crate::messages::LintMessage::MissingSpacesAround(op),
+            );
+        }
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if let Some(end_pos) = analysis.less_pos
             && crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none()
@@ -622,7 +628,9 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                crate::messages::LintMessage::MissingSpacesAround("<".into()),
+                crate::messages::LintMessage::MissingSpacesAround(
+                    crate::messages::OperatorSymbol::Lt,
+                ),
             );
         }
 
@@ -634,7 +642,9 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                crate::messages::LintMessage::MissingSpacesAround(">".into()),
+                crate::messages::LintMessage::MissingSpacesAround(
+                    crate::messages::OperatorSymbol::Gt,
+                ),
             );
         }
     }
@@ -650,7 +660,9 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                crate::messages::LintMessage::MissingSpacesAround("<<".into()),
+                crate::messages::LintMessage::MissingSpacesAround(
+                    crate::messages::OperatorSymbol::LShift,
+                ),
             );
         }
     }
@@ -660,17 +672,21 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             3,
-            crate::messages::LintMessage::MissingSpacesAround(">>".into()),
+            crate::messages::LintMessage::MissingSpacesAround(
+                crate::messages::OperatorSymbol::RShift,
+            ),
         );
     }
 
     if let Some(op) = analysis.extra_unary_space {
-        linter.error(
-            linenum,
-            Category::WhitespaceOperators,
-            4,
-            crate::messages::LintMessage::ExtraSpaceForOperator(op.to_string().into()),
-        );
+        if let Some(op) = crate::messages::OperatorSymbol::from_str(op) {
+            linter.error(
+                linenum,
+                Category::WhitespaceOperators,
+                4,
+                crate::messages::LintMessage::ExtraSpaceForOperator(op),
+            );
+        }
     }
 }
 
@@ -1118,7 +1134,7 @@ fn check_spacing_for_function_call_base(
             linenum,
             Category::WhitespaceParens,
             4,
-            "Extra space after ( in function call",
+            crate::messages::LintMessage::ExtraSpaceAfterParenInFuncCall,
         );
     } else if has_extra_space_after_leading_nested_open_paren(fncall)
         || has_extra_space_after_open_paren(fncall)
@@ -1127,7 +1143,7 @@ fn check_spacing_for_function_call_base(
             linenum,
             Category::WhitespaceParens,
             2,
-            "Extra space after (",
+            crate::messages::LintMessage::ExtraSpaceAfterParen,
         );
     }
 
@@ -1154,7 +1170,7 @@ fn check_spacing_for_function_call_base(
                 linenum,
                 Category::WhitespaceParens,
                 confidence,
-                "Extra space before ( in function call",
+                crate::messages::LintMessage::ExtraSpaceBeforeParenInFuncCall,
             );
         }
     }
@@ -1173,14 +1189,14 @@ fn check_spacing_for_function_call_base(
             linenum,
             Category::WhitespaceParens,
             2,
-            "Closing ) should be moved to the previous line",
+            crate::messages::LintMessage::ClosingParenShouldBeMovedToPreviousLine,
         );
     } else {
         linter.error(
             linenum,
             Category::WhitespaceParens,
             2,
-            "Extra space before )",
+            crate::messages::LintMessage::ExtraSpaceBeforeCloseParen,
         );
     }
 }
@@ -1824,7 +1840,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
                 target_linenum,
                 Category::WhitespaceSemicolon,
                 3,
-                r#"Missing space after ;"#,
+                crate::messages::LintMessage::MissingSpaceBeforeSemicolon,
             );
         }
 
@@ -1888,7 +1904,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             linenum,
             Category::WhitespaceBraces,
             5,
-            r#"Missing space before else"#,
+            crate::messages::LintMessage::MissingSpaceBeforeElse,
         );
     }
 
@@ -1900,7 +1916,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
                 linenum,
                 Category::WhitespaceSemicolon,
                 5,
-                r#"Semicolon defining empty statement. Use {} instead."#,
+                crate::messages::LintMessage::SemicolonDefiningEmptyStatementUseBraces,
             );
         }
     } else if elided_line.trim() == ";" {
@@ -1908,7 +1924,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             linenum,
             Category::WhitespaceSemicolon,
             5,
-            r#"Line contains only semicolon. If this should be an empty statement, use {} instead."#,
+            crate::messages::LintMessage::LineContainsOnlySemicolonUseBraces,
         );
     } else if let Some(stripped) = elided_line.strip_suffix(';') {
         let before_semi = stripped.as_bytes();
@@ -1919,7 +1935,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
                 linenum,
                 Category::WhitespaceSemicolon,
                 5,
-                r#"Extra space before last semicolon. If this should be an empty statement, use {} instead."#,
+                crate::messages::LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces,
             );
         }
     }

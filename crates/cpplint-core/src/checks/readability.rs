@@ -1402,7 +1402,7 @@ fn check_trailing_semicolon(
             end_line,
             Category::ReadabilityBraces,
             4,
-            "You don't need a ; after a }",
+            crate::messages::LintMessage::UnnecessarySemicolonAfterBrace,
         );
     }
 }

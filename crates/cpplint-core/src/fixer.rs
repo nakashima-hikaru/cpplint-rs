@@ -660,13 +660,13 @@ fn apply_line_fixes(
                     changed |= fix_semicolon_spacing(line, m);
                 }
             }
-            LintMessage::ExtraSpaceForOperator(op) if op.as_ref() == ":" => {
+            LintMessage::ExtraSpaceForOperator(crate::messages::OperatorSymbol::Colon) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_range_for_colon(line);
                 }
             }
-            m @ LintMessage::MissingSpaceBeforeOpenBrace => {
+            m @ (LintMessage::MissingSpaceBeforeOpenBrace | LintMessage::MissingSpaceBeforeElse) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_brace_spacing(line, m);
@@ -689,6 +689,7 @@ fn apply_line_fixes(
                 }
             }
             m @ (LintMessage::ExtraSpaceAfterParen
+            | LintMessage::ExtraSpaceAfterParenInFuncCall
             | LintMessage::MismatchingSpacesInsideParen
             | LintMessage::MissingSpaceBeforeOpenParen
             | LintMessage::ExtraSpaceBeforeCloseParen
@@ -734,7 +735,7 @@ fn apply_line_fixes(
                     changed |= fix_check_macro(line);
                 }
             }
-            LintMessage::Raw(m) if m.as_ref() == "You don't need a ; after a }" => {
+            LintMessage::UnnecessarySemicolonAfterBrace => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
@@ -1051,31 +1052,18 @@ fn fix_semicolon_spacing(line: &mut String, message: &crate::messages::LintMessa
         LintMessage::MissingSpaceBeforeSemicolon => update_code(line, |code| {
             SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
         }),
-        LintMessage::Raw(m) if m.as_ref() == "Missing space after ;" => update_code(line, |code| {
-            SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
-        }),
-        LintMessage::Raw(m)
-            if m.as_ref() == "Semicolon defining empty statement. Use {} instead." =>
-        {
+        LintMessage::SemicolonDefiningEmptyStatementUseBraces => {
             COLON_SEMICOLON_RE.replace(line, ": {}").into_owned()
         }
-        LintMessage::Raw(m)
-            if m.as_ref()
-                == "Line contains only semicolon. If this should be an empty statement, use {} instead." =>
-        {
+        LintMessage::LineContainsOnlySemicolonUseBraces => {
             let indent = line
                 .chars()
                 .take_while(|ch| ch.is_ascii_whitespace())
                 .collect::<String>();
             format!("{}{{}}", indent)
         }
-        LintMessage::ExtraSpaceBeforeSemicolon => {
-            SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
-        }
-        LintMessage::Raw(m)
-            if m.as_ref()
-                == "Extra space before last semicolon. If this should be an empty statement, use {} instead." =>
-        {
+        LintMessage::ExtraSpaceBeforeSemicolon
+        | LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces => {
             SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
         }
         _ => return false,
@@ -1141,9 +1129,7 @@ fn fix_brace_spacing(line: &mut String, message: &crate::messages::LintMessage) 
         LintMessage::MissingSpaceBeforeOpenBrace => BRACE_MISSING_SPACE_RE
             .replace_all(line, "$1 {")
             .into_owned(),
-        LintMessage::Raw(m) if m.as_ref() == "Missing space before else" => {
-            line.replace("}else", "} else")
-        }
+        LintMessage::MissingSpaceBeforeElse => line.replace("}else", "} else"),
         _ => return false,
     };
     if *line != fixed {
@@ -1190,7 +1176,14 @@ fn fix_paren_spacing(
                 return true;
             }
         }
-        LintMessage::ExtraSpaceAfterParen | LintMessage::ExtraSpaceBeforeCloseParen => {
+        LintMessage::ExtraSpaceAfterParen | LintMessage::ExtraSpaceAfterParenInFuncCall => {
+            let fixed = PAREN_SPACE_AFTER_RE.replace_all(&lines[idx], "(").into_owned();
+            if lines[idx] != fixed {
+                lines[idx] = fixed;
+                return true;
+            }
+        }
+        LintMessage::ExtraSpaceBeforeCloseParen => {
             let fixed = PAREN_SPACE_BEFORE_CLOSE_RE
                 .replace_all(&lines[idx], ")")
                 .into_owned();
@@ -1233,10 +1226,10 @@ fn fix_operator_spacing(line: &mut String, message: &crate::messages::LintMessag
     }
     let fixed = match message {
         LintMessage::MissingSpacesAround(op) => {
-            update_code(line, |code| add_spaces_around_operator(code, op))
+            update_code(line, |code| add_spaces_around_operator(code, op.as_fix_str()))
         }
         LintMessage::ExtraSpaceForOperator(op) => {
-            update_code(line, |code| remove_spaces_after_unary_operator(code, op))
+            update_code(line, |code| remove_spaces_after_unary_operator(code, op.as_fix_str()))
         }
         _ => return false,
     };

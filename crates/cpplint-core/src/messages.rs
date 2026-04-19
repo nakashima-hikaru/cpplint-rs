@@ -1,6 +1,60 @@
 use crate::iwyu::IwyuHeader;
 use std::fmt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OperatorSymbol {
+    Eq,
+    Ne,
+    Lt,
+    Gt,
+    LShift,
+    RShift,
+    Colon,
+    Bang,
+    BangSpaced,
+    Tilde,
+}
+
+impl OperatorSymbol {
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "=" => Some(Self::Eq),
+            "!=" => Some(Self::Ne),
+            "<" => Some(Self::Lt),
+            ">" => Some(Self::Gt),
+            "<<" => Some(Self::LShift),
+            ">>" => Some(Self::RShift),
+            ":" => Some(Self::Colon),
+            "!" => Some(Self::Bang),
+            "! " => Some(Self::BangSpaced),
+            "~" => Some(Self::Tilde),
+            _ => None,
+        }
+    }
+
+    pub fn as_display_str(self) -> &'static str {
+        match self {
+            Self::Eq => "=",
+            Self::Ne => "!=",
+            Self::Lt => "<",
+            Self::Gt => ">",
+            Self::LShift => "<<",
+            Self::RShift => ">>",
+            Self::Colon => ":",
+            Self::Bang => "!",
+            Self::BangSpaced => "! ",
+            Self::Tilde => "~",
+        }
+    }
+
+    pub fn as_fix_str(self) -> &'static str {
+        match self {
+            Self::BangSpaced => "!",
+            _ => self.as_display_str(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LintMessage {
     // Core / Suppression messages
@@ -23,11 +77,12 @@ pub enum LintMessage {
     MissingUsernameInTodo,
     TodoShouldBeFollowedBySpace,
     ShouldHaveSpaceBetweenSlashesAndComment,
-    MissingSpacesAround(Box<str>),
-    ExtraSpaceForOperator(Box<str>),
+    MissingSpacesAround(OperatorSymbol),
+    ExtraSpaceForOperator(OperatorSymbol),
     MissingSpacesAroundBracket,
     ExtraSpaceBeforeBracket,
     ExtraSpaceAfterParen,
+    ExtraSpaceAfterParenInFuncCall,
     ExtraSpaceBeforeParenIn(Box<str>), // e.g., "if"
     ExtraSpaceBeforeParenInFuncCall,
     MismatchingSpacesInsideParen,
@@ -41,6 +96,11 @@ pub enum LintMessage {
     ExtraSpaceBeforeComma,
     ExtraSpaceAfterComma,
     MissingSpaceAfterComma,
+    MissingSpaceBeforeElse,
+    UnnecessarySemicolonAfterBrace,
+    SemicolonDefiningEmptyStatementUseBraces,
+    LineContainsOnlySemicolonUseBraces,
+    ExtraSpaceBeforeLastSemicolonUseBraces,
     ExtraSpaceBeforeCloseParen,
     ClosingParenShouldBeMovedToPreviousLine,
     LineLength(usize),
@@ -147,6 +207,7 @@ impl LintMessage {
             Self::MissingSpacesAroundBracket => Some("Missing spaces around [ ]"),
             Self::ExtraSpaceBeforeBracket => Some("Extra space before ["),
             Self::ExtraSpaceAfterParen => Some("Extra space after ("),
+            Self::ExtraSpaceAfterParenInFuncCall => Some("Extra space after ( in function call"),
             Self::ExtraSpaceBeforeParenInFuncCall => Some("Extra space before ( in function call"),
             Self::MismatchingSpacesInsideParen => Some("Mismatching spaces inside ()"),
             Self::MissingSpaceBeforeOpenParen => Some("Missing space before ("),
@@ -159,6 +220,17 @@ impl LintMessage {
             Self::ExtraSpaceBeforeComma => Some("Extra space before ,"),
             Self::ExtraSpaceAfterComma => Some("Extra space after ,"),
             Self::MissingSpaceAfterComma => Some("Missing space after ,"),
+            Self::MissingSpaceBeforeElse => Some("Missing space before else"),
+            Self::UnnecessarySemicolonAfterBrace => Some("You don't need a ; after a }"),
+            Self::SemicolonDefiningEmptyStatementUseBraces => {
+                Some("Semicolon defining empty statement. Use {} instead.")
+            }
+            Self::LineContainsOnlySemicolonUseBraces => {
+                Some("Line contains only semicolon. If this should be an empty statement, use {} instead.")
+            }
+            Self::ExtraSpaceBeforeLastSemicolonUseBraces => {
+                Some("Extra space before last semicolon. If this should be an empty statement, use {} instead.")
+            }
             Self::ExtraSpaceBeforeCloseParen => Some("Extra space before )"),
             Self::ClosingParenShouldBeMovedToPreviousLine => {
                 Some("Closing ) should be moved to the previous line")
@@ -254,8 +326,12 @@ impl fmt::Display for LintMessage {
             Self::NolintCategoriesNotSupportedInEnd(cat) => {
                 write!(f, "NOLINT categories not supported in block END: {}", cat)
             }
-            Self::MissingSpacesAround(op) => write!(f, "Missing spaces around {}", op),
-            Self::ExtraSpaceForOperator(op) => write!(f, "Extra space for operator {}", op),
+            Self::MissingSpacesAround(op) => {
+                write!(f, "Missing spaces around {}", op.as_display_str())
+            }
+            Self::ExtraSpaceForOperator(op) => {
+                write!(f, "Extra space for operator {}", op.as_display_str())
+            }
             Self::ExtraSpaceBeforeParenIn(ctx) => write!(f, "Extra space before ( in {} (", ctx),
             Self::LineLength(len) => write!(f, "Lines should be <= {} characters long", len),
             Self::ShouldBeIndented(msg) => write!(f, "should be indented {}", msg),
