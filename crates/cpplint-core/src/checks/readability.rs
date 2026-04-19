@@ -134,7 +134,18 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_trailing_semicolon(linter, clean_lines, elided_line, linenum);
     }
 
-    if line_features.contains(LineFeatures::PAREN) {
+    if line_features.contains(LineFeatures::PAREN)
+        && !has_brace
+        && !has_semicolon
+        && !keywords.intersects(
+            MatchedKeywords::IF
+                | MatchedKeywords::FOR
+                | MatchedKeywords::WHILE
+                | MatchedKeywords::SWITCH
+                | MatchedKeywords::CATCH
+                | MatchedKeywords::ELSE,
+        )
+    {
         check_missing_function_body(linter, clean_lines, linenum, &keywords);
     }
 }
