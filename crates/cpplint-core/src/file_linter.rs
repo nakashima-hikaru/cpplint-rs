@@ -33,7 +33,7 @@ pub struct FileLinter<'a> {
     file_index: usize,
     source_file: SourceFile,
     registry: &'static RuleRegistry,
-    facts: Option<FileFacts>,
+    facts: Option<Arc<FileFacts>>,
     has_error: bool,
 }
 
@@ -84,10 +84,11 @@ impl<'a> FileLinter<'a> {
         self.has_error
     }
 
-    pub(crate) fn facts(&self) -> &FileFacts {
+    pub(crate) fn facts_arc(&self) -> Arc<FileFacts> {
         self.facts
             .as_ref()
             .expect("file facts should be initialized before running checks")
+            .clone()
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -164,7 +165,7 @@ impl<'a> FileLinter<'a> {
             self.options.as_ref(),
             self.filename(),
         );
-        self.facts = Some(FileFacts::new(&clean_lines));
+        self.facts = Some(Arc::new(FileFacts::new(&clean_lines)));
         registry.run_file_structure(self, &clean_lines);
 
         for linenum in 0..clean_lines.raw_lines.len() {

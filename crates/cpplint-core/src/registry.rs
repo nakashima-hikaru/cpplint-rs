@@ -215,9 +215,10 @@ impl RuleRegistry {
         clean_lines: &CleansedLines<'_>,
         linenum: usize,
     ) {
-        whitespace::check(linter, clean_lines, linenum);
-        runtime::check(linter, clean_lines, linenum);
-        readability::check(linter, clean_lines, linenum);
+        let facts = linter.facts_arc();
+        whitespace::check(linter, facts.as_ref(), clean_lines, linenum);
+        runtime::check(linter, facts.as_ref(), clean_lines, linenum);
+        readability::check(linter, facts.as_ref(), clean_lines, linenum);
     }
 
     pub fn run_finalize<S: AsRef<str>>(&self, linter: &mut FileLinter<'_>, raw_lines: &[S]) {

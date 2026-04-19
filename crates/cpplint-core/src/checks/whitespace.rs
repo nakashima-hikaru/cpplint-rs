@@ -1,5 +1,6 @@
 use crate::categories::Category;
 use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
+use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
@@ -560,6 +561,7 @@ fn has_extra_space_after_leading_nested_open_paren(line: &str) -> bool {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_operator_spacing(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
@@ -581,7 +583,7 @@ fn check_operator_spacing(
     if raw_trimmed.starts_with("/*! ")
         && raw_trimmed.contains("*/")
         && (raw_trimmed.contains("http://") || raw_trimmed.contains("https://"))
-        && linter.facts().namespace_top_level_depth(linenum).is_some()
+        && facts.namespace_top_level_depth(linenum).is_some()
     {
         linter.error(
             linenum,
@@ -1275,6 +1277,7 @@ fn looks_like_type_name(expr: &str) -> bool {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_blank_line_rules(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
@@ -1345,15 +1348,13 @@ fn check_blank_line_rules(
         && next_line.trim_start().starts_with('}')
         && !next_line.contains("} else ")
     {
-        let closes_extern_block = linter
-            .facts()
+        let closes_extern_block = facts
             .matching_block_start(linenum + 1)
             .is_some_and(|start| {
                 let start_line = clean_lines.raw_lines[start].trim();
                 start_line.starts_with("extern ") && start_line.ends_with('{')
             });
-        let closes_namespace_block = linter
-            .facts()
+        let closes_namespace_block = facts
             .matching_block_start(linenum + 1)
             .is_some_and(|start| {
                 crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start).is_some()
@@ -1373,6 +1374,7 @@ fn check_blank_line_rules(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_section_spacing(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
     keywords: &MatchedKeywords,
@@ -1385,7 +1387,7 @@ fn check_section_spacing(
         return;
     };
 
-    let Some(class_range) = linter.facts().enclosing_class_range(linenum) else {
+    let Some(class_range) = facts.enclosing_class_range(linenum) else {
         return;
     };
     let class_start = class_range.start;
@@ -1462,6 +1464,7 @@ fn check_section_spacing(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_access_specifier_indentation(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
     keywords: &MatchedKeywords,
@@ -1477,7 +1480,7 @@ fn check_access_specifier_indentation(
     let Some((prefix_len, specifier, has_slots)) = parse_access_specifier(line) else {
         return;
     };
-    let Some(class_range) = linter.facts().enclosing_class_range(linenum) else {
+    let Some(class_range) = facts.enclosing_class_range(linenum) else {
         return;
     };
 
@@ -1491,16 +1494,12 @@ fn check_access_specifier_indentation(
         return;
     }
 
-    let kind = if linter
-        .facts()
-        .enclosing_class_is_struct(linenum)
-        .unwrap_or(false)
-    {
+    let kind = if facts.enclosing_class_is_struct(linenum).unwrap_or(false) {
         "struct"
     } else {
         "class"
     };
-    let class_name = match linter.facts().nearest_class_name(linenum) {
+    let class_name = match facts.nearest_class_name(linenum) {
         Some(name) if !name.is_empty() => format!("{} {}", kind, name),
         _ => kind.to_string(),
     };
@@ -1526,10 +1525,11 @@ fn check_access_specifier_indentation(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_class_closing_brace_alignment(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
-    let Some(class_range) = linter.facts().enclosing_class_range(linenum) else {
+    let Some(class_range) = facts.enclosing_class_range(linenum) else {
         return;
     };
     if linenum != class_range.end {
@@ -1549,16 +1549,12 @@ fn check_class_closing_brace_alignment(
         return;
     }
 
-    let kind = if linter
-        .facts()
-        .enclosing_class_is_struct(linenum)
-        .unwrap_or(false)
-    {
+    let kind = if facts.enclosing_class_is_struct(linenum).unwrap_or(false) {
         "struct"
     } else {
         "class"
     };
-    let parent = match linter.facts().nearest_class_name(linenum) {
+    let parent = match facts.nearest_class_name(linenum) {
         Some(name) if !name.is_empty() => format!("{} {}", kind, name),
         _ => kind.to_string(),
     };
@@ -1658,7 +1654,12 @@ fn check_indentation(
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
+pub fn check(
+    linter: &mut FileLinter,
+    facts: &FileFacts,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
     let raw_line = &clean_lines.raw_lines[linenum];
     let line_without_raw_strings = &clean_lines.lines_without_raw_strings[linenum];
     let line = &clean_lines.lines[linenum];
@@ -1683,19 +1684,19 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     }
 
     if line_features.contains(LineFeatures::LINE_WITHOUT_RAW_STRINGS_BLANK) {
-        check_blank_line_rules(linter, clean_lines, linenum);
+        check_blank_line_rules(linter, facts, clean_lines, linenum);
     }
 
     if linenum > 0 {
-        check_section_spacing(linter, clean_lines, linenum, &keywords);
+        check_section_spacing(linter, facts, clean_lines, linenum, &keywords);
     }
 
     if has_colon || keywords.has_access() {
-        check_access_specifier_indentation(linter, clean_lines, linenum, &keywords);
+        check_access_specifier_indentation(linter, facts, clean_lines, linenum, &keywords);
     }
 
     if has_brace {
-        check_class_closing_brace_alignment(linter, clean_lines, linenum);
+        check_class_closing_brace_alignment(linter, facts, clean_lines, linenum);
     }
 
     check_tabs_and_line_length(linter, line_without_raw_strings, linenum, line_features);
@@ -1728,7 +1729,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     }
 
     if has_operator {
-        check_operator_spacing(linter, clean_lines, elided_line, linenum, &keywords);
+        check_operator_spacing(linter, facts, clean_lines, elided_line, linenum, &keywords);
     }
 
     if has_paren {

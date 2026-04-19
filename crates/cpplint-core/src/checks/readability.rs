@@ -1,5 +1,6 @@
 use crate::categories::Category;
 use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords, collapse_strings};
+use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::line_utils;
 use crate::regex_utils;
@@ -62,7 +63,12 @@ fn is_test_like_function(name: &str) -> bool {
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
+pub fn check(
+    linter: &mut FileLinter,
+    facts: &FileFacts,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
     let elided_line = &clean_lines.elided[linenum];
     let line_features = clean_lines.line_features[linenum];
     let has_brace = line_features.contains(LineFeatures::BRACE);
@@ -82,11 +88,11 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
 
     // Fast-path: only lines starting with whitespace can violate namespace indentation
     if !elided_line.is_empty() && elided_line.as_bytes()[0].is_ascii_whitespace() {
-        check_namespace_indentation(linter, clean_lines, elided_line, linenum);
+        check_namespace_indentation(linter, facts, clean_lines, elided_line, linenum);
     }
 
     if has_brace || has_slash || has_semicolon {
-        check_namespace_termination_comment(linter, clean_lines, linenum);
+        check_namespace_termination_comment(linter, facts, clean_lines, linenum);
     }
 
     if elided_line.contains("CHECK")
@@ -123,7 +129,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_braces(linter, clean_lines, elided_line, linenum);
         check_single_line_control_bodies(linter, clean_lines, elided_line, linenum);
         check_multiline_if_else_bodies(linter, clean_lines, elided_line, linenum);
-        check_function_size(linter, clean_lines, elided_line, linenum);
+        check_function_size(linter, facts, clean_lines, elided_line, linenum);
     }
 
     if has_brace || has_semicolon || has_control {
@@ -374,6 +380,7 @@ fn replacement_check_macro(check_macro: &str, op: &str) -> Option<&'static str> 
 
 fn check_function_size(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
@@ -382,7 +389,7 @@ fn check_function_size(
         return;
     }
 
-    let Some(start_line) = linter.facts().matching_block_start(linenum) else {
+    let Some(start_line) = facts.matching_block_start(linenum) else {
         return;
     };
 
@@ -395,9 +402,7 @@ fn check_function_size(
         return;
     };
 
-    let line_count = linter
-        .facts()
-        .non_blank_elided_lines_between(start_line, linenum);
+    let line_count = facts.non_blank_elided_lines_between(start_line, linenum);
     let limit = if is_test_like_function(function_name) {
         400
     } else {
@@ -1138,11 +1143,12 @@ fn check_multiline_if_else_bodies(
 
 fn check_namespace_termination_comment(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
     let raw_line = &clean_lines.raw_lines[linenum];
-    let Some(start_line) = linter.facts().matching_block_start(linenum) else {
+    let Some(start_line) = facts.matching_block_start(linenum) else {
         return;
     };
     let Some(namespace_line) =
@@ -1188,6 +1194,7 @@ fn check_namespace_termination_comment(
 
 fn check_namespace_indentation(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
@@ -1196,7 +1203,7 @@ fn check_namespace_indentation(
         return;
     }
 
-    if linter.facts().namespace_top_level_depth(linenum).is_none() {
+    if facts.namespace_top_level_depth(linenum).is_none() {
         return;
     }
 
@@ -1204,19 +1211,19 @@ fn check_namespace_indentation(
         return;
     }
 
-    if is_namespace_closing_brace(linter, clean_lines, linenum) {
+    if is_namespace_closing_brace(facts, clean_lines, linenum) {
         return;
     }
 
-    let class_range = linter.facts().enclosing_class_range(linenum);
+    let class_range = facts.enclosing_class_range(linenum);
     if let Some(range) = class_range
         && linenum != range.end
     {
         return;
     }
 
-    let non_ns_before = linter.facts().non_namespace_indent_depth_before(linenum);
-    let non_ns = linter.facts().non_namespace_indent_depth(linenum);
+    let non_ns_before = facts.non_namespace_indent_depth_before(linenum);
+    let non_ns = facts.non_namespace_indent_depth(linenum);
     let has_close = elided_line.contains('}');
 
     if non_ns_before == 0 || (has_close && non_ns == 0) {
@@ -1235,27 +1242,21 @@ fn is_macro_definition(clean_lines: &CleansedLines<'_>, elided_line: &str, linen
 }
 
 fn is_namespace_closing_brace(
-    linter: &FileLinter,
+    facts: &FileFacts,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) -> bool {
     clean_lines.elided[linenum].contains('}')
-        && linter
-            .facts()
+        && facts
             .matching_block_start(linenum)
             .and_then(|start| {
-                if linter.facts().block_kind(start) == Some(crate::facts::ScopeKind::Namespace) {
-                    linter.facts().namespace_decl_line(start)
+                if facts.block_kind(start) == Some(crate::facts::ScopeKind::Namespace) {
+                    facts.namespace_decl_line(start)
                 } else {
                     None
                 }
             })
-            .is_some_and(|namespace_line| {
-                linter
-                    .facts()
-                    .namespace_top_level_depth(namespace_line)
-                    .is_none()
-            })
+            .is_some_and(|namespace_line| facts.namespace_top_level_depth(namespace_line).is_none())
 }
 
 fn is_assign_match(line: &str) -> bool {

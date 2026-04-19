@@ -1,5 +1,6 @@
 use crate::categories::Category;
 use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
+use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
@@ -200,7 +201,12 @@ const PRINTF_FORMAT_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_trun
 );
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
+pub fn check(
+    linter: &mut FileLinter,
+    facts: &FileFacts,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
     let line_features = clean_lines.line_features[linenum];
@@ -216,7 +222,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_casts(linter, clean_lines, elided_line, linenum);
     }
     if has_paren {
-        check_explicit_constructors(linter, clean_lines, elided_line, linenum);
+        check_explicit_constructors(linter, facts, clean_lines, elided_line, linenum);
     }
     if has_plus_minus {
         check_invalid_increment(linter, elided_line, linenum);
@@ -392,11 +398,12 @@ fn contains_single_ampersand_cast(re: &Regex, line: &str) -> bool {
 
 fn check_explicit_constructors(
     linter: &mut FileLinter,
+    facts: &FileFacts,
     _clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {
-    let Some(class_name) = linter.facts().nearest_class_name(linenum) else {
+    let Some(class_name) = facts.nearest_class_name(linenum) else {
         return;
     };
     if !elided_line.contains(class_name) {
