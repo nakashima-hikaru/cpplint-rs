@@ -530,7 +530,6 @@ fn in_template_argument_list<S: AsRef<str>>(
     false
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

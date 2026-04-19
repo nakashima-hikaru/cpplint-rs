@@ -25,7 +25,9 @@ fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
             if pos > 0 && string_utils::is_word_char(bytes[pos - 1]) {
                 continue;
             }
-            if pos + specifier.len() < bytes.len() && string_utils::is_word_char(bytes[pos + specifier.len()]) {
+            if pos + specifier.len() < bytes.len()
+                && string_utils::is_word_char(bytes[pos + specifier.len()])
+            {
                 continue;
             }
 
@@ -593,12 +595,12 @@ fn check_operator_spacing(
     }
 
     let line_to_check = masked_line.as_ref();
+    let check_assignment = !keywords
+        .intersects(MatchedKeywords::IF | MatchedKeywords::WHILE | MatchedKeywords::FOR)
+        && !line_to_check.contains("operator=");
+    let analysis = OperatorSpacingAnalysis::scan(line_to_check, check_assignment);
 
-    if line_to_check.contains('=')
-        && !keywords.intersects(MatchedKeywords::IF | MatchedKeywords::WHILE | MatchedKeywords::FOR)
-        && !line_to_check.contains("operator=")
-        && has_missing_assignment_space(line_to_check)
-    {
+    if analysis.missing_assignment_space {
         linter.error(
             linenum,
             Category::WhitespaceOperators,
@@ -607,7 +609,7 @@ fn check_operator_spacing(
         );
     }
 
-    if let Some(op) = find_missing_comparison_space(line_to_check) {
+    if let Some(op) = analysis.missing_comparison_space {
         linter.error(
             linenum,
             Category::WhitespaceOperators,
@@ -615,8 +617,7 @@ fn check_operator_spacing(
             &format!("Missing spaces around {}", op),
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
-        if line_to_check.contains('<')
-            && let Some(end_pos) = find_less_spacing(line_to_check)
+        if let Some(end_pos) = analysis.less_pos
             && crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none()
         {
             linter.error(
@@ -627,8 +628,7 @@ fn check_operator_spacing(
             );
         }
 
-        if line_to_check.contains('>')
-            && let Some(start_pos) = find_greater_spacing(line_to_check)
+        if let Some(start_pos) = analysis.greater_pos
             && crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
                 .is_none()
         {
@@ -641,7 +641,9 @@ fn check_operator_spacing(
         }
     }
 
-    if let Some((left, right)) = find_lshift_spacing(line_to_check) {
+    if let Some(pos) = analysis.lshift_pos
+        && let Some((left, right)) = lshift_tokens_at(line_to_check, pos)
+    {
         let left_is_digit = left.len() == 1 && left.as_bytes()[0].is_ascii_digit();
         let right_is_digit = right.len() == 1 && right.as_bytes()[0].is_ascii_digit();
         let operator_definition = left == "operator" && (right == ";" || right == "(");
@@ -655,7 +657,7 @@ fn check_operator_spacing(
         }
     }
 
-    if has_rshift_spacing(line_to_check) {
+    if analysis.rshift_spacing {
         linter.error(
             linenum,
             Category::WhitespaceOperators,
@@ -664,7 +666,7 @@ fn check_operator_spacing(
         );
     }
 
-    if let Some(op) = find_extra_unary_space(line_to_check) {
+    if let Some(op) = analysis.extra_unary_space {
         linter.error(
             linenum,
             Category::WhitespaceOperators,
@@ -711,90 +713,6 @@ fn find_operator_method(s: &str) -> Option<(&str, &str, &str)> {
     None
 }
 
-fn has_missing_assignment_space(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    let mut offset = 0;
-    while let Some(i) = s[offset..].find('=') {
-        let i = offset + i;
-        offset = i + 1;
-        // Check for compound assignments or comparisons (e.g., +=, ==, !=, >=)
-        if i > 0 {
-            let prev = bytes[i - 1];
-            if matches!(
-                prev,
-                b'>' | b'<' | b'=' | b'!' | b'&' | b'^' | b'|' | b'+' | b'-' | b'*' | b'/' | b'%'
-            ) {
-                continue;
-            }
-        }
-        if bytes.get(i + 1).is_some_and(|&next| next == b'=') {
-            continue;
-        }
-
-        let mut missing = false;
-        if i > 0 {
-            let prev = bytes[i - 1];
-            if (prev.is_ascii_alphanumeric() || prev == b'.')
-                && (i < 8 || &s[i - 8..i] != "operator")
-            {
-                missing = true;
-            }
-        }
-        if !missing && i + 1 < bytes.len() {
-            let next = bytes[i + 1];
-            if next.is_ascii_alphanumeric() || next == b'.' {
-                missing = true;
-            }
-        }
-        if missing {
-            return true;
-        }
-    }
-    false
-}
-
-fn find_less_spacing(s: &str) -> Option<usize> {
-    let bytes = s.as_bytes();
-    let mut offset = bytes.len().saturating_sub(1);
-    while offset > 1 {
-        let idx = s[1..offset].rfind('<')?;
-        let i = 1 + idx;
-        offset = i;
-
-        let prev = bytes[i - 1];
-        if prev.is_ascii_whitespace() || prev == b'<' {
-            continue;
-        }
-        let next = bytes[i + 1];
-        if next.is_ascii_whitespace() || next == b'=' || next == b'<' || next == b',' {
-            continue;
-        }
-        return Some(i);
-    }
-    None
-}
-
-fn find_greater_spacing(s: &str) -> Option<usize> {
-    let bytes = s.as_bytes();
-    let mut offset = bytes.len().saturating_sub(1);
-    while offset > 1 {
-        let idx = s[1..offset].rfind('>')?;
-        let i = 1 + idx;
-        offset = i;
-
-        let prev = bytes[i - 1];
-        if prev.is_ascii_whitespace() || prev == b'-' || prev == b'>' {
-            continue;
-        }
-        let next = bytes[i + 1];
-        if next.is_ascii_whitespace() || next == b'=' || next == b'>' || next == b',' {
-            continue;
-        }
-        return Some(i);
-    }
-    None
-}
-
 fn ends_with_case_insensitive(s: &str, suffix: &str) -> bool {
     let s_bytes = s.as_bytes();
     let suf_bytes = suffix.as_bytes();
@@ -807,138 +725,248 @@ fn ends_with_case_insensitive(s: &str, suffix: &str) -> bool {
         .all(|(a, b)| a.to_ascii_uppercase() == *b)
 }
 
-fn find_lshift_spacing(s: &str) -> Option<(&str, &str)> {
-    let bytes = s.as_bytes();
-    let mut offset = 1;
-    while let Some(idx) = s[offset..bytes.len().saturating_sub(1)].find("<<") {
-        let i = offset + idx;
-        offset = i + 2;
-        let next_idx = i + 2;
-        if next_idx >= bytes.len() {
-            continue;
-        }
-        let next_b = bytes[next_idx];
-        if next_b.is_ascii_whitespace() || next_b == b',' || next_b == b'=' || next_b == b'<' {
-            continue;
-        }
-
-        let mut prefix_end = i;
-        let prefix_str = &s[..i];
-        if ends_with_case_insensitive(prefix_str, "ULL") {
-            prefix_end = prefix_end.saturating_sub(3);
-        } else if ends_with_case_insensitive(prefix_str, "LL")
-            || ends_with_case_insensitive(prefix_str, "UL")
-        {
-            prefix_end = prefix_end.saturating_sub(2);
-        } else if ends_with_case_insensitive(prefix_str, "L") {
-            prefix_end = prefix_end.saturating_sub(1);
-        }
-
-        if prefix_end == 0 {
-            continue;
-        }
-        let prefix = &s[..prefix_end];
-        let left = if prefix.ends_with("operator") {
-            "operator"
-        } else {
-            let prev_char = prefix.chars().last().unwrap();
-            if prev_char.is_ascii_whitespace() || prev_char == '(' || prev_char == '<' {
-                continue;
-            }
-            &prefix[prefix.len() - prev_char.len_utf8()..]
-        };
-
-        let next_char = s[next_idx..].chars().next().unwrap();
-        let right = &s[next_idx..next_idx + next_char.len_utf8()];
-
-        return Some((left, right));
-    }
-    None
+#[derive(Default)]
+struct OperatorSpacingAnalysis {
+    missing_assignment_space: bool,
+    missing_comparison_space: Option<&'static str>,
+    less_pos: Option<usize>,
+    greater_pos: Option<usize>,
+    lshift_pos: Option<usize>,
+    rshift_spacing: bool,
+    extra_unary_space: Option<&'static str>,
 }
 
-fn has_rshift_spacing(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    let mut offset = 0;
-    while let Some(idx) = s[offset..bytes.len().saturating_sub(2)].find(">>") {
-        let i = offset + idx;
-        offset = i + 2;
-        let next = bytes[i + 2];
-        if next.is_ascii_alphabetic() || next == b'_' {
+impl OperatorSpacingAnalysis {
+    fn scan(s: &str, check_assignment: bool) -> Self {
+        let bytes = s.as_bytes();
+        let mut analysis = Self::default();
+        let mut i = 0usize;
+
+        while i < bytes.len() {
+            match bytes[i] {
+                b'=' => {
+                    if check_assignment
+                        && !analysis.missing_assignment_space
+                        && has_missing_assignment_space_at(s, bytes, i)
+                    {
+                        analysis.missing_assignment_space = true;
+                    }
+                    if analysis.missing_comparison_space.is_none()
+                        && bytes.get(i + 1) == Some(&b'=')
+                        && has_missing_comparison_space_at(bytes, i)
+                    {
+                        analysis.missing_comparison_space = Some("==");
+                        i += 1;
+                    }
+                }
+                b'!' => {
+                    if analysis.missing_comparison_space.is_none()
+                        && bytes.get(i + 1) == Some(&b'=')
+                        && has_missing_comparison_space_at(bytes, i)
+                    {
+                        analysis.missing_comparison_space = Some("!=");
+                        i += 1;
+                    } else if analysis.extra_unary_space.is_none()
+                        && bytes
+                            .get(i + 1)
+                            .is_some_and(|next| next.is_ascii_whitespace())
+                    {
+                        analysis.extra_unary_space = Some("!");
+                    }
+                }
+                b'<' => {
+                    if analysis.missing_comparison_space.is_none()
+                        && bytes.get(i + 1) == Some(&b'=')
+                        && has_missing_comparison_space_at(bytes, i)
+                    {
+                        analysis.missing_comparison_space = Some("<=");
+                        i += 1;
+                    } else if analysis.lshift_pos.is_none() && bytes.get(i + 1) == Some(&b'<') {
+                        if let Some(&next_b) = bytes.get(i + 2)
+                            && !(next_b.is_ascii_whitespace()
+                                || matches!(next_b, b',' | b'=' | b'<'))
+                        {
+                            analysis.lshift_pos = Some(i);
+                        }
+                        i += 1;
+                    }
+                }
+                b'>' => {
+                    if analysis.missing_comparison_space.is_none()
+                        && bytes.get(i + 1) == Some(&b'=')
+                        && has_missing_comparison_space_at(bytes, i)
+                    {
+                        analysis.missing_comparison_space = Some(">=");
+                        i += 1;
+                    } else if !analysis.rshift_spacing && bytes.get(i + 1) == Some(&b'>') {
+                        if let Some(&next) = bytes.get(i + 2)
+                            && (next.is_ascii_alphabetic() || next == b'_')
+                        {
+                            analysis.rshift_spacing = true;
+                        }
+                        i += 1;
+                    }
+                }
+                b'|' => {
+                    if analysis.missing_comparison_space.is_none()
+                        && bytes.get(i + 1) == Some(&b'|')
+                        && has_missing_comparison_space_at(bytes, i)
+                    {
+                        analysis.missing_comparison_space = Some("||");
+                        i += 1;
+                    }
+                }
+                b'~' => {
+                    if analysis.extra_unary_space.is_none()
+                        && bytes
+                            .get(i + 1)
+                            .is_some_and(|next| next.is_ascii_whitespace())
+                    {
+                        analysis.extra_unary_space = Some("~");
+                    }
+                }
+                b'+' | b'-' => {
+                    if analysis.extra_unary_space.is_none()
+                        && bytes.get(i + 1) == Some(&bytes[i])
+                        && i > 0
+                        && bytes[i - 1].is_ascii_whitespace()
+                        && bytes
+                            .get(i + 2)
+                            .is_some_and(|after| after.is_ascii_whitespace() || *after == b';')
+                    {
+                        analysis.extra_unary_space =
+                            Some(if bytes[i] == b'-' { "--" } else { "++" });
+                        i += 1;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        if bytes.len() >= 3 {
+            let mut i = bytes.len() - 2;
+            loop {
+                let prev = bytes[i - 1];
+                let next = bytes[i + 1];
+
+                if analysis.less_pos.is_none()
+                    && bytes[i] == b'<'
+                    && !prev.is_ascii_whitespace()
+                    && prev != b'<'
+                    && !next.is_ascii_whitespace()
+                    && !matches!(next, b'=' | b'<' | b',')
+                {
+                    analysis.less_pos = Some(i);
+                }
+
+                if analysis.greater_pos.is_none()
+                    && bytes[i] == b'>'
+                    && !prev.is_ascii_whitespace()
+                    && prev != b'-'
+                    && prev != b'>'
+                    && !next.is_ascii_whitespace()
+                    && !matches!(next, b'=' | b'>' | b',')
+                {
+                    analysis.greater_pos = Some(i);
+                }
+
+                if analysis.less_pos.is_some() && analysis.greater_pos.is_some() {
+                    break;
+                }
+                if i == 1 {
+                    break;
+                }
+                i -= 1;
+            }
+        }
+
+        analysis
+    }
+}
+
+fn has_missing_assignment_space_at(s: &str, bytes: &[u8], i: usize) -> bool {
+    if i > 0
+        && matches!(
+            bytes[i - 1],
+            b'>' | b'<' | b'=' | b'!' | b'&' | b'^' | b'|' | b'+' | b'-' | b'*' | b'/' | b'%'
+        )
+    {
+        return false;
+    }
+    if bytes.get(i + 1) == Some(&b'=') {
+        return false;
+    }
+
+    if i > 0 {
+        let prev = bytes[i - 1];
+        if (prev.is_ascii_alphanumeric() || prev == b'.') && (i < 8 || &s[i - 8..i] != "operator") {
             return true;
         }
     }
-    false
+
+    bytes
+        .get(i + 1)
+        .is_some_and(|next| next.is_ascii_alphanumeric() || *next == b'.')
 }
 
-fn find_missing_comparison_space(s: &str) -> Option<&'static str> {
+fn has_missing_comparison_space_at(bytes: &[u8], i: usize) -> bool {
+    if i == 0 || i + 2 >= bytes.len() {
+        return false;
+    }
+
+    let prev = bytes[i - 1];
+    let next = bytes[i + 2];
+
+    let prev_is_op_char =
+        matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
+    let next_is_op_char = matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
+        || next.is_ascii_whitespace();
+
+    !prev_is_op_char && !next_is_op_char
+}
+
+fn lshift_tokens_at(s: &str, i: usize) -> Option<(&str, &str)> {
     let bytes = s.as_bytes();
-    if bytes.len() < 4 {
+    let next_idx = i + 2;
+    if next_idx >= bytes.len() {
+        return None;
+    }
+    let next_b = bytes[next_idx];
+    if next_b.is_ascii_whitespace() || next_b == b',' || next_b == b'=' || next_b == b'<' {
         return None;
     }
 
-    let mut i = 1;
-    while i < bytes.len() - 2 {
-        let b = bytes[i];
-        let op = match b {
-            b'=' if bytes[i + 1] == b'=' => "==",
-            b'!' if bytes[i + 1] == b'=' => "!=",
-            b'<' if bytes[i + 1] == b'=' => "<=",
-            b'>' if bytes[i + 1] == b'=' => ">=",
-            b'|' if bytes[i + 1] == b'|' => "||",
-            _ => {
-                i += 1;
-                continue;
-            }
-        };
-
-        // op is at i, i+1
-        let prev = bytes[i - 1];
-        let next = bytes[i + 2];
-
-        let prev_is_op_char =
-            matches!(prev, b'<' | b'>' | b'=' | b'!' | b'|') || prev.is_ascii_whitespace();
-        let next_is_op_char = matches!(next, b'<' | b'>' | b'=' | b'!' | b'|' | b',' | b';' | b')')
-            || next.is_ascii_whitespace();
-
-        if !prev_is_op_char && !next_is_op_char {
-            return Some(op);
-        }
-        i += 2;
+    let mut prefix_end = i;
+    let prefix_str = &s[..i];
+    if ends_with_case_insensitive(prefix_str, "ULL") {
+        prefix_end = prefix_end.saturating_sub(3);
+    } else if ends_with_case_insensitive(prefix_str, "LL")
+        || ends_with_case_insensitive(prefix_str, "UL")
+    {
+        prefix_end = prefix_end.saturating_sub(2);
+    } else if ends_with_case_insensitive(prefix_str, "L") {
+        prefix_end = prefix_end.saturating_sub(1);
     }
-    None
-}
 
-fn find_extra_unary_space(s: &str) -> Option<&'static str> {
-    let bytes = s.as_bytes();
-    let mut offset = 0;
-    while let Some(idx) = s[offset..].find(&['!', '~', '-', '+'][..]) {
-        let i = offset + idx;
-        offset = i + 1;
-        let b = bytes[i];
-        match b {
-            b'!' | b'~' => {
-                if let Some(&next) = bytes.get(i + 1)
-                    && next.is_ascii_whitespace()
-                {
-                    return Some(if b == b'!' { "!" } else { "~" });
-                }
-            }
-            b'-' | b'+' => {
-                // Check for -- or ++
-                if let Some(&next) = bytes.get(i + 1)
-                    && next == b
-                    && i > 0
-                    && bytes[i - 1].is_ascii_whitespace()
-                    && let Some(&after) = bytes.get(i + 2)
-                    && (after.is_ascii_whitespace() || after == b';')
-                {
-                    return Some(if b == b'-' { "--" } else { "++" });
-                }
-            }
-            _ => {}
-        }
+    if prefix_end == 0 {
+        return None;
     }
-    None
+    let prefix = &s[..prefix_end];
+    let left = if prefix.ends_with("operator") {
+        "operator"
+    } else {
+        let prev_char = prefix.chars().last()?;
+        if prev_char.is_ascii_whitespace() || prev_char == '(' || prev_char == '<' {
+            return None;
+        }
+        &prefix[prefix.len() - prev_char.len_utf8()..]
+    };
+
+    let next_char = s[next_idx..].chars().next()?;
+    let right = &s[next_idx..next_idx + next_char.len_utf8()];
+
+    Some((left, right))
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -1951,5 +1979,27 @@ mod tests {
         assert!(!has_extra_space_after_function_call_paren("call( \\"));
         assert!(has_extra_space_after_open_paren("( value)"));
         assert!(!has_extra_space_after_open_paren("( \\"));
+    }
+
+    #[test]
+    fn operator_spacing_analysis_matches_existing_cases() {
+        let analysis = OperatorSpacingAnalysis::scan("value=1", true);
+        assert!(analysis.missing_assignment_space);
+
+        let analysis = OperatorSpacingAnalysis::scan("if (a==b)", false);
+        assert_eq!(analysis.missing_comparison_space, Some("=="));
+
+        let analysis = OperatorSpacingAnalysis::scan("foo<<bar", false);
+        assert_eq!(analysis.lshift_pos, Some(3));
+        assert_eq!(lshift_tokens_at("foo<<bar", 3), Some(("o", "b")));
+
+        let analysis = OperatorSpacingAnalysis::scan("foo>>bar", false);
+        assert!(analysis.rshift_spacing);
+
+        let analysis = OperatorSpacingAnalysis::scan("! value", false);
+        assert_eq!(analysis.extra_unary_space, Some("!"));
+
+        let analysis = OperatorSpacingAnalysis::scan("Foo::operator=(rhs)", true);
+        assert!(!analysis.missing_assignment_space);
     }
 }
