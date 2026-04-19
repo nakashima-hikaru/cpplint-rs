@@ -8,7 +8,7 @@ use crate::registry::{RuleRegistry, rule_registry};
 use crate::source::{DecodedSource, SourceFile};
 use crate::state::CppLintState;
 use crate::string_utils;
-use crate::suppressions::ErrorSuppressions;
+use crate::suppressions::{ErrorSuppressions, SuppressionKey};
 use bumpalo::Bump;
 use bumpalo::collections::Vec as BumpVec;
 use regex::{Regex, RegexSet};
@@ -213,30 +213,31 @@ impl<'a> FileLinter<'a> {
         let no_lint_type = captures.get(1).map(|m| m.as_str()).unwrap_or("");
         let categories = captures.get(2).map(|m| m.as_str()).unwrap_or("");
 
-        let process_category = |this: &mut FileLinter<'a>, category: &str| match no_lint_type {
-            "NEXTLINE" => this
-                .error_suppressions
-                .add_line_suppression(category, linenum + 1),
-            "BEGIN" => this
-                .error_suppressions
-                .start_block_suppression(category, linenum),
-            "END" => {
-                if !category.is_empty() {
-                    this.error(
-                        linenum,
-                        Category::ReadabilityNolint,
-                        5,
-                        crate::messages::LintMessage::NolintCategoriesNotSupportedInEnd(
-                            category.to_string().into(),
-                        ),
-                    );
+        let process_category =
+            |this: &mut FileLinter<'a>, category: SuppressionKey| match no_lint_type {
+                "NEXTLINE" => this
+                    .error_suppressions
+                    .add_line_suppression(category, linenum + 1),
+                "BEGIN" => this
+                    .error_suppressions
+                    .start_block_suppression(category, linenum),
+                "END" => {
+                    if let SuppressionKey::Category(category) = category {
+                        this.error(
+                            linenum,
+                            Category::ReadabilityNolint,
+                            5,
+                            crate::messages::LintMessage::NolintCategoriesNotSupportedInEnd(
+                                category.as_str().into(),
+                            ),
+                        );
+                    }
+                    this.error_suppressions.end_block_suppression(linenum);
                 }
-                this.error_suppressions.end_block_suppression(linenum);
-            }
-            _ => this
-                .error_suppressions
-                .add_line_suppression(category, linenum),
-        };
+                _ => this
+                    .error_suppressions
+                    .add_line_suppression(category, linenum),
+            };
 
         if no_lint_type == "BEGIN" && self.error_suppressions.has_open_block() {
             if let Some(begin) = self.error_suppressions.peek_open_block_start() {
@@ -257,7 +258,7 @@ impl<'a> FileLinter<'a> {
         }
 
         if categories.is_empty() || categories == "(*)" {
-            process_category(self, "");
+            process_category(self, SuppressionKey::All);
             return;
         }
         if !(categories.starts_with('(') && categories.ends_with(')')) {
@@ -266,8 +267,8 @@ impl<'a> FileLinter<'a> {
 
         let inner = &categories[1..categories.len() - 1];
         for category in string_utils::parse_comma_separated_list(inner) {
-            if categories::is_error_category(&category) {
-                process_category(self, &category);
+            if let Ok(category) = category.parse::<Category>() {
+                process_category(self, SuppressionKey::Category(category));
             } else if !categories::is_other_nolint_category(&category)
                 && !categories::is_legacy_error_category(&category)
             {

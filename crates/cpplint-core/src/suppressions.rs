@@ -1,3 +1,4 @@
+use crate::categories::Category;
 use fxhash::FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,8 +41,20 @@ impl std::fmt::Display for LineRange {
 
 #[derive(Debug, Default)]
 pub struct ErrorSuppressions {
-    suppressions: FxHashMap<String, Vec<LineRange>>,
-    open_block_suppressions: Vec<Option<(String, usize)>>,
+    suppressions: FxHashMap<SuppressionKey, Vec<LineRange>>,
+    open_block_suppressions: Vec<Option<(SuppressionKey, usize)>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SuppressionKey {
+    All,
+    Category(Category),
+}
+
+impl From<Category> for SuppressionKey {
+    fn from(value: Category) -> Self {
+        Self::Category(value)
+    }
 }
 
 impl ErrorSuppressions {
@@ -54,8 +67,7 @@ impl ErrorSuppressions {
         self.open_block_suppressions.clear();
     }
 
-    pub fn add_suppression(&mut self, category: impl Into<String>, line_range: LineRange) -> bool {
-        let category = category.into();
+    pub fn add_suppression(&mut self, category: SuppressionKey, line_range: LineRange) -> bool {
         let suppressed = self.suppressions.entry(category).or_default();
         if suppressed
             .last()
@@ -68,20 +80,19 @@ impl ErrorSuppressions {
         true
     }
 
-    pub fn add_global_suppression(&mut self, category: impl Into<String>) {
+    pub fn add_global_suppression(&mut self, category: SuppressionKey) {
         let _ = self.add_suppression(category, LineRange::new(0, usize::MAX));
     }
 
-    pub fn add_line_suppression(&mut self, category: impl Into<String>, linenum: usize) {
+    pub fn add_line_suppression(&mut self, category: SuppressionKey, linenum: usize) {
         let _ = self.add_suppression(category, LineRange::new(linenum, linenum));
     }
 
-    pub fn start_block_suppression(&mut self, category: impl Into<String>, linenum: usize) {
-        let category = category.into();
-        let inserted = self.add_suppression(category.clone(), LineRange::new(linenum, usize::MAX));
+    pub fn start_block_suppression(&mut self, category: SuppressionKey, linenum: usize) {
+        let inserted = self.add_suppression(category, LineRange::new(linenum, usize::MAX));
         let pending = if inserted {
             self.suppressions
-                .get(category.as_str())
+                .get(&category)
                 .and_then(|ranges| ranges.len().checked_sub(1))
                 .map(|index| (category, index))
         } else {
@@ -108,7 +119,7 @@ impl ErrorSuppressions {
             if let Some((category, index)) = open_block
                 && let Some(begin) = self
                     .suppressions
-                    .get(category.as_str())
+                    .get(&category)
                     .and_then(|ranges| ranges.get(index))
                     .map(LineRange::begin)
             {
@@ -125,7 +136,7 @@ impl ErrorSuppressions {
             .find_map(|open_block| {
                 let (category, index) = open_block.as_ref()?;
                 self.suppressions
-                    .get(category.as_str())
+                    .get(category)
                     .and_then(|ranges| ranges.get(*index))
                     .map(LineRange::begin)
             })
@@ -135,13 +146,13 @@ impl ErrorSuppressions {
         self.is_globally_suppressed(linenum)
             || self
                 .suppressions
-                .get(category.as_str())
+                .get(&SuppressionKey::Category(category))
                 .is_some_and(|ranges| ranges.iter().any(|range| range.contains(linenum)))
     }
 
     pub fn is_globally_suppressed(&self, linenum: usize) -> bool {
         self.suppressions
-            .get("")
+            .get(&SuppressionKey::All)
             .is_some_and(|ranges| ranges.iter().any(|range| range.contains(linenum)))
     }
 
@@ -150,11 +161,11 @@ impl ErrorSuppressions {
     }
 
     pub fn add_default_c_suppressions(&mut self) {
-        self.add_global_suppression("readability/casting");
+        self.add_global_suppression(SuppressionKey::Category(Category::ReadabilityCasting));
     }
 
     pub fn add_default_kernel_suppressions(&mut self) {
-        self.add_global_suppression("whitespace/tab");
+        self.add_global_suppression(SuppressionKey::Category(Category::WhitespaceTab));
     }
 }
 
@@ -176,7 +187,7 @@ mod tests {
     #[test]
     fn add_line_and_global_suppressions() {
         let mut suppressions = ErrorSuppressions::new();
-        suppressions.add_line_suppression("build/include", 12);
+        suppressions.add_line_suppression(SuppressionKey::Category(Category::BuildInclude), 12);
 
         assert!(suppressions.is_suppressed(crate::categories::Category::BuildInclude, 12));
         assert!(!suppressions.is_suppressed(crate::categories::Category::BuildInclude, 11));
@@ -185,7 +196,7 @@ mod tests {
     #[test]
     fn empty_category_suppresses_everything() {
         let mut suppressions = ErrorSuppressions::new();
-        suppressions.add_global_suppression("");
+        suppressions.add_global_suppression(SuppressionKey::All);
 
         assert!(suppressions.is_suppressed(crate::categories::Category::RuntimeInt, 999));
         assert!(suppressions.is_globally_suppressed(999));
@@ -194,8 +205,14 @@ mod tests {
     #[test]
     fn nested_suppression_is_not_duplicated() {
         let mut suppressions = ErrorSuppressions::new();
-        assert!(suppressions.add_suppression("build/include", LineRange::new(10, 20)));
-        assert!(!suppressions.add_suppression("build/include", LineRange::new(12, 18)));
+        assert!(suppressions.add_suppression(
+            SuppressionKey::Category(Category::BuildInclude),
+            LineRange::new(10, 20)
+        ));
+        assert!(!suppressions.add_suppression(
+            SuppressionKey::Category(Category::BuildInclude),
+            LineRange::new(12, 18)
+        ));
         assert!(suppressions.is_suppressed(crate::categories::Category::BuildInclude, 15));
         assert!(!suppressions.is_suppressed(crate::categories::Category::BuildInclude, 21));
     }
@@ -203,7 +220,7 @@ mod tests {
     #[test]
     fn block_suppression_is_closed_on_end() {
         let mut suppressions = ErrorSuppressions::new();
-        suppressions.start_block_suppression("runtime/int", 4);
+        suppressions.start_block_suppression(SuppressionKey::Category(Category::RuntimeInt), 4);
         assert!(suppressions.has_open_block());
         suppressions.end_block_suppression(9);
 
@@ -216,8 +233,8 @@ mod tests {
     #[test]
     fn get_open_block_start_discards_duplicate_entries() {
         let mut suppressions = ErrorSuppressions::new();
-        suppressions.start_block_suppression("build/include", 5);
-        suppressions.start_block_suppression("build/include", 6);
+        suppressions.start_block_suppression(SuppressionKey::Category(Category::BuildInclude), 5);
+        suppressions.start_block_suppression(SuppressionKey::Category(Category::BuildInclude), 6);
 
         assert_eq!(suppressions.get_open_block_start(), Some(5));
         assert!(!suppressions.has_open_block());
@@ -236,8 +253,8 @@ mod tests {
     #[test]
     fn clear_removes_all_state() {
         let mut suppressions = ErrorSuppressions::new();
-        suppressions.add_line_suppression("build/include", 1);
-        suppressions.start_block_suppression("runtime/int", 2);
+        suppressions.add_line_suppression(SuppressionKey::Category(Category::BuildInclude), 1);
+        suppressions.start_block_suppression(SuppressionKey::Category(Category::RuntimeInt), 2);
         suppressions.clear();
 
         assert!(!suppressions.is_suppressed(crate::categories::Category::BuildInclude, 1));
