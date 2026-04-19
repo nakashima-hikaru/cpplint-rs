@@ -19,7 +19,7 @@ path = "src/main.rs"
 hotpath = ["cpplint-core/hotpath", "dep:hotpath"]
 
 [dependencies]
-cpplint-core = { version = "0.1.0", path = "../cpplint-core" }
+cpplint-core = { version = "0.0.0-alpha.1", path = "../cpplint-core" }
 clap.workspace = true
 rayon.workspace = true
 hotpath = { workspace = true, optional = true }
