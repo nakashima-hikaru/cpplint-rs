@@ -1,7 +1,6 @@
 use crate::cleanse::CleansedLines;
 use crate::line_utils;
 use regex::Regex;
-use std::simd::prelude::*;
 use std::sync::LazyLock;
 
 static CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -79,12 +78,8 @@ impl FileFacts {
         let mut in_macro_continuation = false;
         let mut non_blank_count = 0usize;
 
-        // 1. Initial brace scan without joining the whole file into a temporary string.
-        let line_braces = clean_lines
-            .elided
-            .iter()
-            .map(|line| (brace_count(line, '{') as u32, brace_count(line, '}') as u32))
-            .collect::<Vec<_>>();
+        // 1. We will compute line_braces on the fly.
+        let mut line_braces = Vec::with_capacity(n);
 
         for (linenum, (elided, line_no_raw)) in clean_lines
             .elided
@@ -111,10 +106,18 @@ impl FileFacts {
             };
             macro_lines.push(is_macro);
 
-            let (l_braces, r_braces) = (
-                line_braces[linenum].0 as usize,
-                line_braces[linenum].1 as usize,
-            );
+            let mut l_braces_count = 0usize;
+            let mut r_braces_count = 0usize;
+            for byte in elided.bytes() {
+                match byte {
+                    b'{' => l_braces_count += 1,
+                    b'}' => r_braces_count += 1,
+                    _ => {}
+                }
+            }
+            line_braces.push((l_braces_count as u32, r_braces_count as u32));
+            let l_braces = l_braces_count;
+            let r_braces = r_braces_count;
 
             // 3a. in_namespace_or_extern_block
             in_namespace_or_extern_block.push(ns_ext_depth > 0);
@@ -279,6 +282,8 @@ impl FileFacts {
                 }
             };
             closing_brace_starts.push(cbs);
+            // 3c. closing_brace_starts
+            // brace_stack must be updated AFTER checking cbs.
             for byte in elided.bytes() {
                 match byte {
                     b'{' => brace_stack.push(linenum),
@@ -525,23 +530,6 @@ fn in_template_argument_list<S: AsRef<str>>(
     false
 }
 
-fn brace_count(line: &str, brace: char) -> usize {
-    let bytes = line.as_bytes();
-    let b = brace as u8;
-    let mut count = 0;
-    let mut i = 0;
-    while i + 32 <= bytes.len() {
-        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
-        count += chunk.simd_eq(u8x32::splat(b)).to_bitmask().count_ones() as usize;
-        i += 32;
-    }
-    for &byte in &bytes[i..] {
-        if byte == b {
-            count += 1;
-        }
-    }
-    count
-}
 
 #[cfg(test)]
 mod tests {

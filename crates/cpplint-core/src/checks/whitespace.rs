@@ -10,10 +10,54 @@ use unicode_width::UnicodeWidthStr;
 
 static TODO_COMMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^//(\s*)TODO(\(.+?\))?:?(\s|$)?"#).unwrap());
-static ACCESS_SPECIFIER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^(.*)\b(public|private|protected|signals)(\s+(?:slots\s*)?)?:(?:[^:]|$)"#)
-        .unwrap()
-});
+/// Parses an access specifier (`public:`, `private:`, `protected:`, `signals:`).
+/// Also allows optional `slots` after the specifier (e.g., `public slots:`).
+/// Returns `(prefix_len, specifier_string, has_slots)` if matched.
+fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
+    let bytes = line.as_bytes();
+    for specifier in &["public", "private", "protected", "signals"] {
+        let mut search_start = 0;
+        while let Some(relative_pos) = line[search_start..].find(specifier) {
+            let pos = search_start + relative_pos;
+            search_start = pos + specifier.len();
+
+            // Check word boundary before and after
+            if pos > 0 && string_utils::is_word_char(bytes[pos - 1]) {
+                continue;
+            }
+            if pos + specifier.len() < bytes.len() && string_utils::is_word_char(bytes[pos + specifier.len()]) {
+                continue;
+            }
+
+            // After specifier: optional spaces, optional `slots`, optional spaces, then `:`
+            let mut i = pos + specifier.len();
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+
+            let mut has_slots = false;
+            if line[i..].starts_with("slots") {
+                let slots_end = i + 5;
+                // Ensure `slots` is isolated
+                if slots_end >= bytes.len() || !string_utils::is_word_char(bytes[slots_end]) {
+                    has_slots = true;
+                    i = slots_end;
+                    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                }
+            }
+
+            if i < bytes.len() && bytes[i] == b':' {
+                // Must not be followed by another colon (not `::`)
+                if i + 1 >= bytes.len() || bytes[i + 1] != b':' {
+                    return Some((pos, *specifier, has_slots));
+                }
+            }
+        }
+    }
+    None
+}
 
 static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
     AhoCorasick::new([
@@ -21,16 +65,91 @@ static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
     ])
     .unwrap()
 });
-static REF_MATCHERS: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([
-        r#" \([^)]+\)\([^)]*(\)|,$)"#, // 0: FUNC_REF_RE
-        r#" \([^)]+\)\[[^\]]+\]"#,     // 1: ARRAY_REF_RE
-    ])
-    .unwrap()
-});
+/// Manual replacement for REF_MATCHERS.
+/// Detects ` (...)(...` or ` (...)\[...` patterns that indicate function/array reference calls.
+/// Original patterns:
+///   FUNC_REF:  ` \([^)]+\)\([^)]*(\)|,$)`
+///   ARRAY_REF: ` \([^)]+\)\[[^\]]+\]`
+fn has_ref_call(fncall: &str) -> bool {
+    // Quick pre-check: needs both '(' and either another '(' or '[' after a ')'
+    if !fncall.contains(' ') {
+        return false;
+    }
+    let bytes = fncall.as_bytes();
+    let mut i = 1usize; // start at 1 so we can check bytes[i-1]
+    while i < bytes.len() {
+        if bytes[i] != b'(' || bytes[i - 1] != b' ' {
+            i += 1;
+            continue;
+        }
+        // Found ` (` at position i.
+        // Find the matching ')'
+        let start = i;
+        let mut depth = 1usize;
+        let mut j = start + 1;
+        while j < bytes.len() && depth > 0 {
+            match bytes[j] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+            j += 1;
+        }
+        if depth != 0 {
+            // Unmatched paren — no ref call here
+            i += 1;
+            continue;
+        }
+        // j points one past the closing ')'. Check for '(' or '[' immediately after.
+        if j < bytes.len() && (bytes[j] == b'(' || bytes[j] == b'[') {
+            if bytes[j] == b'[' {
+                // ARRAY_REF: ` (...)\[...\]` — just need at least one char before ']'
+                let k = j + 1;
+                if let Some(close) = memchr::memchr(b']', &bytes[k..]) {
+                    if close > 0 {
+                        return true;
+                    }
+                }
+            } else {
+                // FUNC_REF: ` (...)(...)` where inner must end with ')' or ','
+                let inner_start = j;
+                let mut depth2 = 1usize;
+                let mut k = inner_start + 1;
+                while k < bytes.len() && depth2 > 0 {
+                    match bytes[k] {
+                        b'(' => depth2 += 1,
+                        b')' => depth2 -= 1,
+                        _ => {}
+                    }
+                    k += 1;
+                }
+                if depth2 == 0 {
+                    let after = bytes.get(k).copied();
+                    if matches!(after, None | Some(b')') | Some(b',')) {
+                        return true;
+                    }
+                }
+                // If depth2 != 0 (unmatched inner paren to EOF), NOT a ref call on this line
+            }
+        }
+        i = start + 1;
+    }
+    false
+}
 
-static OPERATOR_NAME_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\boperator_*\b"#).unwrap());
+/// Manual replacement for OPERATOR_NAME_RE (`\boperator_*\b`).
+fn has_operator_name(line: &str) -> bool {
+    let mut offset = 0;
+    while let Some(pos) = line[offset..].find("operator") {
+        let start = offset + pos;
+        let end = start + 8;
+        if string_utils::is_word_match(line, start, end) {
+            return true;
+        }
+        offset = start + 1;
+    }
+    false
+}
 
 static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
@@ -64,24 +183,135 @@ static WHILE_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bwhile\s*\((.*)\)\s*[{;]"#).unwrap());
 static FOR_CLOSING_SEMICOLON_EXCEPTION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\bfor\s*\(.*; \)"#).unwrap());
-static CALL_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
-    RegexSet::new([
-        r#"\w\s+\("#,                                     // 0: MAIN
-        r#"_{0,2}asm_{0,2}\s+_{0,2}volatile_{0,2}\s+\("#, // 1: ASM_VOLATILE
-        r#"#\s*define|typedef|using\s+\w+\s*="#,          // 2: DEFINE/TYPEDEF/USING
-        r#"\w\s+\((\w+::)*\*\w+\)\("#,                    // 3: FUNCTION_POINTER
-        r#"\bcase\s+\("#,                                 // 4: CASE
-    ])
-    .unwrap()
-});
+/// Result of `CallSpacingFlags::scan(fncall)`.  A compact replacement for CALL_SPACING_SET.
+#[derive(Default)]
+struct CallSpacingFlags {
+    /// Pattern 0: `\w\s+(` — word-char followed by space(s) before `(`
+    main: bool,
+    /// Pattern 1: asm volatile pattern
+    asm: bool,
+    /// Pattern 2: `#define`, `typedef`, or `using \w+ =`
+    define: bool,
+    /// Pattern 3: `\w\s+(…::)*\*\w+\)(`  — function-pointer cast
+    func_ptr: bool,
+    /// Pattern 4: `\bcase\s+(`
+    case: bool,
+}
 
-const CALL_SPACING_MAIN: usize = 0;
-const CALL_SPACING_ASM: usize = 1;
-const CALL_SPACING_DEFINE: usize = 2;
-const CALL_SPACING_FUNC_PTR: usize = 3;
-const CALL_SPACING_CASE: usize = 4;
-static EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"[^)]\s+\)\s*[^{\s]"#).unwrap());
+impl CallSpacingFlags {
+    fn scan(s: &str) -> Self {
+        let bytes = s.as_bytes();
+        let mut flags = CallSpacingFlags::default();
+
+        // Scan for `\w \s+ (` (MAIN + FUNC_PTR)
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b == b'(' {
+                // Look back past whitespace for a word char
+                if i >= 2 {
+                    let mut ws_end = i;
+                    while ws_end > 0 && bytes[ws_end - 1].is_ascii_whitespace() {
+                        ws_end -= 1;
+                    }
+                    if ws_end < i && ws_end > 0 && string_utils::is_word_char(bytes[ws_end - 1]) {
+                        flags.main = true;
+                        // Check for FUNC_PTR pattern: `\w \s+ ( (\w+::)* \* \w+ ) (`
+                        // The '(' we're at could be the end of a cast like `(::*foo)(`
+                        // We check if the previous non-space token looks like `(*name)` ending here
+                        // Simple heuristic: scan back for `)` after `(`
+                        let after_paren_start = ws_end; // after the space-separated word
+                        // After main match, check if s[after_paren_start..i+?] contains `(::*…)(`
+                        if !flags.func_ptr {
+                            // Slice from word-char position to end, check for `(*…)(`
+                            let sub = &s[after_paren_start.saturating_sub(1)..i];
+                            if sub.contains("::*") || sub.contains("(*") {
+                                flags.func_ptr = true;
+                            }
+                        }
+                    }
+                }
+            }
+            i += 1;
+        }
+
+        // ASM pattern: asm…volatile…(
+        if s.contains("asm") && s.contains("volatile") && s.contains('(') {
+            flags.asm = true;
+        }
+
+        // DEFINE pattern: uses `#`, `typedef`, or `using … =`
+        if s.contains('#') || s.contains("typedef") {
+            flags.define = true;
+        } else if s.contains("using") && s.contains('=') {
+            flags.define = true;
+        }
+
+        // FUNC_PTR pattern: `\w\s+(\w+::)*\*\w+\)(`  — pointer-to-member function call.
+        // The key discriminator over MAIN is `::*` or `(*`.
+        if flags.main && (s.contains("::*") || s.contains("(*")) {
+            flags.func_ptr = true;
+        }
+
+        // CASE pattern: `\bcase\s+(`
+        if let Some(pos) = s.find("case") {
+            if string_utils::is_word_match(s, pos, pos + 4) {
+                let after = s[pos + 4..].trim_start();
+                if after.starts_with('(') {
+                    flags.case = true;
+                }
+            }
+        }
+
+        flags
+    }
+}
+
+/// Manual replacement for EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE (`[^)]\s+\)\s*[^{\s]`).
+/// Returns true if the string matches: a non-`)` char, then whitespace, then `)`,
+/// then (skipping optional whitespace) a char that is neither `{` nor whitespace.
+fn has_extra_space_before_close_paren(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.len() < 3 {
+        return false;
+    }
+    // Search for ')' at position >= 2 (need at least one non-) char + one space before it)
+    let mut i = 2usize;
+    while i < bytes.len() {
+        if bytes[i] != b')' {
+            i += 1;
+            continue;
+        }
+        let paren_pos = i;
+        // Must be preceded by at least one whitespace byte
+        if !bytes[paren_pos - 1].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        // Walk back past all whitespace to find what comes before
+        let mut back = paren_pos - 1;
+        while back > 0 && bytes[back - 1].is_ascii_whitespace() {
+            back -= 1;
+        }
+        // The char immediately before the whitespace run must not be ')':
+        // - back == 0 means all chars before paren_pos are whitespace (bytes[0] is whitespace = not ')')
+        // - otherwise check bytes[back - 1]
+        if back > 0 && bytes[back - 1] == b')' {
+            i += 1;
+            continue;
+        }
+        // After ')': skip whitespace and check for a char that is not '{' and not whitespace
+        let mut after = paren_pos + 1;
+        while after < bytes.len() && bytes[after].is_ascii_whitespace() {
+            after += 1;
+        }
+        if after < bytes.len() && bytes[after] != b'{' {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
 static INITLIST_CONTINUATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^ {6}\w"#).unwrap());
 static HEADER_BLANK_LINE_SET: LazyLock<RegexSet> = LazyLock::new(|| {
@@ -862,7 +1092,7 @@ fn check_spacing_for_function_call_base(
         return;
     }
 
-    if REF_MATCHERS.is_match(fncall) {
+    if has_ref_call(fncall) {
         return;
     }
 
@@ -884,22 +1114,21 @@ fn check_spacing_for_function_call_base(
         );
     }
 
-    let spacing_matches = CALL_SPACING_SET.matches(fncall);
-    if spacing_matches.matched(CALL_SPACING_MAIN) && !spacing_matches.matched(CALL_SPACING_FUNC_PTR)
-    {
+    let spacing = CallSpacingFlags::scan(fncall);
+    if spacing.main && !spacing.func_ptr {
         let mut exception_mask = MatchedKeywords::empty();
-        if spacing_matches.matched(CALL_SPACING_ASM) {
+        if spacing.asm {
             exception_mask |= MatchedKeywords::VA_OPT;
         }
-        if spacing_matches.matched(CALL_SPACING_DEFINE) {
+        if spacing.define {
             exception_mask |= MatchedKeywords::TYPEDEF | MatchedKeywords::USING;
         }
-        if spacing_matches.matched(CALL_SPACING_CASE) {
+        if spacing.case {
             exception_mask |= MatchedKeywords::CASE;
         }
 
         if !keywords.intersects(exception_mask) {
-            let confidence = if keywords.has_operator() && OPERATOR_NAME_RE.is_match(line) {
+            let confidence = if keywords.has_operator() && has_operator_name(line) {
                 0
             } else {
                 4
@@ -913,7 +1142,7 @@ fn check_spacing_for_function_call_base(
         }
     }
 
-    if !EXTRA_SPACE_BEFORE_CLOSE_PAREN_RE.is_match(fncall) {
+    if !has_extra_space_before_close_paren(fncall) {
         return;
     }
     if raw_line.contains("/*") {
@@ -1071,15 +1300,12 @@ fn check_blank_line_rules(
         }
     }
 
-    if let Some(captures) = ACCESS_SPECIFIER_RE.captures(prev_line) {
+    if let Some((_, specifier, _)) = parse_access_specifier(prev_line) {
         linter.error(
             linenum,
             Category::WhitespaceBlankLine,
             3,
-            &format!(
-                "Do not leave a blank line after \"{}:\"",
-                captures.get(2).map(|m| m.as_str()).unwrap_or("")
-            ),
+            &format!("Do not leave a blank line after \"{}:\"", specifier),
         );
     }
 
@@ -1124,7 +1350,7 @@ fn check_section_spacing(
         return;
     }
     let line = &clean_lines.lines_without_raw_strings[linenum];
-    let Some(captures) = ACCESS_SPECIFIER_RE.captures(line) else {
+    let Some((_, specifier, _)) = parse_access_specifier(line) else {
         return;
     };
 
@@ -1197,10 +1423,7 @@ fn check_section_spacing(
             linenum,
             Category::WhitespaceBlankLine,
             3,
-            &format!(
-                "\"{}:\" should be preceded by a blank line",
-                captures.get(2).map(|m| m.as_str()).unwrap_or("")
-            ),
+            &format!("\"{}:\" should be preceded by a blank line", specifier),
         );
     }
 }
@@ -1220,22 +1443,33 @@ fn check_access_specifier_indentation(
         return;
     }
     let line = &clean_lines.lines_without_raw_strings[linenum];
-    let Some(captures) = ACCESS_SPECIFIER_RE.captures(line) else {
+    let Some((prefix_len, specifier, has_slots)) = parse_access_specifier(line) else {
         return;
     };
     let Some(class_range) = linter.facts().enclosing_class_range(linenum) else {
         return;
     };
 
-    let prefix = captures.get(1).map(|m| m.as_str()).unwrap_or("");
     let class_indent = crate::line_utils::get_indent_level(
         clean_lines.lines_without_raw_strings[class_range.start],
     );
-    if prefix.len() == class_indent + 1 && prefix.chars().all(|ch| ch == ' ') {
+    if prefix_len == class_indent + 1 && line[..prefix_len].chars().all(|ch| ch == ' ') {
         return;
     }
-    if class_indent == 0 && prefix == "\t" {
+    if class_indent == 0 && &line[..prefix_len] == "\t" {
         return;
+    }
+    if prefix_len != class_indent + 1 {
+        linter.error(
+            linenum,
+            Category::WhitespaceIndent,
+            3,
+            &format!(
+                "{} should be indented +1 space inside class {}",
+                line[prefix_len..].trim_end(),
+                if class_indent == 0 { "" } else { "..." }
+            ),
+        );
     }
 
     let kind = if linter
@@ -1251,8 +1485,8 @@ fn check_access_specifier_indentation(
         Some(name) if !name.is_empty() => format!("{} {}", kind, name),
         _ => kind.to_string(),
     };
-    let access = captures.get(2).map(|m| m.as_str()).unwrap_or("");
-    let slots = captures.get(3).map(|m| m.as_str()).unwrap_or("");
+    let access = specifier;
+    let slots = if has_slots { " slots" } else { "" };
     linter.error(
         linenum,
         Category::WhitespaceIndent,

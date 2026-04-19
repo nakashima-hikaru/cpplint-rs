@@ -10,8 +10,6 @@ use std::sync::LazyLock;
 
 static INCLUDE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"^\s*#\s*include\s*([<"])([^>"]*)[>"].*$"#).unwrap());
-static ESCAPE_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r#"\\([abfnrtv?"\\\']|\d+|x[0-9a-fA-F]+)"#).unwrap());
 
 const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
     ("and", "&&"),
@@ -540,6 +538,7 @@ impl<'a> CleansedLines<'a> {
         Self::new_with_options(arena, raw_lines, &Options::new(), "")
     }
 
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn new_with_options(
         arena: &'a Bump,
         raw_lines: &[&'a str],
@@ -998,6 +997,73 @@ pub fn is_cpp_string(line: &str) -> bool {
     in_string
 }
 
+/// Strip C/C++ backslash escape sequences from a string slice, without regex.
+///
+/// Handles:
+///   - single-char escapes `\a \b \f \n \r \t \v \? \" \' \\`  → skip both bytes
+///   - octal/decimal digit runs `\NNN`                          → skip `\` + all digits
+///   - hex runs `\xHH...`                                       → skip `\` + `x` + all hex digits
+///   - anything else                                            → keep the `\` as-is
+fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
+    let bytes = s.as_bytes();
+    let Some(first_bs) = memchr::memchr(b'\\', bytes) else {
+        return Cow::Borrowed(s);
+    };
+
+    let mut result = String::with_capacity(s.len());
+    result.push_str(&s[..first_bs]);
+    let mut i = first_bs;
+
+    while i < bytes.len() {
+        if bytes[i] != b'\\' {
+            result.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+
+        let Some(&next) = bytes.get(i + 1) else {
+            // Trailing lone backslash — keep it
+            result.push('\\');
+            break;
+        };
+
+        match next {
+            // Recognised single-char escape sequences — drop both bytes
+            b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'?' | b'"' | b'\'' | b'\\' => {
+                i += 2;
+            }
+            // \x followed by hex digits
+            b'x' => {
+                let mut j = i + 2;
+                while j < bytes.len() && bytes[j].is_ascii_hexdigit() {
+                    j += 1;
+                }
+                if j > i + 2 {
+                    i = j; // skip \\ + 'x' + hex digits
+                } else {
+                    result.push('\\');
+                    i += 1;
+                }
+            }
+            // Octal/decimal digit run
+            b'0'..=b'9' => {
+                let mut j = i + 1;
+                while j < bytes.len() && bytes[j].is_ascii_digit() {
+                    j += 1;
+                }
+                i = j;
+            }
+            _ => {
+                result.push('\\');
+                i += 1;
+            }
+        }
+    }
+
+    Cow::Owned(result)
+}
+
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
     if elided.trim_start().starts_with('#') && INCLUDE_RE.is_match(elided) {
         return Cow::Borrowed(elided);
@@ -1032,7 +1098,7 @@ pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
 
     // Remove escapes — only needed when both backslash and quotes are present
     let result = if has_backslash && has_quote {
-        Cow::Owned(ESCAPE_RE.replace_all(elided, "").to_string())
+        strip_escape_sequences(elided)
     } else {
         Cow::Borrowed(elided)
     };

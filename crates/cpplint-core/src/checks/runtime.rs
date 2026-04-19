@@ -291,10 +291,19 @@ fn check_casts(
         return;
     }
 
-    let address_of_cast = contains_single_ampersand_cast(&ADDRESS_OF_CPP_CAST_RE, elided_line)
-        || contains_single_ampersand_cast(&ADDRESS_OF_C_CAST_RE, elided_line);
+    let address_of_cast = if elided_line.contains('&') && elided_line.contains('(') {
+        if elided_line.contains("_cast") {
+            contains_single_ampersand_cast(&ADDRESS_OF_CPP_CAST_RE, elided_line)
+        } else if elided_line.contains('*') && elided_line.contains(')') {
+            contains_single_ampersand_cast(&ADDRESS_OF_C_CAST_RE, elided_line)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let expecting_function = expecting_function_args(clean_lines, elided_line, linenum);
-    if !address_of_cast {
+    if !address_of_cast && elided_line.contains('(') {
         if let Some(captures) = DEPRECATED_CAST_STYLE_RE.captures(elided_line) {
             let matched_funcptr = captures.get(3).map(|m| m.as_str()).unwrap_or("");
             if !expecting_function {
@@ -1044,6 +1053,9 @@ fn check_init_with_self(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>
 }
 
 fn has_self_initializer(line: &str) -> bool {
+    if !line.contains("_(") {
+        return false;
+    }
     let bytes = line.as_bytes();
     let mut idx = 0usize;
     while idx < bytes.len() {
