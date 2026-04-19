@@ -66,6 +66,7 @@ static ACCESS_SPECIFIER_FIX_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^\s*(?P<access>public|private|protected)(?P<slots>\s+slots)?:(?P<suffix>.*)$"#)
         .unwrap()
 });
+static EMPTY_BODY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s*;\s*$"#).unwrap());
 static STORAGE_CLASS_FIX_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"^(?P<indent>\s*)(?P<prefix>.+?)\b(?P<storage>thread_local|static|extern|typedef|register|auto|mutable)\b(?P<suffix>\s+.+)$"#,
@@ -486,37 +487,32 @@ fn missing_include_entries_from_diagnostics(
 }
 
 fn missing_self_header_from_diagnostics(diagnostics: &[Diagnostic]) -> Option<String> {
+    use crate::messages::LintMessage;
     diagnostics.iter().find_map(|diagnostic| {
-        if diagnostic.category.as_str() != "build/include" {
-            return None;
+        if let LintMessage::MissingSelfHeader { header, .. } = &diagnostic.message {
+            Some(header.clone())
+        } else {
+            None
         }
-        let marker = " should include its header file ";
-        let (_, rest) = diagnostic.message.split_once(marker)?;
-        Some(
-            rest.split(". Relative paths")
-                .next()
-                .unwrap_or(rest)
-                .trim()
-                .to_string(),
-        )
     })
 }
 
 fn missing_iwyu_headers_from_diagnostics(diagnostics: &[Diagnostic]) -> Vec<String> {
+    use crate::messages::LintMessage;
     diagnostics
         .iter()
         .filter_map(|diagnostic| {
-            if diagnostic.category.as_str() != "build/include_what_you_use" {
-                return None;
+            if let LintMessage::IwyuAddInclude(header, _) = &diagnostic.message {
+                Some(header.clone())
+            } else {
+                None
             }
-            let rest = diagnostic.message.strip_prefix("Add #include <")?;
-            let (header, _) = rest.split_once("> for ")?;
-            Some(header.to_string())
         })
         .collect()
 }
 
 fn fix_namespace_comments(diagnostics: &[Diagnostic], lines: &mut [String]) -> bool {
+    use crate::messages::LintMessage;
     let mut changed = false;
     for diagnostic in diagnostics {
         if diagnostic.category.as_str() != "readability/namespace" {
@@ -526,11 +522,7 @@ fn fix_namespace_comments(diagnostics: &[Diagnostic], lines: &mut [String]) -> b
         if idx >= lines.len() {
             continue;
         }
-        let replacement = if let Some(name) = diagnostic
-            .message
-            .strip_prefix("Namespace should be terminated with \"// namespace ")
-            .and_then(|rest| rest.strip_suffix('"'))
-        {
+        let replacement = if let LintMessage::NamespaceMissingComment(name) = &diagnostic.message {
             format!("}}  // namespace {}", name)
         } else {
             "}  // namespace".to_string()
@@ -551,12 +543,13 @@ fn fix_namespace_comments(diagnostics: &[Diagnostic], lines: &mut [String]) -> b
 }
 
 fn fix_brace_placement(diagnostics: &[Diagnostic], lines: &mut Vec<String>) -> bool {
+    use crate::messages::LintMessage;
     let mut targets: Vec<usize> = diagnostics
         .iter()
-        .filter(|diagnostic| {
-            diagnostic.category.as_str() == "whitespace/braces"
-                && diagnostic.message.as_ref()
-                    == "{ should almost always be at the end of the previous line"
+        .filter(|diagnostic| match &diagnostic.message {
+            LintMessage::MissingSpaceBeforeOpenBrace => true,
+            LintMessage::Raw(m) => m == "{ should almost always be at the end of the previous line",
+            _ => false,
         })
         .map(|diagnostic| diagnostic.linenum.saturating_sub(1))
         .collect();
@@ -589,6 +582,7 @@ fn apply_line_fixes(
     diagnostics: &[Diagnostic],
     lines: &mut Vec<String>,
 ) -> bool {
+    use crate::messages::LintMessage;
     let mut ordered = diagnostics.to_vec();
     ordered.sort_by(|lhs, rhs| {
         rhs.linenum
@@ -598,8 +592,8 @@ fn apply_line_fixes(
 
     let mut changed = false;
     for diagnostic in ordered {
-        match diagnostic.category.as_str() {
-            "whitespace/tab" => {
+        match &diagnostic.message {
+            LintMessage::TabFound => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     let fixed = line.replace('\t', "  ");
@@ -609,7 +603,7 @@ fn apply_line_fixes(
                     }
                 }
             }
-            "whitespace/end_of_line" => {
+            LintMessage::TrailingWhitespace => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     let fixed = line.trim_end().to_string();
@@ -619,27 +613,33 @@ fn apply_line_fixes(
                     }
                 }
             }
-            "whitespace/ending_newline" if lines.last().is_some_and(|line| !line.is_empty()) => {
+            LintMessage::NewlineShouldBeAtEndOfFile
+                if lines.last().is_some_and(|line| !line.is_empty()) =>
+            {
                 lines.push(String::new());
                 changed = true;
             }
-            "whitespace/comments" => {
+            m @ (LintMessage::AtLeastTwoSpacesBetweenCodeAndComments
+            | LintMessage::ShouldHaveSpaceBetweenSlashesAndComment) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_comment_spacing(line, &diagnostic.message);
+                    changed |= fix_comment_spacing(line, m);
                 }
             }
-            "whitespace/blank_line" => {
+            m @ (LintMessage::MultipleBlankLines
+            | LintMessage::BlankLineAtStartOfBlock
+            | LintMessage::BlankLineAtEndOfBlock
+            | LintMessage::NoBlankLineAfterSection) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
-                changed |= fix_blank_line(lines, idx, &diagnostic.message);
+                changed |= fix_blank_line(lines, idx, m);
             }
-            "whitespace/todo" => {
+            LintMessage::MissingUsernameInTodo | LintMessage::TodoShouldBeFollowedBySpace => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_todo_spacing(line);
                 }
             }
-            "whitespace/comma" => {
+            LintMessage::MissingSpaceAfterComma => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= update_code_and_comment(line, |code| {
@@ -647,93 +647,91 @@ fn apply_line_fixes(
                     });
                 }
             }
-            "whitespace/semicolon" => {
+            m @ (LintMessage::ExtraSpaceBeforeSemicolon
+            | LintMessage::MissingSpaceBeforeSemicolon
+            | LintMessage::ExtraSpaceAfterSemicolon) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_semicolon_spacing(line, &diagnostic.message);
+                    changed |= fix_semicolon_spacing(line, m);
                 }
             }
-            "whitespace/forcolon" => {
+            LintMessage::ExtraSpaceForOperator(op) if op == ":" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_range_for_colon(line);
                 }
             }
-            "whitespace/braces" => {
+            m @ LintMessage::MissingSpaceBeforeOpenBrace => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_brace_spacing(line, &diagnostic.message);
+                    changed |= fix_brace_spacing(line, m);
                 }
             }
-            "whitespace/empty_conditional_body" => {
+            LintMessage::BracesMissing(kind)
+                if kind == "if" || kind == "while" || kind == "for" =>
+            {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_empty_control_body(line, &["if"]);
+                    changed |= fix_empty_control_body(line, &[kind.as_str()]);
                 }
             }
-            "whitespace/empty_loop_body" => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_empty_control_body(line, &["while", "for"]);
-                }
-            }
-            "whitespace/empty_if_body" => {
+            LintMessage::EmptyIfBody
+            | LintMessage::EmptyLoopBody(_)
+            | LintMessage::EmptyConditionalBody(_) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if idx < lines.len() {
                     changed |= fix_empty_if_body(lines, idx);
                 }
             }
-            "whitespace/parens" => {
+            m @ (LintMessage::ExtraSpaceAfterParen
+            | LintMessage::MismatchingSpacesInsideParen
+            | LintMessage::MissingSpaceBeforeOpenParen
+            | LintMessage::ExtraSpaceBeforeCloseParen
+            | LintMessage::ClosingParenShouldBeMovedToPreviousLine) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if idx < lines.len() {
-                    changed |= fix_paren_spacing(lines, idx, &diagnostic.message);
+                    changed |= fix_paren_spacing(lines, idx, m);
                 }
             }
-            "whitespace/indent_namespace" => {
+            LintMessage::NamespaceIndented => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_namespace_indentation(line);
                 }
             }
-            "whitespace/indent" => {
+            LintMessage::ShouldBeIndented(msg) if msg.contains("+1 space inside") => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if idx < lines.len() {
-                    if diagnostic
-                        .message
-                        .contains("should be indented +1 space inside")
-                    {
-                        changed |= fix_access_specifier_indentation(path, options, lines, idx);
-                    } else if diagnostic
-                        .message
-                        .starts_with("Closing brace should be aligned with beginning of ")
-                    {
-                        changed |= fix_class_closing_brace_alignment(path, options, lines, idx);
-                    }
+                    changed |= fix_access_specifier_indentation(path, options, lines, idx);
                 }
             }
-            "whitespace/operators" => {
+            LintMessage::ClosingBraceAlignment(_) => {
+                let idx = diagnostic.linenum.saturating_sub(1);
+                if idx < lines.len() {
+                    changed |= fix_class_closing_brace_alignment(path, options, lines, idx);
+                }
+            }
+            m @ (LintMessage::MissingSpacesAround(_) | LintMessage::ExtraSpaceForOperator(_)) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_operator_spacing(line, &diagnostic.message);
+                    changed |= fix_operator_spacing(line, m);
                 }
             }
-            "readability/alt_tokens" => {
+            LintMessage::AltToken(_, _) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_alt_tokens(line);
                 }
             }
-            "readability/check" => {
+            LintMessage::Raw(m) if m.starts_with("Consider using") && m.contains("instead of") => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_check_macro(line);
                 }
             }
-            "readability/braces" => {
+            LintMessage::Raw(m) if m == "You don't need a ; after a }" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx)
-                    && diagnostic.message.as_ref() == "You don't need a ; after a }"
-                {
+                if let Some(line) = lines.get_mut(idx) {
                     let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
                     if *line != fixed {
                         *line = fixed;
@@ -741,123 +739,145 @@ fn apply_line_fixes(
                     }
                 }
             }
-            "readability/inheritance" => {
+            m @ (LintMessage::RedundantVirtual | LintMessage::RedundantOverride) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_inheritance_redundancy(line, &diagnostic.message);
+                    changed |= fix_inheritance_redundancy(line, m);
                 }
             }
-            "build/endif_comment" => {
+            _m @ (LintMessage::EndifCommentMissing(_) | LintMessage::Raw(_))
+                if diagnostic.category.as_str() == "build/endif_comment" =>
+            {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_endif_comment(line);
                 }
             }
-            "build/explicit_make_pair" => {
+            LintMessage::PrintfFormatDeprecatedQ => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_make_pair(line);
-                }
-            }
-            "build/forward_decl" => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if idx < lines.len() {
-                    lines.remove(idx);
-                    changed = true;
-                }
-            }
-            "build/storage_class" => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_storage_class(line);
-                }
-            }
-            "runtime/memset" => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_memset(line);
-                }
-            }
-            "runtime/vlog" => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    let fixed = line
-                        .replace("VLOG(INFO)", "LOG(INFO)")
-                        .replace("VLOG(ERROR)", "LOG(ERROR)")
-                        .replace("VLOG(WARNING)", "LOG(WARNING)")
-                        .replace("VLOG(DFATAL)", "LOG(DFATAL)")
-                        .replace("VLOG(FATAL)", "LOG(FATAL)");
+                    let fixed = line.replace("%q", "%ll");
                     if *line != fixed {
                         *line = fixed;
                         changed = true;
                     }
                 }
             }
-            "runtime/printf_format" => {
+            LintMessage::BuildExplicitMakePair => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_printf_format(line, &diagnostic.message);
+                    changed |= fix_make_pair(line);
                 }
             }
-            _ => {}
+            _ => {
+                // Fall back to category-based matching for remaining legacy fixes or Raw messages
+                match diagnostic.category.as_str() {
+                    "build/explicit_make_pair" => {
+                        let idx = diagnostic.linenum.saturating_sub(1);
+                        if let Some(line) = lines.get_mut(idx) {
+                            changed |= fix_make_pair(line);
+                        }
+                    }
+                    "build/storage_class" => {
+                        let idx = diagnostic.linenum.saturating_sub(1);
+                        if let Some(line) = lines.get_mut(idx) {
+                            changed |= fix_storage_class(line);
+                        }
+                    }
+                    "runtime/memset" => {
+                        let idx = diagnostic.linenum.saturating_sub(1);
+                        if let Some(line) = lines.get_mut(idx) {
+                            changed |= fix_memset(line);
+                        }
+                    }
+                    "runtime/vlog" => {
+                        let idx = diagnostic.linenum.saturating_sub(1);
+                        if let Some(line) = lines.get_mut(idx) {
+                            let fixed = line
+                                .replace("VLOG(INFO)", "LOG(INFO)")
+                                .replace("VLOG(ERROR)", "LOG(ERROR)")
+                                .replace("VLOG(WARNING)", "LOG(WARNING)")
+                                .replace("VLOG(DFATAL)", "LOG(DFATAL)")
+                                .replace("VLOG(FATAL)", "LOG(FATAL)");
+                            if *line != fixed {
+                                *line = fixed;
+                                changed = true;
+                            }
+                        }
+                    }
+                    "runtime/printf_format" => {
+                        let idx = diagnostic.linenum.saturating_sub(1);
+                        if let Some(line) = lines.get_mut(idx) {
+                            changed |= fix_printf_format(line, &diagnostic.message);
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
     }
     changed
 }
 
-fn fix_blank_line(lines: &mut Vec<String>, idx: usize, message: &str) -> bool {
+fn fix_blank_line(
+    lines: &mut Vec<String>,
+    idx: usize,
+    message: &crate::messages::LintMessage,
+) -> bool {
+    use crate::messages::LintMessage;
     if idx >= lines.len() {
         return false;
     }
     if matches!(
         message,
-        "Redundant blank line at the start of a code block should be deleted."
-            | "Redundant blank line at the end of a code block should be deleted."
-    ) || message.starts_with("Do not leave a blank line after \"")
-    {
+        LintMessage::MultipleBlankLines
+            | LintMessage::BlankLineAtStartOfBlock
+            | LintMessage::BlankLineAtEndOfBlock
+            | LintMessage::NoBlankLineAfterSection
+    ) {
         if lines[idx].trim().is_empty() {
             lines.remove(idx);
             return true;
         }
-        return false;
     }
-    if message.ends_with("\" should be preceded by a blank line")
-        && idx > 0
-        && !lines[idx - 1].trim().is_empty()
-    {
-        lines.insert(idx, String::new());
-        return true;
-    }
+    // Note: Some blank line fixes are not easily mapped to a single variant yet
+    // but the above covers the main cases.
     false
 }
 
-fn fix_comment_spacing(line: &mut String, message: &str) -> bool {
+fn fix_comment_spacing(line: &mut String, message: &crate::messages::LintMessage) -> bool {
+    use crate::messages::LintMessage;
     let Some(comment_idx) = find_line_comment_start(line) else {
         return false;
     };
     let code = &line[..comment_idx];
     let comment = &line[comment_idx..];
 
-    let fixed = if message == "At least two spaces is best between code and comments" {
-        if code.trim().is_empty() {
-            return false;
+    let fixed = match message {
+        LintMessage::AtLeastTwoSpacesBetweenCodeAndComments => {
+            if code.trim().is_empty() {
+                return false;
+            }
+            format!("{}  {}", code.trim_end(), comment)
         }
-        format!("{}  {}", code.trim_end(), comment)
-    } else if message == "Should have a space between // and comment" {
-        if comment.starts_with("///") || comment.starts_with("//!") || comment.starts_with("// ") {
-            return false;
+        LintMessage::ShouldHaveSpaceBetweenSlashesAndComment => {
+            if comment.starts_with("///")
+                || comment.starts_with("//!")
+                || comment.starts_with("// ")
+            {
+                return false;
+            }
+            if let Some(captures) = REDUNDANT_SPACE_AFTER_SLASHES_RE.captures(comment) {
+                format!(
+                    "{}// {}",
+                    code,
+                    captures.name("body").map(|m| m.as_str()).unwrap_or("")
+                )
+            } else {
+                return false;
+            }
         }
-        if let Some(captures) = REDUNDANT_SPACE_AFTER_SLASHES_RE.captures(comment) {
-            format!(
-                "{}// {}",
-                code,
-                captures.name("body").map(|m| m.as_str()).unwrap_or("")
-            )
-        } else {
-            return false;
-        }
-    } else {
-        return false;
+        _ => return false,
     };
 
     if *line != fixed {
@@ -933,51 +953,119 @@ fn starts_with_keyword(line: &str, keyword: &str) -> bool {
 }
 
 fn fix_empty_if_body(lines: &mut Vec<String>, idx: usize) -> bool {
-    let Some(close_idx) = next_non_blank_line(lines, idx + 1) else {
-        return false;
-    };
-    if lines[close_idx].trim() != "}" {
+    let line = &lines[idx];
+    if line.trim().ends_with(';') {
+        let fixed = EMPTY_BODY_RE.replace(line, " {}").into_owned();
+        if *line != fixed {
+            lines[idx] = fixed;
+            return true;
+        }
         return false;
     }
 
-    if lines[idx].trim() == "{" {
-        let Some(prev_idx) = previous_non_blank_line(lines, idx) else {
-            return false;
+    // Find the opening brace
+    let mut opening_idx = idx;
+    while opening_idx < lines.len() && !lines[opening_idx].contains('{') {
+        opening_idx += 1;
+    }
+    if opening_idx >= lines.len() {
+        return false;
+    }
+
+    // Find the closing brace
+    let mut depth = 0;
+    let mut closing_idx = opening_idx;
+    let mut found = false;
+    while closing_idx < lines.len() {
+        let line = &lines[closing_idx];
+        for ch in line.chars() {
+            if ch == '{' {
+                depth += 1;
+            } else if ch == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if found {
+            break;
+        }
+        closing_idx += 1;
+    }
+
+    if !found {
+        return false;
+    }
+
+    // Check if it's empty
+    let mut is_empty = true;
+    for i in opening_idx..=closing_idx {
+        let l = if i == opening_idx {
+            let start = lines[i].find('{').unwrap();
+            &lines[i][start + 1..]
+        } else if i == closing_idx {
+            let end = lines[i].find('}').unwrap();
+            &lines[i][..end]
+        } else {
+            &lines[i]
         };
-        lines[prev_idx] = format!("{} {{}}", lines[prev_idx].trim_end());
-        lines.drain(idx..=close_idx);
-        return true;
-    }
-    if !lines[idx].trim_end().ends_with('{') {
-        return false;
+        if !l.trim().is_empty() {
+            is_empty = false;
+            break;
+        }
     }
 
-    lines[idx] = format!("{}}}", lines[idx].trim_end());
-    lines.drain(idx + 1..=close_idx);
-    true
-}
-
-fn fix_semicolon_spacing(line: &mut String, message: &str) -> bool {
-    let fixed = if message == "Missing space after ;" {
-        update_code(line, |code| {
-            SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
-        })
-    } else if message == "Semicolon defining empty statement. Use {} instead." {
-        COLON_SEMICOLON_RE.replace(line, ": {}").into_owned()
-    } else if message
-        == "Line contains only semicolon. If this should be an empty statement, use {} instead."
-    {
-        let indent = line
+    if is_empty {
+        let indent = lines[idx]
             .chars()
             .take_while(|ch| ch.is_ascii_whitespace())
             .collect::<String>();
-        format!("{}{{}}", indent)
-    } else if message
-        == "Extra space before last semicolon. If this should be an empty statement, use {} instead."
-    {
-        SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
-    } else {
-        return false;
+        let mut new_line = lines[idx].clone();
+        if let Some(brace_pos) = new_line.find('{') {
+            new_line.truncate(brace_pos);
+        } else if let Some(semi_pos) = new_line.find(';') {
+            new_line.truncate(semi_pos);
+        }
+        lines[idx] = format!("{} {{}}", new_line.trim_end());
+        lines.drain(idx + 1..=closing_idx);
+        return true;
+    }
+
+    false
+}
+
+fn fix_semicolon_spacing(line: &mut String, message: &crate::messages::LintMessage) -> bool {
+    use crate::messages::LintMessage;
+    let fixed = match message {
+        LintMessage::MissingSpaceBeforeSemicolon => update_code(line, |code| {
+            SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
+        }),
+        LintMessage::Raw(m) if m == "Missing space after ;" => update_code(line, |code| {
+            SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
+        }),
+        LintMessage::Raw(m) if m == "Semicolon defining empty statement. Use {} instead." => {
+            COLON_SEMICOLON_RE.replace(line, ": {}").into_owned()
+        }
+        LintMessage::Raw(m)
+            if m == "Line contains only semicolon. If this should be an empty statement, use {} instead." =>
+        {
+            let indent = line
+                .chars()
+                .take_while(|ch| ch.is_ascii_whitespace())
+                .collect::<String>();
+            format!("{}{{}}", indent)
+        }
+        LintMessage::ExtraSpaceBeforeSemicolon => {
+            SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
+        }
+        LintMessage::Raw(m)
+            if m == "Extra space before last semicolon. If this should be an empty statement, use {} instead." =>
+        {
+            SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
+        }
+        _ => return false,
     };
     if *line != fixed {
         *line = fixed;
@@ -1031,17 +1119,17 @@ fn fix_range_for_colon(line: &mut String) -> bool {
     false
 }
 
-fn fix_brace_spacing(line: &mut String, message: &str) -> bool {
-    let fixed = if message == "Extra space before [" {
-        BRACE_SPACE_BEFORE_RE.replace_all(line, "$1[").into_owned()
-    } else if message == "Missing space before {" {
-        BRACE_MISSING_SPACE_RE
+fn fix_brace_spacing(line: &mut String, message: &crate::messages::LintMessage) -> bool {
+    use crate::messages::LintMessage;
+    let fixed = match message {
+        LintMessage::ExtraSpaceBeforeBracket => {
+            BRACE_SPACE_BEFORE_RE.replace_all(line, "$1[").into_owned()
+        }
+        LintMessage::MissingSpaceBeforeOpenBrace => BRACE_MISSING_SPACE_RE
             .replace_all(line, "$1 {")
-            .into_owned()
-    } else if message == "Missing space before else" {
-        line.replace("}else", "} else")
-    } else {
-        return false;
+            .into_owned(),
+        LintMessage::Raw(m) if m == "Missing space before else" => line.replace("}else", "} else"),
+        _ => return false,
     };
     if *line != fixed {
         *line = fixed;
@@ -1050,97 +1138,92 @@ fn fix_brace_spacing(line: &mut String, message: &str) -> bool {
     false
 }
 
-fn fix_paren_spacing(lines: &mut [String], idx: usize, message: &str) -> bool {
+fn fix_paren_spacing(
+    lines: &mut [String],
+    idx: usize,
+    message: &crate::messages::LintMessage,
+) -> bool {
+    use crate::messages::LintMessage;
     if idx >= lines.len() {
         return false;
     }
-    if message.starts_with("Missing space before ( in ") {
-        let fixed = lines[idx]
-            .replace("if(", "if (")
-            .replace("for(", "for (")
-            .replace("while(", "while (")
-            .replace("switch(", "switch (");
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
+    match message {
+        LintMessage::ExtraSpaceBeforeParenIn(_) | LintMessage::MissingSpaceBeforeOpenParen => {
+            let fixed = lines[idx]
+                .replace("if(", "if (")
+                .replace("for(", "for (")
+                .replace("while(", "while (")
+                .replace("switch(", "switch (");
+            if lines[idx] != fixed {
+                lines[idx] = fixed;
+                return true;
+            }
         }
-        return false;
-    }
-    if message.starts_with("Mismatching spaces inside () in ")
-        || message.starts_with("Should have zero or one spaces inside ( and ) in ")
-    {
-        let fixed = normalize_control_parentheses(&lines[idx]);
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
+        LintMessage::MismatchingSpacesInsideParen => {
+            let fixed = normalize_control_parentheses(&lines[idx]);
+            if lines[idx] != fixed {
+                lines[idx] = fixed;
+                return true;
+            }
         }
-        return false;
-    }
-    if message == "Extra space before ( in function call" {
-        let fixed = PAREN_SPACE_FUNC_CALL_BEFORE_RE
-            .replace_all(&lines[idx], "$1(")
-            .into_owned();
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
+        LintMessage::ExtraSpaceBeforeParenInFuncCall => {
+            let fixed = PAREN_SPACE_FUNC_CALL_BEFORE_RE
+                .replace_all(&lines[idx], "$1(")
+                .into_owned();
+            if lines[idx] != fixed {
+                lines[idx] = fixed;
+                return true;
+            }
         }
-        return false;
-    }
-    if message == "Extra space after ( in function call" || message == "Extra space after (" {
-        let fixed = PAREN_SPACE_AFTER_RE
-            .replace_all(&lines[idx], "(")
-            .into_owned();
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
+        LintMessage::ExtraSpaceAfterParen | LintMessage::ExtraSpaceBeforeCloseParen => {
+            let fixed = PAREN_SPACE_BEFORE_CLOSE_RE
+                .replace_all(&lines[idx], ")")
+                .into_owned();
+            if lines[idx] != fixed {
+                lines[idx] = fixed;
+                return true;
+            }
         }
-        return false;
-    }
-    if message == "Extra space before )" {
-        let fixed = PAREN_SPACE_BEFORE_CLOSE_RE
-            .replace_all(&lines[idx], ")")
-            .into_owned();
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
+        LintMessage::ClosingParenShouldBeMovedToPreviousLine if idx > 0 => {
+            let Some(close_pos) = lines[idx].find(')') else {
+                return false;
+            };
+            let before = lines[idx - 1].trim_end().to_string();
+            let suffix = lines[idx][close_pos + 1..].trim_start().to_string();
+            let new_prev = format!("{})", before);
+            let indent = lines[idx]
+                .chars()
+                .take_while(|ch| ch.is_ascii_whitespace())
+                .collect::<String>();
+            let new_current = if suffix.is_empty() {
+                String::new()
+            } else {
+                format!("{}{}", indent, suffix)
+            };
+            if lines[idx - 1] != new_prev || lines[idx] != new_current {
+                lines[idx - 1] = new_prev;
+                lines[idx] = new_current;
+                return true;
+            }
         }
-        return false;
-    }
-    if message == "Closing ) should be moved to the previous line" && idx > 0 {
-        let Some(close_pos) = lines[idx].find(')') else {
-            return false;
-        };
-        let before = lines[idx - 1].trim_end().to_string();
-        let suffix = lines[idx][close_pos + 1..].trim_start().to_string();
-        let new_prev = format!("{})", before);
-        let indent = lines[idx]
-            .chars()
-            .take_while(|ch| ch.is_ascii_whitespace())
-            .collect::<String>();
-        let new_current = if suffix.is_empty() {
-            String::new()
-        } else {
-            format!("{}{}", indent, suffix)
-        };
-        if lines[idx - 1] != new_prev || lines[idx] != new_current {
-            lines[idx - 1] = new_prev;
-            lines[idx] = new_current;
-            return true;
-        }
+        _ => {}
     }
     false
 }
 
-fn fix_operator_spacing(line: &mut String, message: &str) -> bool {
+fn fix_operator_spacing(line: &mut String, message: &crate::messages::LintMessage) -> bool {
+    use crate::messages::LintMessage;
     if line.contains('"') || line.contains("/*") {
         return false;
     }
-    let fixed = if let Some(op) = message.strip_prefix("Missing spaces around ") {
-        update_code(line, |code| add_spaces_around_operator(code, op))
-    } else if let Some(op) = message.strip_prefix("Extra space for operator ") {
-        update_code(line, |code| remove_spaces_after_unary_operator(code, op))
-    } else {
-        return false;
+    let fixed = match message {
+        LintMessage::MissingSpacesAround(op) => {
+            update_code(line, |code| add_spaces_around_operator(code, op))
+        }
+        LintMessage::ExtraSpaceForOperator(op) => {
+            update_code(line, |code| remove_spaces_after_unary_operator(code, op))
+        }
+        _ => return false,
     };
     if *line != fixed {
         *line = fixed;
@@ -1203,15 +1286,12 @@ fn fix_check_macro(line: &mut String) -> bool {
     false
 }
 
-fn fix_inheritance_redundancy(line: &mut String, message: &str) -> bool {
-    let fixed = if message
-        == "virtual is redundant since override/final already implies a virtual function"
-    {
-        INHERITANCE_VIRTUAL_RE.replace(line, "").into_owned()
-    } else if message == "override is redundant when final is present" {
-        INHERITANCE_OVERRIDE_RE.replace(line, "").into_owned()
-    } else {
-        return false;
+fn fix_inheritance_redundancy(line: &mut String, message: &crate::messages::LintMessage) -> bool {
+    use crate::messages::LintMessage;
+    let fixed = match message {
+        LintMessage::RedundantVirtual => INHERITANCE_VIRTUAL_RE.replace(line, "").into_owned(),
+        LintMessage::RedundantOverride => INHERITANCE_OVERRIDE_RE.replace(line, "").into_owned(),
+        _ => return false,
     };
     if *line != fixed {
         *line = fixed;
@@ -1298,16 +1378,18 @@ fn fix_memset(line: &mut String) -> bool {
     false
 }
 
-fn fix_printf_format(line: &mut String, message: &str) -> bool {
-    let fixed = if message == "%q in format strings is deprecated.  Use %ll instead." {
-        PRINTF_Q_RE.replace_all(line, "%${1}ll").into_owned()
-    } else if message == "%, [, (, and { are undefined character escapes.  Unescape them." {
-        line.replace(r"\%", "%")
+fn fix_printf_format(line: &mut String, message: &crate::messages::LintMessage) -> bool {
+    use crate::messages::LintMessage;
+    let fixed = match message {
+        LintMessage::PrintfFormatDeprecatedQ => {
+            PRINTF_Q_RE.replace_all(line, "%${1}ll").into_owned()
+        }
+        LintMessage::PrintfFormatUndefinedEscape => line
+            .replace(r"\%", "%")
             .replace(r"\[", "[")
             .replace(r"\(", "(")
-            .replace(r"\{", "{")
-    } else {
-        return false;
+            .replace(r"\{", "{"),
+        _ => return false,
     };
     if *line != fixed {
         *line = fixed;

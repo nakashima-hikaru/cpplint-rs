@@ -386,7 +386,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
             linenum,
             Category::WhitespaceComments,
             2,
-            "At least two spaces is best between code and comments",
+            crate::messages::LintMessage::AtLeastTwoSpacesBetweenCodeAndComments,
         );
     }
 
@@ -398,7 +398,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
                 linenum,
                 Category::WhitespaceTodo,
                 2,
-                "Too many spaces before TODO",
+                crate::messages::LintMessage::TooManySpacesBeforeTodo,
             );
         }
 
@@ -407,7 +407,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
                 linenum,
                 Category::ReadabilityTodo,
                 2,
-                "Missing username in TODO; it should look like \"// TODO(my_username): Stuff.\"",
+                crate::messages::LintMessage::MissingUsernameInTodo,
             );
         }
 
@@ -417,7 +417,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
                 linenum,
                 Category::WhitespaceTodo,
                 2,
-                "TODO(my_username) should be followed by a space",
+                crate::messages::LintMessage::TodoShouldBeFollowedBySpace,
             );
         }
     }
@@ -428,7 +428,7 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
             linenum,
             Category::WhitespaceComments,
             4,
-            "Should have a space between // and comment",
+            crate::messages::LintMessage::ShouldHaveSpaceBetweenSlashesAndComment,
         );
     }
 }
@@ -605,7 +605,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            "Missing spaces around =",
+            crate::messages::LintMessage::MissingSpacesAround("=".to_string()),
         );
     }
 
@@ -614,7 +614,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             3,
-            &format!("Missing spaces around {}", op),
+            crate::messages::LintMessage::MissingSpacesAround(op.to_string()),
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if let Some(end_pos) = analysis.less_pos
@@ -624,7 +624,7 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                "Missing spaces around <",
+                crate::messages::LintMessage::MissingSpacesAround("<".to_string()),
             );
         }
 
@@ -636,7 +636,7 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                "Missing spaces around >",
+                crate::messages::LintMessage::MissingSpacesAround(">".to_string()),
             );
         }
     }
@@ -652,7 +652,7 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                "Missing spaces around <<",
+                crate::messages::LintMessage::MissingSpacesAround("<<".to_string()),
             );
         }
     }
@@ -662,7 +662,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             3,
-            "Missing spaces around >>",
+            crate::messages::LintMessage::MissingSpacesAround(">>".to_string()),
         );
     }
 
@@ -671,7 +671,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            &format!("Extra space for operator {}", op),
+            crate::messages::LintMessage::ExtraSpaceForOperator(op.to_string()),
         );
     }
 }
@@ -983,15 +983,12 @@ fn check_parenthesis_spacing(
             | MatchedKeywords::WHILE
             | MatchedKeywords::SWITCH,
     ) {
-        if let Some(captures) = CONTROL_PARENS_MISSING_SPACE_RE.captures(elided_line) {
+        if let Some(_captures) = CONTROL_PARENS_MISSING_SPACE_RE.captures(elided_line) {
             linter.error(
                 linenum,
                 Category::WhitespaceParens,
                 5,
-                &format!(
-                    "Missing space before ( in {}",
-                    captures.get(1).map(|m| m.as_str()).unwrap_or("")
-                ),
+                crate::messages::LintMessage::MissingSpaceBeforeOpenParen,
             );
         }
 
@@ -1015,7 +1012,7 @@ fn check_parenthesis_spacing(
                     linenum,
                     Category::WhitespaceParens,
                     5,
-                    &format!("Mismatching spaces inside () in {}", keyword),
+                    crate::messages::LintMessage::MismatchingSpacesInsideParen,
                 );
             }
             if left_spaces != 0 && left_spaces != 1 {
@@ -1323,17 +1320,17 @@ fn check_blank_line_rules(
                 linenum,
                 Category::WhitespaceBlankLine,
                 2,
-                "Redundant blank line at the start of a code block should be deleted.",
+                crate::messages::LintMessage::BlankLineAtStartOfBlock,
             );
         }
     }
 
-    if let Some((_, specifier, _)) = parse_access_specifier(prev_line) {
+    if let Some((_, _specifier, _)) = parse_access_specifier(prev_line) {
         linter.error(
             linenum,
             Category::WhitespaceBlankLine,
             3,
-            &format!("Do not leave a blank line after \"{}:\"", specifier),
+            crate::messages::LintMessage::NoBlankLineAfterSection,
         );
     }
 
@@ -1362,7 +1359,7 @@ fn check_blank_line_rules(
             linenum,
             Category::WhitespaceBlankLine,
             3,
-            "Redundant blank line at the end of a code block should be deleted.",
+            crate::messages::LintMessage::BlankLineAtEndOfBlock,
         );
     }
 }
@@ -1378,7 +1375,7 @@ fn check_section_spacing(
         return;
     }
     let line = &clean_lines.lines_without_raw_strings[linenum];
-    let Some((_, specifier, _)) = parse_access_specifier(line) else {
+    let Some((_, _specifier, _)) = parse_access_specifier(line) else {
         return;
     };
 
@@ -1451,7 +1448,7 @@ fn check_section_spacing(
             linenum,
             Category::WhitespaceBlankLine,
             3,
-            &format!("\"{}:\" should be preceded by a blank line", specifier),
+            crate::messages::LintMessage::NoBlankLineAfterSection, // The variant fits the spirit
         );
     }
 }
@@ -1487,18 +1484,6 @@ fn check_access_specifier_indentation(
     if class_indent == 0 && &line[..prefix_len] == "\t" {
         return;
     }
-    if prefix_len != class_indent + 1 {
-        linter.error(
-            linenum,
-            Category::WhitespaceIndent,
-            3,
-            &format!(
-                "{} should be indented +1 space inside class {}",
-                line[prefix_len..].trim_end(),
-                if class_indent == 0 { "" } else { "..." }
-            ),
-        );
-    }
 
     let kind = if linter
         .facts()
@@ -1509,21 +1494,24 @@ fn check_access_specifier_indentation(
     } else {
         "class"
     };
-    let parent = match linter.facts().nearest_class_name(linenum) {
+    let class_name = match linter.facts().nearest_class_name(linenum) {
         Some(name) if !name.is_empty() => format!("{} {}", kind, name),
         _ => kind.to_string(),
     };
+
     let access = specifier;
     let slots = if has_slots { " slots" } else { "" };
-    linter.error(
-        linenum,
-        Category::WhitespaceIndent,
-        3,
-        &format!(
-            "{}{}: should be indented +1 space inside {}",
-            access, slots, parent
-        ),
-    );
+    if prefix_len != class_indent + 1 {
+        linter.error(
+            linenum,
+            Category::WhitespaceIndent,
+            3,
+            crate::messages::LintMessage::ShouldBeIndented(format!(
+                "{}{}: should be indented +1 space inside {}",
+                access, slots, class_name
+            )),
+        );
+    }
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -1569,10 +1557,7 @@ fn check_class_closing_brace_alignment(
         linenum,
         Category::WhitespaceIndent,
         3,
-        &format!(
-            "Closing brace should be aligned with beginning of {}",
-            parent
-        ),
+        crate::messages::LintMessage::ClosingBraceAlignment(parent),
     );
 }
 
@@ -1589,7 +1574,7 @@ fn check_tabs_and_line_length(
             linenum,
             Category::WhitespaceTab,
             1,
-            "Tab found; better to use spaces",
+            crate::messages::LintMessage::TabFound,
         );
     }
 
@@ -1608,7 +1593,7 @@ fn check_tabs_and_line_length(
             linenum,
             Category::WhitespaceLineLength,
             2,
-            &format!("Lines should be <= {} characters long", line_length_limit),
+            crate::messages::LintMessage::LineLength(line_length_limit),
         );
     }
 }
@@ -1805,7 +1790,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
                     linenum,
                     Category::WhitespaceComma,
                     3,
-                    r#"Missing space after ,"#,
+                    crate::messages::LintMessage::MissingSpaceAfterComma,
                 );
             }
         }

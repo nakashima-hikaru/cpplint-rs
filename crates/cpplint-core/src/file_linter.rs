@@ -117,7 +117,7 @@ impl<'a> FileLinter<'a> {
                 linenum,
                 Category::ReadabilityUtf8,
                 5,
-                "Line contains invalid UTF-8 (or Unicode replacement character).",
+                crate::messages::LintMessage::InvalidUtf8,
             );
         }
         for &linenum in decoded.null_lines() {
@@ -125,7 +125,7 @@ impl<'a> FileLinter<'a> {
                 linenum,
                 Category::ReadabilityNul,
                 5,
-                "Line contains NUL byte.",
+                crate::messages::LintMessage::NulByte,
             );
         }
 
@@ -139,7 +139,7 @@ impl<'a> FileLinter<'a> {
                     linenum,
                     Category::WhitespaceNewline,
                     1,
-                    "Unexpected \\r (^M) found; better to use only \\n",
+                    crate::messages::LintMessage::MixedLineEndings,
                 );
             }
         }
@@ -176,7 +176,7 @@ impl<'a> FileLinter<'a> {
                 begin,
                 Category::ReadabilityNolint,
                 5,
-                "NOLINT block never ended",
+                crate::messages::LintMessage::NolintBlockNeverEnded,
             );
         }
 
@@ -234,7 +234,9 @@ impl<'a> FileLinter<'a> {
                         linenum,
                         Category::ReadabilityNolint,
                         5,
-                        &format!("NOLINT categories not supported in block END: {}", category),
+                        crate::messages::LintMessage::NolintCategoriesNotSupportedInEnd(
+                            category.to_string(),
+                        ),
                     );
                 }
                 this.error_suppressions.end_block_suppression(linenum);
@@ -250,7 +252,7 @@ impl<'a> FileLinter<'a> {
                     linenum,
                     Category::ReadabilityNolint,
                     5,
-                    &format!("NOLINT block already defined on line {}", begin + 1),
+                    crate::messages::LintMessage::NolintBlockAlreadyDefined(begin + 1),
                 );
             }
         } else if no_lint_type == "END" && !self.error_suppressions.has_open_block() {
@@ -258,7 +260,7 @@ impl<'a> FileLinter<'a> {
                 linenum,
                 Category::ReadabilityNolint,
                 5,
-                "Not in a NOLINT block",
+                crate::messages::LintMessage::NotInNolintBlock,
             );
         }
 
@@ -281,7 +283,7 @@ impl<'a> FileLinter<'a> {
                     linenum,
                     Category::ReadabilityNolint,
                     5,
-                    &format!("Unknown NOLINT error category: {}", category),
+                    crate::messages::LintMessage::UnknownNolintCategory(category.to_string()),
                 );
             }
         }
@@ -305,7 +307,7 @@ impl<'a> FileLinter<'a> {
                     begin,
                     Category::ReadabilityMultilineComment,
                     5,
-                    "Could not find end of multi-line comment",
+                    crate::messages::LintMessage::UnterminatedMultilineComment,
                 );
                 return;
             };
@@ -314,7 +316,7 @@ impl<'a> FileLinter<'a> {
                     end,
                     Category::ReadabilityMultilineComment,
                     5,
-                    "Could not find end of multi-line comment",
+                    crate::messages::LintMessage::UnterminatedMultilineComment,
                 );
                 return;
             }
@@ -326,7 +328,14 @@ impl<'a> FileLinter<'a> {
         }
     }
 
-    pub fn error(&mut self, linenum: usize, category: Category, confidence: i32, message: &str) {
+    pub fn error(
+        &mut self,
+        linenum: usize,
+        category: Category,
+        confidence: i32,
+        message: impl Into<crate::messages::LintMessage>,
+    ) {
+        let message = message.into();
         if self.error_suppressions.is_suppressed(category, linenum)
             || !self
                 .options
@@ -352,8 +361,9 @@ impl<'a> FileLinter<'a> {
         display_linenum: usize,
         category: Category,
         confidence: i32,
-        message: &str,
+        message: impl Into<crate::messages::LintMessage>,
     ) {
+        let message = message.into();
         let filter_linenum = display_linenum.saturating_sub(1);
         if self
             .error_suppressions

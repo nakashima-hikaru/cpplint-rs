@@ -1013,11 +1013,10 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 linenum,
                 Category::BuildInclude,
                 4,
-                &format!(
-                    r#""{}" already included at {}:{}"#,
-                    include,
-                    linter.filename(),
-                    first_line + 1
+                crate::messages::LintMessage::AlreadyIncluded(
+                    include.to_string(),
+                    linter.filename().to_string(),
+                    first_line + 1,
                 ),
             );
             continue;
@@ -1034,7 +1033,9 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 linenum,
                 Category::BuildInclude,
                 4,
-                &format!("Do not include .{} files from other packages", extension),
+                crate::messages::LintMessage::DoNotIncludeExtensionFromOtherPackages(
+                    extension.to_string(),
+                ),
             );
             continue;
         }
@@ -1056,9 +1057,9 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                     linenum,
                     Category::BuildIncludeOrder,
                     4,
-                    &format!(
-                        "{}. Should be: {}.h, c system, c++ system, other.",
-                        message, basename
+                    crate::messages::LintMessage::IncludeOrder(
+                        message.to_string(),
+                        basename.to_string(),
                     ),
                 );
             }
@@ -1072,7 +1073,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                     linenum,
                     Category::BuildIncludeAlpha,
                     4,
-                    &format!(r#"Include "{}" not in alphabetical order"#, include),
+                    crate::messages::LintMessage::IncludeAlpha(include.to_string()),
                 );
             }
             include_state.set_last_header(&canonical_include);
@@ -1253,7 +1254,7 @@ fn check_include_what_you_use(
                 linenum,
                 Category::BuildIncludeWhatYouUse,
                 4,
-                &format!("Add #include <{}> for {}", header.as_str(), symbol),
+                crate::messages::LintMessage::IwyuAddInclude(header.as_str().to_string(), symbol),
             );
         }
     }
@@ -1444,18 +1445,15 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
             return;
         }
 
-        let mut message = format!(
-            "{} should include its header file {}",
-            path_from_repo, header_name
-        );
-        if includes_use_aliases {
-            message.push_str(". Relative paths like . and .. are not allowed.");
-        }
         linter.error(
             first_include_line.unwrap_or(0),
             Category::BuildInclude,
             5,
-            &message,
+            crate::messages::LintMessage::MissingSelfHeader {
+                file_from_repo: path_from_repo,
+                header: header_name,
+                includes_use_aliases,
+            },
         );
         return;
     }

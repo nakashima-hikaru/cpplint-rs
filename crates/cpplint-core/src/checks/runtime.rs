@@ -324,9 +324,8 @@ fn check_casts(
                         linenum,
                         Category::ReadabilityCasting,
                         4,
-                        &format!(
-                            "Using deprecated casting style.  Use static_cast<{}>(...) instead",
-                            matched_type
+                        crate::messages::LintMessage::DeprecatedCastingStyle(
+                            matched_type.to_string(),
                         ),
                     );
                 }
@@ -379,7 +378,7 @@ fn check_casts(
             linenum,
             Category::RuntimeCasting,
             4,
-            "Are you taking an address of a cast?  This is dangerous: could be a temp var.  Take the address before doing the cast, rather than after",
+            crate::messages::LintMessage::AddressOfCast,
         );
     }
 }
@@ -439,12 +438,13 @@ fn check_explicit_constructors(
     }
 
     if !is_marked_explicit {
-        let message = if defaulted_args_count > 0 || variadic_args_count > 0 {
-            "Constructors callable with one argument should be marked explicit."
-        } else {
-            "Single-parameter constructors should be marked explicit."
-        };
-        linter.error(linenum, Category::RuntimeExplicit, 4, message);
+        let one_arg = defaulted_args_count > 0 || variadic_args_count > 0;
+        linter.error(
+            linenum,
+            Category::RuntimeExplicit,
+            4,
+            crate::messages::LintMessage::ConstructorShouldBeExplicit(one_arg),
+        );
     }
 }
 
@@ -540,10 +540,7 @@ fn check_c_style_cast_internal(
         linenum,
         Category::ReadabilityCasting,
         4,
-        &format!(
-            "Using C-style cast.  Use {}<{}>(...) instead",
-            cast_type, type_str
-        ),
+        crate::messages::LintMessage::CStyleCast(cast_type.to_string(), type_str.to_string()),
     );
     true
 }
@@ -777,7 +774,7 @@ fn check_invalid_increment(linter: &mut FileLinter, elided_line: &str, linenum: 
             linenum,
             Category::RuntimeInvalidIncrement,
             5,
-            "Changing pointer instead of value (or unused value of operator*).",
+            crate::messages::LintMessage::ChangingPointerInsteadOfValue,
         );
     }
 }
@@ -791,7 +788,7 @@ fn check_deprecated_min_max_operators(linter: &mut FileLinter, elided_line: &str
             linenum,
             Category::BuildDeprecated,
             3,
-            ">? and <? (max and min) operators are non-standard and deprecated.",
+            crate::messages::LintMessage::NonStandardMinMaxOperators,
         );
     }
 }
@@ -953,7 +950,7 @@ fn check_make_pair_uses_deduction(linter: &mut FileLinter, elided_line: &str, li
                     linenum,
                     Category::BuildExplicitMakePair,
                     4,
-                    "For C++11-compatibility, omit template arguments from make_pair OR use pair directly OR if appropriate, construct a pair directly",
+                    crate::messages::LintMessage::BuildExplicitMakePair,
                 );
                 return;
             }
@@ -1142,7 +1139,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintf,
                 5,
-                "Never use sprintf. Use snprintf instead.",
+                crate::messages::LintMessage::SprintfRecommended,
             );
         }
     }
@@ -1156,7 +1153,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintfFormat,
                 3,
-                "%q in format strings is deprecated.  Use %ll instead.",
+                crate::messages::LintMessage::PrintfFormatDeprecatedQ,
             );
         }
 
@@ -1165,7 +1162,9 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintfFormat,
                 2,
-                "%N$ formats are unconventional.  Try rewriting to avoid them.",
+                crate::messages::LintMessage::PrintfFormat(
+                    "%N$ formats are unconventional".to_string(),
+                ),
             );
         }
     }
@@ -1195,7 +1194,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
             linenum,
             Category::RuntimePrintfFormat,
             3,
-            "%, [, (, and { are undefined character escapes.  Unescape them.",
+            crate::messages::LintMessage::PrintfFormatUndefinedEscape,
         );
     }
 }
@@ -1209,7 +1208,7 @@ fn check_unary_operator_ampersand(linter: &mut FileLinter, line: &str, linenum: 
             linenum,
             Category::RuntimeOperator,
             4,
-            "Unary operator& is dangerous.  Do not use it.",
+            crate::messages::LintMessage::UnaryOperatorAmpersand,
         );
     }
 }
@@ -1245,7 +1244,7 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
                 linenum,
                 Category::RuntimeInt,
                 4,
-                "Use \"unsigned short\" for ports, not \"short\"",
+                crate::messages::LintMessage::PortsShouldBeUnsignedShort,
             );
         }
         return;
@@ -1287,7 +1286,7 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
         linenum,
         Category::RuntimeInt,
         4,
-        &format!("Use int16_t/int64_t/etc, rather than the C type {}", ty),
+        crate::messages::LintMessage::CIntegerType(ty.to_string()),
     );
 }
 
@@ -1340,10 +1339,7 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
             linenum,
             Category::RuntimeReferences,
             2,
-            &format!(
-                "Is this a non-const reference? If so, make const or use a pointer: {}",
-                normalized
-            ),
+            crate::messages::LintMessage::NonConstReference(normalized.into_owned()),
         );
     }
 }
@@ -1396,7 +1392,7 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
             linenum,
             Category::RuntimeArrays,
             1,
-            "Do not use variable-length arrays.  Use an appropriately named ('k' followed by CamelCase) compile-time constant for the size.",
+            crate::messages::LintMessage::VlaFound(size_expr.to_string()),
         );
         return;
     }

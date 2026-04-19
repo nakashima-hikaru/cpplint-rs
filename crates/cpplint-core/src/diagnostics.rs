@@ -1,4 +1,5 @@
 use crate::categories::Category;
+use crate::messages::LintMessage;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,7 +9,7 @@ pub struct Diagnostic {
     pub linenum: usize,
     pub category: Category,
     pub confidence: i32,
-    pub message: Arc<str>,
+    pub message: LintMessage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -173,7 +173,7 @@ fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, li
             linenum,
             Category::ReadabilityAltTokens,
             2,
-            &format!("Use operator {} instead of {}", token, key),
+            crate::messages::LintMessage::AltToken(token.to_string(), key.to_string()),
         );
     }
 }
@@ -202,7 +202,7 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
         linenum,
         category,
         5,
-        "Do not use namespace using-directives.  Use using-declarations instead.",
+        crate::messages::LintMessage::BracesRedundant("namespace using-directives".to_string()),
     );
 }
 
@@ -223,7 +223,7 @@ fn check_unnamed_namespace_in_header(linter: &mut FileLinter, elided_line: &str,
         linenum,
         Category::BuildNamespacesHeaders,
         4,
-        "Do not use unnamed namespaces in header files.  See https://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Namespaces for more information.",
+        crate::messages::LintMessage::NamespacesHeaders,
     );
 }
 
@@ -572,7 +572,7 @@ fn check_braces(
                     linenum,
                     Category::WhitespaceBraces,
                     4,
-                    r#"{ should almost always be at the end of the previous line"#,
+                    crate::messages::LintMessage::MissingSpaceBeforeOpenBrace,
                 );
             }
         }
@@ -761,7 +761,7 @@ fn check_empty_bodies(
                 linenum,
                 Category::WhitespaceEmptyConditionalBody,
                 5,
-                "Empty conditional bodies should use {}",
+                crate::messages::LintMessage::EmptyConditionalBody("{}".to_string()),
             );
             return;
         }
@@ -773,7 +773,7 @@ fn check_empty_bodies(
                 linenum,
                 Category::WhitespaceEmptyLoopBody,
                 5,
-                "Empty loop bodies should use {} or continue",
+                crate::messages::LintMessage::EmptyLoopBody("{}".to_string()),
             );
             return;
         }
@@ -844,7 +844,7 @@ fn check_empty_bodies(
         opening_idx,
         Category::WhitespaceEmptyIfBody,
         4,
-        "If statement had no body and no else clause",
+        crate::messages::LintMessage::EmptyIfBody,
     );
 }
 
@@ -917,7 +917,7 @@ fn check_redundant_virtuals(
             linenum,
             Category::ReadabilityInheritance,
             4,
-            "virtual is redundant since override/final already implies a virtual function",
+            crate::messages::LintMessage::RedundantVirtual,
         );
         return;
     }
@@ -927,7 +927,7 @@ fn check_redundant_virtuals(
             linenum,
             Category::ReadabilityInheritance,
             4,
-            "override is redundant when final is present",
+            crate::messages::LintMessage::RedundantOverride,
         );
         return;
     }
@@ -954,7 +954,7 @@ fn check_redundant_virtuals(
             linenum,
             Category::ReadabilityInheritance,
             4,
-            "virtual is redundant since override/final already implies a virtual function",
+            crate::messages::LintMessage::RedundantVirtual,
         );
     }
 }
@@ -1162,12 +1162,12 @@ fn check_namespace_termination_comment(
         if ANONYMOUS_NAMESPACE_TERMINATION_RE.is_match(raw_line) {
             return;
         }
-        let message = if ANONYMOUS_NAMESPACE_TERM_MSG_RE.is_match(raw_line) {
-            "Anonymous namespace should be terminated with \"// namespace\" or \"// anonymous namespace\""
-        } else {
-            "Anonymous namespace should be terminated with \"// namespace\""
-        };
-        linter.error(linenum, Category::ReadabilityNamespace, 5, message);
+        linter.error(
+            linenum,
+            Category::ReadabilityNamespace,
+            5,
+            crate::messages::LintMessage::NamespaceMissingComment(String::new()),
+        );
         return;
     }
     let pattern = format!(
@@ -1181,10 +1181,7 @@ fn check_namespace_termination_comment(
         linenum,
         Category::ReadabilityNamespace,
         5,
-        &format!(
-            "Namespace should be terminated with \"// namespace {}\"",
-            name
-        ),
+        crate::messages::LintMessage::NamespaceMissingComment(name.to_string()),
     );
 }
 
@@ -1226,7 +1223,7 @@ fn check_namespace_indentation(
             linenum,
             Category::WhitespaceIndentNamespace,
             4,
-            "Do not indent within a namespace.",
+            crate::messages::LintMessage::NamespaceIndented,
         );
     }
 }

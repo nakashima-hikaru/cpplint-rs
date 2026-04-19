@@ -365,20 +365,23 @@ fn render_counts(counting_style: CountingStyle, diagnostics: &[Diagnostic]) -> S
     counter.render_summary()
 }
 
-fn sed_fixup(message: &str) -> Option<&'static str> {
+fn sed_fixup(message: &crate::messages::LintMessage) -> Option<&'static str> {
+    use crate::messages::LintMessage;
     match message {
-        "Missing spaces around =" => Some(r"s/ = /=/"),
-        "Missing spaces around !=" => Some(r"s/ != /!=/"),
-        "Extra space before ( in if (" => Some(r"s/if (/if(/"),
-        "Extra space before ( in for (" => Some(r"s/for (/for(/"),
-        "Extra space before ( in while (" => Some(r"s/while (/while(/"),
-        "Extra space before ( in switch (" => Some(r"s/switch (/switch(/"),
-        "Should have a space between // and comment" => Some(r"s/\/\//\/\/ /"),
-        "Missing space before {" => Some(r"s/\([^ ]\){/\1 {/"),
-        "Tab found; better to use spaces" => Some(r"s/\t/  /g"),
-        "Line ends in whitespace.  Consider deleting these extra spaces." => Some(r"s/\s*$//"),
-        "You don't need a ; after a }" => Some(r"s/};/}/"),
-        "Missing space after ," => Some(r"s/,\([^ ]\)/, \1/g"),
+        LintMessage::MissingSpacesAround(op) if op == "=" => Some(r"s/ = /=/"),
+        LintMessage::MissingSpacesAround(op) if op == "!=" => Some(r"s/ != /!=/"),
+        LintMessage::Raw(m) if m == "Extra space before ( in if (" => Some(r"s/if (/if(/"),
+        LintMessage::Raw(m) if m == "Extra space before ( in for (" => Some(r"s/for (/for(/"),
+        LintMessage::Raw(m) if m == "Extra space before ( in while (" => Some(r"s/while (/while(/"),
+        LintMessage::Raw(m) if m == "Extra space before ( in switch (" => {
+            Some(r"s/switch (/switch(/")
+        }
+        LintMessage::ShouldHaveSpaceBetweenSlashesAndComment => Some(r"s/\/\//\/\/ /"),
+        LintMessage::Raw(m) if m == "Missing space before {" => Some(r"s/\([^ ]\){/\1 {/"),
+        LintMessage::TabFound => Some(r"s/\t/  /g"),
+        LintMessage::TrailingWhitespace => Some(r"s/\s*$//"),
+        LintMessage::BracesRedundant(kind) if kind == "}" => Some(r"s/};/}/"),
+        LintMessage::MissingSpaceAfterComma => Some(r"s/,\([^ ]\)/, \1/g"),
         _ => None,
     }
 }

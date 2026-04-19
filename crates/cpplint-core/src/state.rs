@@ -375,7 +375,7 @@ impl LintSession {
         linenum: usize,
         category: crate::categories::Category,
         confidence: i32,
-        message: &str,
+        message: crate::messages::LintMessage,
     ) {
         let mut inner = self.inner.lock();
         inner.error_count += 1;
@@ -389,7 +389,7 @@ impl LintSession {
             linenum: linenum + 1,
             category,
             confidence,
-            message: Arc::from(message),
+            message,
         });
     }
 
@@ -400,7 +400,7 @@ impl LintSession {
         display_linenum: usize,
         category: crate::categories::Category,
         confidence: i32,
-        message: &str,
+        message: crate::messages::LintMessage,
     ) {
         let mut inner = self.inner.lock();
         inner.error_count += 1;
@@ -414,7 +414,7 @@ impl LintSession {
             linenum: display_linenum,
             category,
             confidence,
-            message: Arc::from(message),
+            message,
         });
     }
 
@@ -611,7 +611,7 @@ mod tests {
             4,
             crate::categories::Category::WhitespaceTab,
             1,
-            "Tab found",
+            crate::messages::LintMessage::TabFound,
         );
         state.record_info(1, 0, "Done processing foo.cc\n");
         state.record_processed_file(1, "foo.cc", true);
@@ -644,7 +644,7 @@ mod tests {
             0,
             crate::categories::Category::WhitespaceTab,
             1,
-            "Tab found",
+            crate::messages::LintMessage::TabFound,
         );
         state.record_info(0, 0, "Done processing demo.cc\n");
         let snapshot = state.into_snapshot();
