@@ -1,3 +1,4 @@
+use crate::iwyu::IwyuHeader;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -97,7 +98,7 @@ pub enum LintMessage {
     // Build
     IncludeOrder(Box<str>, Box<str>),
     IncludeAlpha(Box<str>),
-    IwyuAddInclude(Box<str>, Box<str>), // header, symbol
+    IwyuAddInclude(IwyuHeader, Box<str>), // header, symbol
     MissingSelfHeader {
         file_from_repo: Box<str>,
         header: Box<str>,
@@ -330,7 +331,7 @@ impl fmt::Display for LintMessage {
                 write!(f, "Include \"{}\" not in alphabetical order", include)
             }
             Self::IwyuAddInclude(header, symbol) => {
-                write!(f, "Add #include <{}> for {}", header, symbol)
+                write!(f, "Add #include <{}> for {}", header.as_str(), symbol)
             }
             Self::MissingSelfHeader {
                 file_from_repo,

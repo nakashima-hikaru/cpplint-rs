@@ -2,6 +2,7 @@ use crate::c_headers;
 use crate::categories::Category;
 use crate::cleanse::CleansedLines;
 use crate::file_linter::FileLinter;
+use crate::iwyu::IwyuHeader;
 use crate::options::IncludeOrder;
 use crate::state::{IncludeKind, IncludeState};
 use aho_corasick::AhoCorasick;
@@ -12,43 +13,6 @@ use std::sync::LazyLock;
 
 static INCLUDE_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r#"^\s*#\s*include\s*([<"])([^>"]+)[>"]"#).unwrap());
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-enum IwyuHeader {
-    Algorithm,
-    Cstdio,
-    Functional,
-    Iostream,
-    Limits,
-    List,
-    Map,
-    Memory,
-    Set,
-    String,
-    Tuple,
-    Utility,
-    Vector,
-}
-
-impl IwyuHeader {
-    fn as_str(&self) -> &'static str {
-        match self {
-            IwyuHeader::Algorithm => "algorithm",
-            IwyuHeader::Cstdio => "cstdio",
-            IwyuHeader::Functional => "functional",
-            IwyuHeader::Iostream => "iostream",
-            IwyuHeader::Limits => "limits",
-            IwyuHeader::List => "list",
-            IwyuHeader::Map => "map",
-            IwyuHeader::Memory => "memory",
-            IwyuHeader::Set => "set",
-            IwyuHeader::String => "string",
-            IwyuHeader::Tuple => "tuple",
-            IwyuHeader::Utility => "utility",
-            IwyuHeader::Vector => "vector",
-        }
-    }
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum IwyuToken {
@@ -1254,10 +1218,7 @@ fn check_include_what_you_use(
                 linenum,
                 Category::BuildIncludeWhatYouUse,
                 4,
-                crate::messages::LintMessage::IwyuAddInclude(
-                    header.as_str().to_string().into(),
-                    symbol.into(),
-                ),
+                crate::messages::LintMessage::IwyuAddInclude(header, symbol.into()),
             );
         }
     }

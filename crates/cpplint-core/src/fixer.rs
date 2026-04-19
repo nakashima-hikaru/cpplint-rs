@@ -470,16 +470,17 @@ fn missing_include_entries_from_diagnostics(
     }
 
     for header in missing_iwyu_headers_from_diagnostics(diagnostics) {
+        let header_str = header.as_str();
         entries.push(IncludeEntry {
-            raw_line: format!("#include <{}>", header),
+            raw_line: format!("#include <{}>", header_str),
             kind: classify_include(
                 &file_from_repo,
-                Path::new(&header),
+                Path::new(header_str),
                 true,
                 options.include_order,
             ),
-            alpha_key: canonicalize_alpha(&header),
-            include: header,
+            alpha_key: canonicalize_alpha(header_str),
+            include: header_str.to_string(),
         });
     }
 
@@ -497,13 +498,15 @@ fn missing_self_header_from_diagnostics(diagnostics: &[Diagnostic]) -> Option<St
     })
 }
 
-fn missing_iwyu_headers_from_diagnostics(diagnostics: &[Diagnostic]) -> Vec<String> {
+fn missing_iwyu_headers_from_diagnostics(
+    diagnostics: &[Diagnostic],
+) -> Vec<crate::iwyu::IwyuHeader> {
     use crate::messages::LintMessage;
     diagnostics
         .iter()
         .filter_map(|diagnostic| {
             if let LintMessage::IwyuAddInclude(header, _) = &diagnostic.message {
-                Some(header.to_string())
+                Some(*header)
             } else {
                 None
             }

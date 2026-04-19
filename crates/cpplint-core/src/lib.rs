@@ -22,6 +22,7 @@ pub mod file_linter;
 pub mod file_reader;
 pub mod fixer;
 pub mod glob;
+pub(crate) mod iwyu;
 pub mod line_utils;
 pub mod messages;
 pub mod options;
