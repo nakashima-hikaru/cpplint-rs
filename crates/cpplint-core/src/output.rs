@@ -410,7 +410,7 @@ mod tests {
             linenum: 7,
             category: crate::categories::Category::WhitespaceTab,
             confidence: 1,
-            message: "Tab found; better to use spaces".into(),
+            message: crate::messages::LintMessage::TabFound,
         }
     }
 
@@ -475,7 +475,7 @@ mod tests {
                     linenum: 4,
                     category: crate::categories::Category::WhitespaceTab,
                     confidence: 1,
-                    message: "Tab found; better to use spaces".into(),
+                    message: crate::messages::LintMessage::TabFound,
                 },
                 Diagnostic {
                     file_index: 0,
@@ -483,7 +483,7 @@ mod tests {
                     linenum: 2,
                     category: crate::categories::Category::WhitespaceTab,
                     confidence: 1,
-                    message: "Tab found; better to use spaces".into(),
+                    message: crate::messages::LintMessage::TabFound,
                 },
             ],
             vec![

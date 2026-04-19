@@ -821,7 +821,7 @@ fn check_storage_class_specifier(linter: &mut FileLinter, elided_line: &str, lin
                         linenum,
                         Category::BuildStorageClass,
                         5,
-                        "Storage-class specifier (static, extern, typedef, etc) should be at the beginning of the declaration.",
+                        crate::messages::LintMessage::StorageClassShouldBeAtBeginning,
                     );
                     break;
                 }
@@ -839,7 +839,7 @@ fn check_forward_decl(linter: &mut FileLinter, elided_line: &str, linenum: usize
             linenum,
             Category::BuildForwardDecl,
             5,
-            "Inner-style forward declarations are invalid.  Remove this line.",
+            crate::messages::LintMessage::InnerStyleForwardDeclarationsInvalid,
         );
     }
 }
@@ -853,7 +853,7 @@ fn check_endif_comment(linter: &mut FileLinter, elided_line: &str, linenum: usiz
             linenum,
             Category::BuildEndifComment,
             5,
-            "Uncommented text after #endif is non-standard.  Use a comment.",
+            crate::messages::LintMessage::UncommentedTextAfterEndif,
         );
     }
 }
@@ -867,7 +867,7 @@ fn check_const_string_member(linter: &mut FileLinter, elided_line: &str, linenum
             linenum,
             Category::RuntimeMemberStringReferences,
             2,
-            "const string& members are dangerous. It is much better to use alternatives, such as pointers or simple constants.",
+            crate::messages::LintMessage::ConstStringReferenceMembersDangerous,
         );
     }
 }
@@ -888,7 +888,10 @@ fn check_memset(linter: &mut FileLinter, line: &str, linenum: usize) {
         linenum,
         Category::RuntimeMemset,
         4,
-        format!(r#"Did you mean "memset({}, 0, {})"?"#, target, size),
+        crate::messages::LintMessage::MemsetDidYouMean {
+            target: target.into(),
+            size: size.into(),
+        },
     );
 }
 
@@ -917,7 +920,7 @@ fn check_vlog_arguments(linter: &mut FileLinter, line: &str, linenum: usize) {
             linenum,
             Category::RuntimeVlog,
             5,
-            "VLOG() should be used with numeric verbosity level.  Use LOG() if you want symbolic severity levels.",
+            crate::messages::LintMessage::VlogShouldUseNumericVerbosityLevel,
         );
     }
 }
@@ -993,17 +996,18 @@ fn check_global_strings(linter: &mut FileLinter, line: &str, linenum: usize) {
             linenum,
             Category::RuntimeString,
             4,
-            format!(
-                "For a static/global string constant, use a C style string instead: \"{}char{} {}[]\".",
-                prefix, suffix_const, name
-            ),
+            crate::messages::LintMessage::GlobalStringConstantSuggestion {
+                prefix: prefix.into(),
+                suffix_const: suffix_const.into(),
+                name: name.into(),
+            },
         );
     } else {
         linter.error(
             linenum,
             Category::RuntimeString,
             4,
-            "Static/global string variables are not permitted.",
+            crate::messages::LintMessage::StaticGlobalStringVariablesNotPermitted,
         );
     }
 }
@@ -1015,7 +1019,7 @@ fn check_init_with_self(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>
             linenum,
             Category::RuntimeInit,
             4,
-            "You seem to be initializing a member variable with itself.",
+            crate::messages::LintMessage::MemberVariableInitializedWithItself,
         );
         return;
     }
@@ -1046,7 +1050,7 @@ fn check_init_with_self(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>
                 linenum,
                 Category::RuntimeInit,
                 4,
-                "You seem to be initializing a member variable with itself.",
+                crate::messages::LintMessage::MemberVariableInitializedWithItself,
             );
             return;
         }
@@ -1119,7 +1123,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintf,
                 4,
-                format!("Almost always, snprintf is better than {}", func),
+                crate::messages::LintMessage::SnprintfBetterThan(func.into()),
             );
         }
     }
@@ -1133,10 +1137,10 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
                     linenum,
                     Category::RuntimePrintf,
                     3,
-                    format!(
-                        "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
-                        buffer, size
-                    ),
+                    crate::messages::LintMessage::SnprintfSizeofSuggestion {
+                        buffer: buffer.into(),
+                        size: size.into(),
+                    },
                 );
             }
         }

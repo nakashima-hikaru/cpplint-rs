@@ -1029,9 +1029,8 @@ fn check_parenthesis_spacing(
                     linenum,
                     Category::WhitespaceParens,
                     5,
-                    format!(
-                        "Should have zero or one spaces inside ( and ) in {}",
-                        keyword
+                    crate::messages::LintMessage::ShouldHaveZeroOrOneSpacesInsideParensIn(
+                        keyword.into(),
                     ),
                 );
             }
@@ -1630,7 +1629,7 @@ fn check_indentation(
             linenum,
             Category::WhitespaceEndOfLine,
             4,
-            "Line ends in whitespace.  Consider deleting these extra spaces.",
+            crate::messages::LintMessage::TrailingWhitespace,
         );
     }
 
@@ -1660,7 +1659,7 @@ fn check_indentation(
             linenum,
             Category::WhitespaceIndent,
             3,
-            "Weird number of spaces at line-start.  Are you using a 2-space indent?",
+            crate::messages::LintMessage::WeirdNumberOfSpacesAtLineStart,
         );
     }
 }
@@ -1727,7 +1726,7 @@ pub fn check(
             linenum,
             Category::WhitespaceBraces,
             5,
-            "Extra space before [",
+            crate::messages::LintMessage::ExtraSpaceBeforeBracket,
         );
     }
 
@@ -1736,7 +1735,7 @@ pub fn check(
             linenum,
             Category::WhitespaceForcolon,
             2,
-            "Missing space around colon in range-based for loop",
+            crate::messages::LintMessage::MissingSpaceAroundRangeForColon,
         );
     }
 
@@ -1878,7 +1877,7 @@ pub fn check(
                         linenum,
                         Category::WhitespaceNewline,
                         0,
-                        "More than one command on the same line",
+                        crate::messages::LintMessage::MoreThanOneCommandOnTheSameLine,
                     );
                 }
             }
@@ -1904,7 +1903,7 @@ pub fn check(
                     linenum,
                     Category::WhitespaceBraces,
                     5,
-                    r#"Missing space before {"#,
+                    crate::messages::LintMessage::MissingSpaceBeforeOpenBrace,
                 );
             }
         }
@@ -1963,7 +1962,7 @@ pub fn check_eof_newline<S: AsRef<str>>(linter: &mut FileLinter, raw_lines: &[S]
             raw_lines.len() - 1,
             Category::WhitespaceEndingNewline,
             5,
-            "Could not find a newline character at the end of the file.",
+            crate::messages::LintMessage::NewlineShouldBeAtEndOfFile,
         );
     }
 }

@@ -327,9 +327,8 @@ impl<'a> FileLinter<'a> {
         linenum: usize,
         category: Category,
         confidence: i32,
-        message: impl Into<crate::messages::LintMessage>,
+        message: crate::messages::LintMessage,
     ) {
-        let message = message.into();
         if self.error_suppressions.is_suppressed(category, linenum)
             || !self
                 .options
@@ -355,9 +354,8 @@ impl<'a> FileLinter<'a> {
         display_linenum: usize,
         category: Category,
         confidence: i32,
-        message: impl Into<crate::messages::LintMessage>,
+        message: crate::messages::LintMessage,
     ) {
-        let message = message.into();
         let filter_linenum = display_linenum.saturating_sub(1);
         if self
             .error_suppressions

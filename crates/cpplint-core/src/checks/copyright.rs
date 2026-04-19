@@ -31,6 +31,6 @@ pub fn check<S: AsRef<str>>(linter: &mut FileLinter, lines: &[S]) {
         0,
         Category::LegalCopyright,
         5,
-        "No copyright message found.  You should have a line: \"Copyright [year] <Copyright Owner>\"",
+        crate::messages::LintMessage::NoCopyrightFound,
     );
 }

@@ -818,10 +818,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
                 line_idx,
                 Category::BuildHeaderGuard,
                 5,
-                format!(
-                    "#ifndef header guard has wrong style, please use: {}",
-                    expected_guard
-                ),
+                crate::messages::LintMessage::HeaderGuardWrongStyle(expected_guard.as_str().into()),
             );
         }
 
@@ -841,7 +838,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
                 endif_idx,
                 Category::BuildHeaderGuard,
                 0,
-                format!(r#"#endif line should be "{}""#, expected_slash),
+                crate::messages::LintMessage::EndifLineShouldBe(expected_slash.into()),
             );
             return;
         }
@@ -851,7 +848,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
                 endif_idx,
                 Category::BuildHeaderGuard,
                 0,
-                format!(r#"#endif line should be "{}""#, expected_block),
+                crate::messages::LintMessage::EndifLineShouldBe(expected_block.into()),
             );
             return;
         }
@@ -860,7 +857,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
             endif_idx,
             Category::BuildHeaderGuard,
             5,
-            format!(r#"#endif line should be "{}""#, expected_slash),
+            crate::messages::LintMessage::EndifLineShouldBe(expected_slash.into()),
         );
         return;
     }
@@ -869,10 +866,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
         0,
         Category::BuildHeaderGuard,
         5,
-        format!(
-            "No #ifndef header guard found, suggested CPP variable is: {}",
-            expected_guard
-        ),
+        crate::messages::LintMessage::HeaderGuardMissingSuggested(expected_guard.into()),
     );
 }
 
@@ -942,7 +936,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 linenum,
                 Category::BuildIncludeSubdir,
                 4,
-                "Include the directory when naming header files",
+                crate::messages::LintMessage::IncludeDirectoryWhenNamingHeaderFiles,
             );
         }
 
@@ -951,7 +945,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 linenum,
                 Category::BuildCpp11,
                 5,
-                format!("<{}> is an unapproved C++11 header.", include),
+                crate::messages::LintMessage::UnapprovedCpp11Header(include.into()),
             );
         }
 
@@ -960,7 +954,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 linenum,
                 Category::BuildCpp17,
                 5,
-                "<filesystem> is an unapproved C++17 header.",
+                crate::messages::LintMessage::UnapprovedCpp17FilesystemHeader,
             );
         }
 

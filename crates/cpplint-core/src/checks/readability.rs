@@ -418,10 +418,11 @@ fn check_function_size(
             start_line,
             Category::ReadabilityFnSize,
             0,
-            format!(
-                "Small and focused functions are preferred: {} has {} non-blank lines (error triggered by exceeding {} lines).",
-                display_name, line_count, limit
-            ),
+            crate::messages::LintMessage::FunctionTooLong {
+                name: display_name.into_owned().into(),
+                non_blank_lines: line_count,
+                limit,
+            },
         );
     }
 }
@@ -437,9 +438,8 @@ fn check_missing_function_body(
             linenum,
             Category::ReadabilityFnSize,
             5,
-            format!(
-                "Lint failed to find start of function body for {}.",
-                function_name.as_ref()
+            crate::messages::LintMessage::FailedToFindFunctionBodyStart(
+                function_name.as_ref().into(),
             ),
         );
     }
@@ -608,7 +608,7 @@ fn check_braces(
                     linenum,
                     Category::WhitespaceNewline,
                     4,
-                    "An else should appear on the same line as the preceding }",
+                    crate::messages::LintMessage::ElseShouldBeOnSameLineAsClosingBrace,
                 );
                 last_wrong = true;
             }
@@ -635,7 +635,7 @@ fn check_braces(
                                 linenum,
                                 Category::ReadabilityBraces,
                                 5,
-                                "If an else has a brace on one side, it should have it on both",
+                                crate::messages::LintMessage::ElseBraceShouldAppearOnBothSides,
                             );
                         }
                     }
@@ -654,7 +654,7 @@ fn check_braces(
                 linenum,
                 Category::ReadabilityBraces,
                 5,
-                "If an else has a brace on one side, it should have it on both",
+                crate::messages::LintMessage::ElseBraceShouldAppearOnBothSides,
             );
         }
     }
@@ -690,7 +690,7 @@ fn check_multiline_strings(
             linenum,
             Category::ReadabilityMultilineString,
             5,
-            "Multi-line string (\"...\") found.  This lint script doesn't do well with such strings, and may give bogus warnings.  Use C++11 raw strings or concatenation instead.",
+            crate::messages::LintMessage::MultilineStringWarning,
         );
     }
 }
@@ -729,14 +729,14 @@ fn check_multiline_comments(
             linenum,
             Category::ReadabilityMultilineComment,
             5,
-            "Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.",
+            crate::messages::LintMessage::ComplexMultilineCommentWarning,
         );
     } else {
         linter.error(
             linenum,
             Category::ReadabilityMultilineComment,
             5,
-            "Could not find end of multi-line comment",
+            crate::messages::LintMessage::UnterminatedMultilineComment,
         );
     }
 }
@@ -999,10 +999,7 @@ fn check_single_line_control_bodies(
                             linenum,
                             Category::WhitespaceNewline,
                             5,
-                            format!(
-                                "Controlled statements inside brackets of {} clause should be on a separate line",
-                                kw
-                            ),
+                            crate::messages::LintMessage::ControlledStatementsInBrackets(kw.into()),
                         );
                         return;
                     }
@@ -1111,7 +1108,7 @@ fn check_multiline_if_else_bodies(
                 linenum,
                 Category::ReadabilityBraces,
                 4,
-                "If/else bodies with multiple statements require braces",
+                crate::messages::LintMessage::IfElseBodiesWithMultipleStatementsRequireBraces,
             );
         }
         return;
@@ -1128,14 +1125,14 @@ fn check_multiline_if_else_bodies(
                 linenum,
                 Category::ReadabilityBraces,
                 4,
-                "Else clause should be indented at the same level as if. Ambiguous nested if/else chains require braces.",
+                crate::messages::LintMessage::ElseClauseShouldAlignWithIf,
             );
         } else if next_indent > if_indent {
             linter.error(
                 linenum,
                 Category::ReadabilityBraces,
                 4,
-                "If/else bodies with multiple statements require braces",
+                crate::messages::LintMessage::IfElseBodiesWithMultipleStatementsRequireBraces,
             );
         }
     }

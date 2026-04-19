@@ -94,6 +94,7 @@ pub enum LintMessage {
     ExtraSpaceBeforeParenIn(Box<str>), // e.g., "if"
     ExtraSpaceBeforeParenInFuncCall,
     MismatchingSpacesInsideParen,
+    ShouldHaveZeroOrOneSpacesInsideParensIn(Box<str>),
     MissingSpaceBeforeOpenParen,
     MissingSpaceBeforeOpenBrace,
     ExtraSpaceBeforeDoubleColon,
@@ -113,8 +114,11 @@ pub enum LintMessage {
     ClosingParenShouldBeMovedToPreviousLine,
     LineLength(usize),
     TrailingWhitespace,
+    WeirdNumberOfSpacesAtLineStart,
     TabFound,
     NewlineShouldBeAtEndOfFile,
+    MissingSpaceAroundRangeForColon,
+    MoreThanOneCommandOnTheSameLine,
     MultipleBlankLines,
     BlankLineAtStartOfBlock,
     BlankLineAtEndOfBlock,
@@ -129,13 +133,34 @@ pub enum LintMessage {
     CStyleCast(Box<str>, Box<str>),
     ChangingPointerInsteadOfValue,
     NonStandardMinMaxOperators,
+    StorageClassShouldBeAtBeginning,
+    InnerStyleForwardDeclarationsInvalid,
+    UncommentedTextAfterEndif,
+    ConstStringReferenceMembersDangerous,
     MemsetInvalidSize,
     MemsetZeroSize,
+    MemsetDidYouMean {
+        target: Box<str>,
+        size: Box<str>,
+    },
     ThreadsafeFunctionSuggestion(Box<str>),
     GlobalStringCtor,
+    GlobalStringConstantSuggestion {
+        prefix: Box<str>,
+        suffix_const: Box<str>,
+        name: Box<str>,
+    },
+    StaticGlobalStringVariablesNotPermitted,
+    MemberVariableInitializedWithItself,
     SnprintfArgsNotNumeric,
     SnprintfArgsMismatch,
+    SnprintfBetterThan(Box<str>),
+    SnprintfSizeofSuggestion {
+        buffer: Box<str>,
+        size: Box<str>,
+    },
     SprintfRecommended,
+    VlogShouldUseNumericVerbosityLevel,
     VlaFound(Box<str>),
     PrintfFormat(Box<str>),
     PrintfFormatDeprecatedQ,
@@ -158,6 +183,19 @@ pub enum LintMessage {
     TodoNoSpace,
     MultilineCommentInLine,
     RawStringUnterminated,
+    FunctionTooLong {
+        name: Box<str>,
+        non_blank_lines: usize,
+        limit: usize,
+    },
+    FailedToFindFunctionBodyStart(Box<str>),
+    ElseShouldBeOnSameLineAsClosingBrace,
+    ElseBraceShouldAppearOnBothSides,
+    MultilineStringWarning,
+    ComplexMultilineCommentWarning,
+    ControlledStatementsInBrackets(Box<str>),
+    IfElseBodiesWithMultipleStatementsRequireBraces,
+    ElseClauseShouldAlignWithIf,
     NamespaceMissingComment(Box<str>),
     RedundantVirtual,
     RedundantOverride,
@@ -171,6 +209,12 @@ pub enum LintMessage {
     // Build
     IncludeOrder(Box<str>, Box<str>),
     IncludeAlpha(Box<str>),
+    HeaderGuardWrongStyle(Box<str>),
+    EndifLineShouldBe(Box<str>),
+    HeaderGuardMissingSuggested(Box<str>),
+    IncludeDirectoryWhenNamingHeaderFiles,
+    UnapprovedCpp11Header(Box<str>),
+    UnapprovedCpp17FilesystemHeader,
     IwyuAddInclude(IwyuHeader, Box<str>), // header, symbol
     MissingSelfHeader {
         file_from_repo: Box<str>,
@@ -249,10 +293,17 @@ impl LintMessage {
                 Some("Closing ) should be moved to the previous line")
             }
             Self::TrailingWhitespace => Some("Lines should not have trailing whitespace"),
+            Self::WeirdNumberOfSpacesAtLineStart => {
+                Some("Weird number of spaces at line-start.  Are you using a 2-space indent?")
+            }
             Self::TabFound => Some("Tab found; better to use spaces"),
             Self::NewlineShouldBeAtEndOfFile => {
                 Some("Could not find a newline character at the end of the file.")
             }
+            Self::MissingSpaceAroundRangeForColon => {
+                Some("Missing space around colon in range-based for loop")
+            }
+            Self::MoreThanOneCommandOnTheSameLine => Some("More than one command on the same line"),
             Self::MultipleBlankLines | Self::BlankLineAtStartOfBlock => {
                 Some("Blank line at the start of a code block.  Is this needed?")
             }
@@ -273,11 +324,29 @@ impl LintMessage {
             Self::NonStandardMinMaxOperators => {
                 Some(">? and <? (max and min) operators are non-standard and deprecated.")
             }
+            Self::StorageClassShouldBeAtBeginning => Some(
+                "Storage-class specifier (static, extern, typedef, etc) should be at the beginning of the declaration.",
+            ),
+            Self::InnerStyleForwardDeclarationsInvalid => {
+                Some("Inner-style forward declarations are invalid.  Remove this line.")
+            }
+            Self::UncommentedTextAfterEndif => {
+                Some("Uncommented text after #endif is non-standard.  Use a comment.")
+            }
+            Self::ConstStringReferenceMembersDangerous => Some(
+                "const string& members are dangerous. It is much better to use alternatives, such as pointers or simple constants.",
+            ),
             Self::MemsetInvalidSize => Some("Why not use a numeric size for memset?"),
             Self::MemsetZeroSize => Some("Why not use zero as the value for memset?"),
             Self::GlobalStringCtor => Some(
                 "For global/static strings, use a char array instead of a std::string to avoid dynamic initialization.",
             ),
+            Self::StaticGlobalStringVariablesNotPermitted => {
+                Some("Static/global string variables are not permitted.")
+            }
+            Self::MemberVariableInitializedWithItself => {
+                Some("You seem to be initializing a member variable with itself.")
+            }
             Self::SnprintfArgsNotNumeric => {
                 Some("snprintf with non-numeric second argument is potentially unsafe.")
             }
@@ -285,6 +354,9 @@ impl LintMessage {
                 Some("snprintf size argument should be the size of the buffer.")
             }
             Self::SprintfRecommended => Some("Consider using snprintf instead of sprintf."),
+            Self::VlogShouldUseNumericVerbosityLevel => Some(
+                "VLOG() should be used with numeric verbosity level.  Use LOG() if you want symbolic severity levels.",
+            ),
             Self::PrintfFormatDeprecatedQ => {
                 Some("%q in format strings is deprecated.  Use %ll instead.")
             }
@@ -304,6 +376,24 @@ impl LintMessage {
                 Some("Multi-line comment found on a single line. Use // instead.")
             }
             Self::RawStringUnterminated => Some("Unterminated raw string."),
+            Self::ElseShouldBeOnSameLineAsClosingBrace => {
+                Some("An else should appear on the same line as the preceding }")
+            }
+            Self::ElseBraceShouldAppearOnBothSides => {
+                Some("If an else has a brace on one side, it should have it on both")
+            }
+            Self::MultilineStringWarning => Some(
+                "Multi-line string (\"...\") found.  This lint script doesn't do well with such strings, and may give bogus warnings.  Use C++11 raw strings or concatenation instead.",
+            ),
+            Self::ComplexMultilineCommentWarning => Some(
+                "Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.",
+            ),
+            Self::IfElseBodiesWithMultipleStatementsRequireBraces => {
+                Some("If/else bodies with multiple statements require braces")
+            }
+            Self::ElseClauseShouldAlignWithIf => Some(
+                "Else clause should be indented at the same level as if. Ambiguous nested if/else chains require braces.",
+            ),
             Self::RedundantVirtual => {
                 Some("virtual is redundant since override/final already implies a virtual function")
             }
@@ -313,6 +403,12 @@ impl LintMessage {
                 Some("Do not use using-directives for literals in headers.")
             }
             Self::NamespacesForwardDecl => Some("Do not use forward declarations in headers."),
+            Self::IncludeDirectoryWhenNamingHeaderFiles => {
+                Some("Include the directory when naming header files")
+            }
+            Self::UnapprovedCpp17FilesystemHeader => {
+                Some("<filesystem> is an unapproved C++17 header.")
+            }
             Self::ConstructorShouldBeExplicit(one_arg) => {
                 if *one_arg {
                     Some("Constructors callable with one argument should be marked explicit.")
@@ -346,6 +442,11 @@ impl fmt::Display for LintMessage {
                 write!(f, "Extra space for operator {}", op.as_display_str())
             }
             Self::ExtraSpaceBeforeParenIn(ctx) => write!(f, "Extra space before ( in {} (", ctx),
+            Self::ShouldHaveZeroOrOneSpacesInsideParensIn(keyword) => write!(
+                f,
+                "Should have zero or one spaces inside ( and ) in {}",
+                keyword
+            ),
             Self::LineLength(len) => write!(f, "Lines should be <= {} characters long", len),
             Self::ShouldBeIndented(msg) => write!(f, "should be indented {}", msg),
             Self::EmptyConditionalBody(kind) => {
@@ -380,6 +481,26 @@ impl fmt::Display for LintMessage {
                     funcname, funcname
                 )
             }
+            Self::MemsetDidYouMean { target, size } => {
+                write!(f, "Did you mean \"memset({}, 0, {})\"?", target, size)
+            }
+            Self::GlobalStringConstantSuggestion {
+                prefix,
+                suffix_const,
+                name,
+            } => write!(
+                f,
+                "For a static/global string constant, use a C style string instead: \"{}char{} {}[]\".",
+                prefix, suffix_const, name
+            ),
+            Self::SnprintfBetterThan(func) => {
+                write!(f, "Almost always, snprintf is better than {}", func)
+            }
+            Self::SnprintfSizeofSuggestion { buffer, size } => write!(
+                f,
+                "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
+                buffer, size
+            ),
             Self::VlaFound(name) => {
                 write!(
                     f,
@@ -418,6 +539,27 @@ impl fmt::Display for LintMessage {
                 "Consider using {} instead of {}(a {} b)",
                 replacement, check_macro, op
             ),
+            Self::FunctionTooLong {
+                name,
+                non_blank_lines,
+                limit,
+            } => write!(
+                f,
+                "Small and focused functions are preferred: {} has {} non-blank lines (error triggered by exceeding {} lines).",
+                name, non_blank_lines, limit
+            ),
+            Self::FailedToFindFunctionBodyStart(name) => {
+                write!(
+                    f,
+                    "Lint failed to find start of function body for {}.",
+                    name
+                )
+            }
+            Self::ControlledStatementsInBrackets(kw) => write!(
+                f,
+                "Controlled statements inside brackets of {} clause should be on a separate line",
+                kw
+            ),
             Self::IncludeOrder(msg, stem) => {
                 write!(
                     f,
@@ -427,6 +569,22 @@ impl fmt::Display for LintMessage {
             }
             Self::IncludeAlpha(include) => {
                 write!(f, "Include \"{}\" not in alphabetical order", include)
+            }
+            Self::HeaderGuardWrongStyle(expected_guard) => write!(
+                f,
+                "#ifndef header guard has wrong style, please use: {}",
+                expected_guard
+            ),
+            Self::EndifLineShouldBe(expected) => {
+                write!(f, "#endif line should be \"{}\"", expected)
+            }
+            Self::HeaderGuardMissingSuggested(expected_guard) => write!(
+                f,
+                "No #ifndef header guard found, suggested CPP variable is: {}",
+                expected_guard
+            ),
+            Self::UnapprovedCpp11Header(include) => {
+                write!(f, "<{}> is an unapproved C++11 header.", include)
             }
             Self::IwyuAddInclude(header, symbol) => {
                 write!(f, "Add #include <{}> for {}", header.as_str(), symbol)
@@ -468,29 +626,5 @@ impl fmt::Display for LintMessage {
             Self::Raw(msg) => f.write_str(msg),
             _ => unreachable!("unhandled LintMessage variant in Display"),
         }
-    }
-}
-
-impl From<&str> for LintMessage {
-    fn from(s: &str) -> Self {
-        Self::Raw(s.into())
-    }
-}
-
-impl From<String> for LintMessage {
-    fn from(s: String) -> Self {
-        Self::Raw(s.into_boxed_str())
-    }
-}
-
-impl From<&String> for LintMessage {
-    fn from(s: &String) -> Self {
-        Self::Raw(s.as_str().into())
-    }
-}
-
-impl From<std::sync::Arc<str>> for LintMessage {
-    fn from(s: std::sync::Arc<str>) -> Self {
-        Self::Raw(s.as_ref().into())
     }
 }
