@@ -106,6 +106,111 @@ impl BracesRedundantKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CheckMacroName {
+    Dcheck,
+    Check,
+    ExpectTrue,
+    AssertTrue,
+    ExpectFalse,
+    AssertFalse,
+}
+
+impl CheckMacroName {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dcheck => "DCHECK",
+            Self::Check => "CHECK",
+            Self::ExpectTrue => "EXPECT_TRUE",
+            Self::AssertTrue => "ASSERT_TRUE",
+            Self::ExpectFalse => "EXPECT_FALSE",
+            Self::AssertFalse => "ASSERT_FALSE",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ComparisonOperator {
+    Eq,
+    Ne,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+}
+
+impl ComparisonOperator {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Eq => "==",
+            Self::Ne => "!=",
+            Self::Ge => ">=",
+            Self::Gt => ">",
+            Self::Le => "<=",
+            Self::Lt => "<",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CheckMacroReplacement {
+    DcheckEq,
+    DcheckNe,
+    DcheckGe,
+    DcheckGt,
+    DcheckLe,
+    DcheckLt,
+    CheckEq,
+    CheckNe,
+    CheckGe,
+    CheckGt,
+    CheckLe,
+    CheckLt,
+    ExpectEq,
+    ExpectNe,
+    ExpectGe,
+    ExpectGt,
+    ExpectLe,
+    ExpectLt,
+    AssertEq,
+    AssertNe,
+    AssertGe,
+    AssertGt,
+    AssertLe,
+    AssertLt,
+}
+
+impl CheckMacroReplacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DcheckEq => "DCHECK_EQ",
+            Self::DcheckNe => "DCHECK_NE",
+            Self::DcheckGe => "DCHECK_GE",
+            Self::DcheckGt => "DCHECK_GT",
+            Self::DcheckLe => "DCHECK_LE",
+            Self::DcheckLt => "DCHECK_LT",
+            Self::CheckEq => "CHECK_EQ",
+            Self::CheckNe => "CHECK_NE",
+            Self::CheckGe => "CHECK_GE",
+            Self::CheckGt => "CHECK_GT",
+            Self::CheckLe => "CHECK_LE",
+            Self::CheckLt => "CHECK_LT",
+            Self::ExpectEq => "EXPECT_EQ",
+            Self::ExpectNe => "EXPECT_NE",
+            Self::ExpectGe => "EXPECT_GE",
+            Self::ExpectGt => "EXPECT_GT",
+            Self::ExpectLe => "EXPECT_LE",
+            Self::ExpectLt => "EXPECT_LT",
+            Self::AssertEq => "ASSERT_EQ",
+            Self::AssertNe => "ASSERT_NE",
+            Self::AssertGe => "ASSERT_GE",
+            Self::AssertGt => "ASSERT_GT",
+            Self::AssertLe => "ASSERT_LE",
+            Self::AssertLt => "ASSERT_LT",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LintMessage {
     // Core / Suppression messages
@@ -244,9 +349,9 @@ pub enum LintMessage {
     RedundantOverride,
     AltToken(Box<str>, Box<str>),
     CheckMacroSuggestion {
-        replacement: Box<str>,
-        check_macro: Box<str>,
-        op: Box<str>,
+        replacement: CheckMacroReplacement,
+        check_macro: CheckMacroName,
+        op: ComparisonOperator,
     },
 
     // Build
@@ -272,7 +377,6 @@ pub enum LintMessage {
     NamespacesForwardDecl,
     AlreadyIncluded(Box<str>, Box<str>, usize), // include, filename, first_line
     DoNotIncludeExtensionFromOtherPackages(Box<str>),
-
 }
 
 impl LintMessage {
@@ -550,11 +654,7 @@ impl fmt::Display for LintMessage {
                 )
             }
             Self::PrintfFormat(fmt_part) => {
-                write!(
-                    f,
-                    "Printf format string contains {}",
-                    fmt_part.as_str()
-                )
+                write!(f, "Printf format string contains {}", fmt_part.as_str())
             }
             Self::NonConstReference(name) => write!(
                 f,
@@ -590,7 +690,9 @@ impl fmt::Display for LintMessage {
             } => write!(
                 f,
                 "Consider using {} instead of {}(a {} b)",
-                replacement, check_macro, op
+                replacement.as_str(),
+                check_macro.as_str(),
+                op.as_str()
             ),
             Self::FunctionTooLong {
                 name,

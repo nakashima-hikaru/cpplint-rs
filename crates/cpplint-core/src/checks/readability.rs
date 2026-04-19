@@ -43,16 +43,16 @@ const INHERITANCE_KEYWORDS: [&str; 3] = ["virtual", "override", "final"];
 static INHERITANCE_KEYWORDS_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(INHERITANCE_KEYWORDS).unwrap());
 
-const CHECK_MACROS: [&str; 6] = [
-    "DCHECK",
-    "CHECK",
-    "EXPECT_TRUE",
-    "ASSERT_TRUE",
-    "EXPECT_FALSE",
-    "ASSERT_FALSE",
+const CHECK_MACROS: [crate::messages::CheckMacroName; 6] = [
+    crate::messages::CheckMacroName::Dcheck,
+    crate::messages::CheckMacroName::Check,
+    crate::messages::CheckMacroName::ExpectTrue,
+    crate::messages::CheckMacroName::AssertTrue,
+    crate::messages::CheckMacroName::ExpectFalse,
+    crate::messages::CheckMacroName::AssertFalse,
 ];
 static CHECK_MACROS_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(CHECK_MACROS).unwrap());
+    LazyLock::new(|| AhoCorasick::new(CHECK_MACROS.iter().map(|m| m.as_str())).unwrap());
 static NAMESPACE_TERMINATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*};*\s*(//|/\*).*\bnamespace\b"#).unwrap());
 static ANONYMOUS_NAMESPACE_TERMINATION_RE: LazyLock<Regex> =
@@ -276,27 +276,29 @@ fn check_check_macro(
         Category::ReadabilityCheck,
         2,
         crate::messages::LintMessage::CheckMacroSuggestion {
-            replacement: replacement.into(),
-            check_macro: check_macro.into(),
-            op: op.into(),
+            replacement,
+            check_macro,
+            op,
         },
     );
 }
 
-fn find_check_macro(line: &str) -> Option<(&'static str, usize)> {
+fn find_check_macro(line: &str) -> Option<(crate::messages::CheckMacroName, usize)> {
     CHECK_MACROS_AC.find_iter(line).find_map(|mat| {
         let check_macro = CHECK_MACROS[mat.pattern()];
         let start = mat.start();
-        let suffix = &line[start + check_macro.len()..];
+        let suffix = &line[start + check_macro.as_str().len()..];
         let open_offset = suffix.find('(')?;
-        suffix[..open_offset]
-            .trim()
-            .is_empty()
-            .then_some((check_macro, start + check_macro.len() + open_offset))
+        suffix[..open_offset].trim().is_empty().then_some((
+            check_macro,
+            start + check_macro.as_str().len() + open_offset,
+        ))
     })
 }
 
-fn split_comparison_expression(expression: &str) -> Option<(&str, &'static str, &str)> {
+fn split_comparison_expression(
+    expression: &str,
+) -> Option<(&str, crate::messages::ComparisonOperator, &str)> {
     let mut depth = 0usize;
     let bytes = expression.as_bytes();
     let mut i = 0usize;
@@ -308,9 +310,16 @@ fn split_comparison_expression(expression: &str) -> Option<(&str, &'static str, 
             _ => {}
         }
         if depth == 0 {
-            for op in ["==", "!=", ">=", "<=", ">", "<"] {
-                if expression[i..].starts_with(op) {
-                    return Some((&expression[..i], op, &expression[i + op.len()..]));
+            for (op, len) in [
+                (crate::messages::ComparisonOperator::Eq, 2usize),
+                (crate::messages::ComparisonOperator::Ne, 2usize),
+                (crate::messages::ComparisonOperator::Ge, 2usize),
+                (crate::messages::ComparisonOperator::Le, 2usize),
+                (crate::messages::ComparisonOperator::Gt, 1usize),
+                (crate::messages::ComparisonOperator::Lt, 1usize),
+            ] {
+                if expression[i..].starts_with(op.as_str()) {
+                    return Some((&expression[..i], op, &expression[i + len..]));
                 }
             }
         }
@@ -320,64 +329,51 @@ fn split_comparison_expression(expression: &str) -> Option<(&str, &'static str, 
     None
 }
 
-fn replacement_check_macro(check_macro: &str, op: &str) -> Option<&'static str> {
-    match check_macro {
-        "DCHECK" => match op {
-            "==" => Some("DCHECK_EQ"),
-            "!=" => Some("DCHECK_NE"),
-            ">=" => Some("DCHECK_GE"),
-            ">" => Some("DCHECK_GT"),
-            "<=" => Some("DCHECK_LE"),
-            "<" => Some("DCHECK_LT"),
-            _ => None,
-        },
-        "CHECK" => match op {
-            "==" => Some("CHECK_EQ"),
-            "!=" => Some("CHECK_NE"),
-            ">=" => Some("CHECK_GE"),
-            ">" => Some("CHECK_GT"),
-            "<=" => Some("CHECK_LE"),
-            "<" => Some("CHECK_LT"),
-            _ => None,
-        },
-        "EXPECT_TRUE" => match op {
-            "==" => Some("EXPECT_EQ"),
-            "!=" => Some("EXPECT_NE"),
-            ">=" => Some("EXPECT_GE"),
-            ">" => Some("EXPECT_GT"),
-            "<=" => Some("EXPECT_LE"),
-            "<" => Some("EXPECT_LT"),
-            _ => None,
-        },
-        "ASSERT_TRUE" => match op {
-            "==" => Some("ASSERT_EQ"),
-            "!=" => Some("ASSERT_NE"),
-            ">=" => Some("ASSERT_GE"),
-            ">" => Some("ASSERT_GT"),
-            "<=" => Some("ASSERT_LE"),
-            "<" => Some("ASSERT_LT"),
-            _ => None,
-        },
-        "EXPECT_FALSE" => match op {
-            "==" => Some("EXPECT_NE"),
-            "!=" => Some("EXPECT_EQ"),
-            ">=" => Some("EXPECT_LT"),
-            ">" => Some("EXPECT_LE"),
-            "<=" => Some("EXPECT_GT"),
-            "<" => Some("EXPECT_GE"),
-            _ => None,
-        },
-        "ASSERT_FALSE" => match op {
-            "==" => Some("ASSERT_NE"),
-            "!=" => Some("ASSERT_EQ"),
-            ">=" => Some("ASSERT_LT"),
-            ">" => Some("ASSERT_LE"),
-            "<=" => Some("ASSERT_GT"),
-            "<" => Some("ASSERT_GE"),
-            _ => None,
-        },
-        _ => None,
-    }
+fn replacement_check_macro(
+    check_macro: crate::messages::CheckMacroName,
+    op: crate::messages::ComparisonOperator,
+) -> Option<crate::messages::CheckMacroReplacement> {
+    use crate::messages::{
+        CheckMacroName as M, CheckMacroReplacement as R, ComparisonOperator as O,
+    };
+    Some(match (check_macro, op) {
+        (M::Dcheck, O::Eq) => R::DcheckEq,
+        (M::Dcheck, O::Ne) => R::DcheckNe,
+        (M::Dcheck, O::Ge) => R::DcheckGe,
+        (M::Dcheck, O::Gt) => R::DcheckGt,
+        (M::Dcheck, O::Le) => R::DcheckLe,
+        (M::Dcheck, O::Lt) => R::DcheckLt,
+        (M::Check, O::Eq) => R::CheckEq,
+        (M::Check, O::Ne) => R::CheckNe,
+        (M::Check, O::Ge) => R::CheckGe,
+        (M::Check, O::Gt) => R::CheckGt,
+        (M::Check, O::Le) => R::CheckLe,
+        (M::Check, O::Lt) => R::CheckLt,
+        (M::ExpectTrue, O::Eq) => R::ExpectEq,
+        (M::ExpectTrue, O::Ne) => R::ExpectNe,
+        (M::ExpectTrue, O::Ge) => R::ExpectGe,
+        (M::ExpectTrue, O::Gt) => R::ExpectGt,
+        (M::ExpectTrue, O::Le) => R::ExpectLe,
+        (M::ExpectTrue, O::Lt) => R::ExpectLt,
+        (M::AssertTrue, O::Eq) => R::AssertEq,
+        (M::AssertTrue, O::Ne) => R::AssertNe,
+        (M::AssertTrue, O::Ge) => R::AssertGe,
+        (M::AssertTrue, O::Gt) => R::AssertGt,
+        (M::AssertTrue, O::Le) => R::AssertLe,
+        (M::AssertTrue, O::Lt) => R::AssertLt,
+        (M::ExpectFalse, O::Eq) => R::ExpectNe,
+        (M::ExpectFalse, O::Ne) => R::ExpectEq,
+        (M::ExpectFalse, O::Ge) => R::ExpectLt,
+        (M::ExpectFalse, O::Gt) => R::ExpectLe,
+        (M::ExpectFalse, O::Le) => R::ExpectGt,
+        (M::ExpectFalse, O::Lt) => R::ExpectGe,
+        (M::AssertFalse, O::Eq) => R::AssertNe,
+        (M::AssertFalse, O::Ne) => R::AssertEq,
+        (M::AssertFalse, O::Ge) => R::AssertLt,
+        (M::AssertFalse, O::Gt) => R::AssertLe,
+        (M::AssertFalse, O::Le) => R::AssertGt,
+        (M::AssertFalse, O::Lt) => R::AssertGe,
+    })
 }
 
 fn check_function_size(

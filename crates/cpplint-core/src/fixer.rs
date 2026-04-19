@@ -1257,10 +1257,18 @@ fn fix_check_macro(line: &mut String) -> bool {
     let Some(captures) = CHECK_MACRO_RE.captures(line) else {
         return false;
     };
-    let check_macro = captures.get(1).map(|m| m.as_str()).unwrap_or("");
+    let check_macro = match captures.get(1).map(|m| m.as_str()).unwrap_or("") {
+        "DCHECK" => crate::messages::CheckMacroName::Dcheck,
+        "CHECK" => crate::messages::CheckMacroName::Check,
+        "EXPECT_TRUE" => crate::messages::CheckMacroName::ExpectTrue,
+        "ASSERT_TRUE" => crate::messages::CheckMacroName::AssertTrue,
+        "EXPECT_FALSE" => crate::messages::CheckMacroName::ExpectFalse,
+        "ASSERT_FALSE" => crate::messages::CheckMacroName::AssertFalse,
+        _ => return false,
+    };
     let Some(open_paren) = line
-        .find(&format!("{}(", check_macro))
-        .map(|idx| idx + check_macro.len())
+        .find(&format!("{}(", check_macro.as_str()))
+        .map(|idx| idx + check_macro.as_str().len())
     else {
         return false;
     };
@@ -1283,7 +1291,7 @@ fn fix_check_macro(line: &mut String) -> bool {
     let rebuilt = format!(
         "{}{}({}, {}){}",
         &line[..captures.get(0).map(|m| m.start()).unwrap_or(0)],
-        replacement,
+        replacement.as_str(),
         lhs.trim(),
         rhs.trim(),
         &line[close + 1..]
@@ -1676,7 +1684,9 @@ fn find_matching_angle_bracket(line: &str, open: usize) -> Option<usize> {
     None
 }
 
-fn split_comparison_expression(expression: &str) -> Option<(&str, &'static str, &str)> {
+fn split_comparison_expression(
+    expression: &str,
+) -> Option<(&str, crate::messages::ComparisonOperator, &str)> {
     let mut depth = 0usize;
     let bytes = expression.as_bytes();
     let mut index = 0usize;
@@ -1687,9 +1697,16 @@ fn split_comparison_expression(expression: &str) -> Option<(&str, &'static str, 
             _ => {}
         }
         if depth == 0 {
-            for op in ["==", "!=", ">=", "<=", ">", "<"] {
-                if expression[index..].starts_with(op) {
-                    return Some((&expression[..index], op, &expression[index + op.len()..]));
+            for (op, len) in [
+                (crate::messages::ComparisonOperator::Eq, 2usize),
+                (crate::messages::ComparisonOperator::Ne, 2usize),
+                (crate::messages::ComparisonOperator::Ge, 2usize),
+                (crate::messages::ComparisonOperator::Le, 2usize),
+                (crate::messages::ComparisonOperator::Gt, 1usize),
+                (crate::messages::ComparisonOperator::Lt, 1usize),
+            ] {
+                if expression[index..].starts_with(op.as_str()) {
+                    return Some((&expression[..index], op, &expression[index + len..]));
                 }
             }
         }
@@ -1704,64 +1721,51 @@ fn is_check_const(value: &str) -> bool {
         || (value.starts_with('\'') && value.ends_with('\''))
 }
 
-fn replacement_check_macro(check_macro: &str, op: &str) -> Option<&'static str> {
-    match check_macro {
-        "DCHECK" => match op {
-            "==" => Some("DCHECK_EQ"),
-            "!=" => Some("DCHECK_NE"),
-            ">=" => Some("DCHECK_GE"),
-            ">" => Some("DCHECK_GT"),
-            "<=" => Some("DCHECK_LE"),
-            "<" => Some("DCHECK_LT"),
-            _ => None,
-        },
-        "CHECK" => match op {
-            "==" => Some("CHECK_EQ"),
-            "!=" => Some("CHECK_NE"),
-            ">=" => Some("CHECK_GE"),
-            ">" => Some("CHECK_GT"),
-            "<=" => Some("CHECK_LE"),
-            "<" => Some("CHECK_LT"),
-            _ => None,
-        },
-        "EXPECT_TRUE" => match op {
-            "==" => Some("EXPECT_EQ"),
-            "!=" => Some("EXPECT_NE"),
-            ">=" => Some("EXPECT_GE"),
-            ">" => Some("EXPECT_GT"),
-            "<=" => Some("EXPECT_LE"),
-            "<" => Some("EXPECT_LT"),
-            _ => None,
-        },
-        "ASSERT_TRUE" => match op {
-            "==" => Some("ASSERT_EQ"),
-            "!=" => Some("ASSERT_NE"),
-            ">=" => Some("ASSERT_GE"),
-            ">" => Some("ASSERT_GT"),
-            "<=" => Some("ASSERT_LE"),
-            "<" => Some("ASSERT_LT"),
-            _ => None,
-        },
-        "EXPECT_FALSE" => match op {
-            "==" => Some("EXPECT_NE"),
-            "!=" => Some("EXPECT_EQ"),
-            ">=" => Some("EXPECT_LT"),
-            ">" => Some("EXPECT_LE"),
-            "<=" => Some("EXPECT_GT"),
-            "<" => Some("EXPECT_GE"),
-            _ => None,
-        },
-        "ASSERT_FALSE" => match op {
-            "==" => Some("ASSERT_NE"),
-            "!=" => Some("ASSERT_EQ"),
-            ">=" => Some("ASSERT_LT"),
-            ">" => Some("ASSERT_LE"),
-            "<=" => Some("ASSERT_GT"),
-            "<" => Some("ASSERT_GE"),
-            _ => None,
-        },
-        _ => None,
-    }
+fn replacement_check_macro(
+    check_macro: crate::messages::CheckMacroName,
+    op: crate::messages::ComparisonOperator,
+) -> Option<crate::messages::CheckMacroReplacement> {
+    use crate::messages::{
+        CheckMacroName as M, CheckMacroReplacement as R, ComparisonOperator as O,
+    };
+    Some(match (check_macro, op) {
+        (M::Dcheck, O::Eq) => R::DcheckEq,
+        (M::Dcheck, O::Ne) => R::DcheckNe,
+        (M::Dcheck, O::Ge) => R::DcheckGe,
+        (M::Dcheck, O::Gt) => R::DcheckGt,
+        (M::Dcheck, O::Le) => R::DcheckLe,
+        (M::Dcheck, O::Lt) => R::DcheckLt,
+        (M::Check, O::Eq) => R::CheckEq,
+        (M::Check, O::Ne) => R::CheckNe,
+        (M::Check, O::Ge) => R::CheckGe,
+        (M::Check, O::Gt) => R::CheckGt,
+        (M::Check, O::Le) => R::CheckLe,
+        (M::Check, O::Lt) => R::CheckLt,
+        (M::ExpectTrue, O::Eq) => R::ExpectEq,
+        (M::ExpectTrue, O::Ne) => R::ExpectNe,
+        (M::ExpectTrue, O::Ge) => R::ExpectGe,
+        (M::ExpectTrue, O::Gt) => R::ExpectGt,
+        (M::ExpectTrue, O::Le) => R::ExpectLe,
+        (M::ExpectTrue, O::Lt) => R::ExpectLt,
+        (M::AssertTrue, O::Eq) => R::AssertEq,
+        (M::AssertTrue, O::Ne) => R::AssertNe,
+        (M::AssertTrue, O::Ge) => R::AssertGe,
+        (M::AssertTrue, O::Gt) => R::AssertGt,
+        (M::AssertTrue, O::Le) => R::AssertLe,
+        (M::AssertTrue, O::Lt) => R::AssertLt,
+        (M::ExpectFalse, O::Eq) => R::ExpectNe,
+        (M::ExpectFalse, O::Ne) => R::ExpectEq,
+        (M::ExpectFalse, O::Ge) => R::ExpectLt,
+        (M::ExpectFalse, O::Gt) => R::ExpectLe,
+        (M::ExpectFalse, O::Le) => R::ExpectGt,
+        (M::ExpectFalse, O::Lt) => R::ExpectGe,
+        (M::AssertFalse, O::Eq) => R::AssertNe,
+        (M::AssertFalse, O::Ne) => R::AssertEq,
+        (M::AssertFalse, O::Ge) => R::AssertLt,
+        (M::AssertFalse, O::Gt) => R::AssertLe,
+        (M::AssertFalse, O::Le) => R::AssertGt,
+        (M::AssertFalse, O::Lt) => R::AssertGe,
+    })
 }
 
 #[derive(Debug, Clone)]
