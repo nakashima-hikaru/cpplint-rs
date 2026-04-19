@@ -19,16 +19,16 @@ pub struct ClassRange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ClassFact {
+struct ClassFact<'a> {
     range: ClassRange,
-    name: String,
+    name: &'a str,
     is_struct: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileFacts {
+pub struct FileFacts<'a> {
     in_namespace_or_extern_block: Vec<bool>,
-    class_facts: Vec<ClassFact>,
+    class_facts: Vec<ClassFact<'a>>,
     class_fact_by_line: Vec<Option<usize>>,
     namespace_top_level_depth: Vec<Option<usize>>,
     closing_brace_starts: Vec<Option<usize>>,
@@ -48,9 +48,9 @@ pub enum ScopeKind {
     Block,
 }
 
-impl FileFacts {
+impl<'a> FileFacts<'a> {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub fn new(clean_lines: &CleansedLines<'_>) -> Self {
+    pub fn new(clean_lines: &CleansedLines<'a>) -> Self {
         let n = clean_lines.elided.len();
         let mut in_namespace_or_extern_block = Vec::with_capacity(n);
         let mut namespace_top_level_depth = Vec::with_capacity(n);
@@ -303,7 +303,7 @@ impl FileFacts {
         }
 
         let (class_facts, class_fact_by_line) =
-            build_class_facts(&clean_lines.elided, &line_braces, &matching_block_ends);
+            build_class_facts(clean_lines.elided.as_slice(), &line_braces, &matching_block_ends);
 
         Self {
             in_namespace_or_extern_block,
@@ -330,7 +330,7 @@ impl FileFacts {
     pub fn nearest_class_name(&self, linenum: usize) -> Option<&str> {
         self.class_fact_by_line.get(linenum).and_then(|index| {
             index.and_then(|index| {
-                let name = self.class_facts[index].name.as_str();
+                let name = self.class_facts[index].name;
                 (!name.is_empty()).then_some(name)
             })
         })
@@ -394,16 +394,16 @@ impl FileFacts {
 static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
     LazyLock::new(|| aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap());
 
-fn build_class_facts<S: AsRef<str>>(
-    lines: &[S],
+fn build_class_facts<'a>(
+    lines: &[&'a str],
     line_braces: &[(u32, u32)],
     matching_block_ends: &[Option<usize>],
-) -> (Vec<ClassFact>, Vec<Option<usize>>) {
+) -> (Vec<ClassFact<'a>>, Vec<Option<usize>>) {
     let mut class_facts = Vec::new();
-    let mut pending: Option<(usize, String, bool)> = None;
+    let mut pending: Option<(usize, &'a str, bool)> = None;
 
     for (linenum, line) in lines.iter().enumerate() {
-        let line = line.as_ref();
+        let line = *line;
         if !CLASS_KEYWORDS_AC.is_match(line) && pending.is_none() {
             continue;
         }
@@ -416,8 +416,8 @@ fn build_class_facts<S: AsRef<str>>(
             if !in_template_argument_list(lines, linenum, end_declaration) {
                 let name = captures
                     .get(3)
-                    .map(|matched| matched.as_str().to_string())
-                    .unwrap_or_default();
+                    .map(|matched| matched.as_str())
+                    .unwrap_or("");
                 let is_struct = captures
                     .get(2)
                     .is_some_and(|matched| matched.as_str() == "struct");

@@ -203,7 +203,7 @@ const PRINTF_FORMAT_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_trun
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
@@ -398,7 +398,7 @@ fn contains_single_ampersand_cast(re: &Regex, line: &str) -> bool {
 
 fn check_explicit_constructors(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     _clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,

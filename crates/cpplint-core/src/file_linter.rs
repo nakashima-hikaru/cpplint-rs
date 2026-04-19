@@ -33,7 +33,6 @@ pub struct FileLinter<'a> {
     file_index: usize,
     source_file: SourceFile,
     registry: &'static RuleRegistry,
-    facts: Option<Arc<FileFacts>>,
     has_error: bool,
 }
 
@@ -59,7 +58,6 @@ impl<'a> FileLinter<'a> {
             file_index,
             source_file: SourceFile::new(file_path),
             registry: rule_registry(),
-            facts: None,
             has_error: false,
         }
     }
@@ -82,13 +80,6 @@ impl<'a> FileLinter<'a> {
 
     pub fn has_error(&self) -> bool {
         self.has_error
-    }
-
-    pub(crate) fn facts_arc(&self) -> Arc<FileFacts> {
-        self.facts
-            .as_ref()
-            .expect("file facts should be initialized before running checks")
-            .clone()
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -165,11 +156,11 @@ impl<'a> FileLinter<'a> {
             self.options.as_ref(),
             self.filename(),
         );
-        self.facts = Some(Arc::new(FileFacts::new(&clean_lines)));
+        let facts = FileFacts::new(&clean_lines);
         registry.run_file_structure(self, &clean_lines);
 
         for linenum in 0..clean_lines.raw_lines.len() {
-            self.process_line(&clean_lines, linenum);
+            self.process_line(&clean_lines, &facts, linenum);
         }
 
         if let Some(begin) = self.error_suppressions.get_open_block_start() {
@@ -201,7 +192,12 @@ impl<'a> FileLinter<'a> {
         PathBuf::from(normalized)
     }
 
-    fn process_line(&mut self, clean_lines: &CleansedLines, linenum: usize) {
+    fn process_line(
+        &mut self,
+        clean_lines: &CleansedLines,
+        facts: &FileFacts<'_>,
+        linenum: usize,
+    ) {
         let raw_line = &clean_lines.raw_lines[linenum];
         if clean_lines
             .has_comment
@@ -212,7 +208,7 @@ impl<'a> FileLinter<'a> {
             self.parse_nolint_suppressions(raw_line, linenum);
         }
         let registry = self.registry;
-        registry.run_line(self, clean_lines, linenum);
+        registry.run_line(self, facts, clean_lines, linenum);
     }
 
     fn parse_nolint_suppressions(&mut self, raw_line: &str, linenum: usize) {

@@ -1425,7 +1425,7 @@ fn build_facts<'a>(
     path: &Path,
     options: &Options,
     lines: &[String],
-) -> (CleansedLines<'a>, FileFacts) {
+) -> (CleansedLines<'a>, FileFacts<'a>) {
     let filename = path.to_string_lossy();
     let mut arena_lines = bumpalo::collections::Vec::with_capacity_in(lines.len(), arena);
     for line in lines {

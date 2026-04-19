@@ -65,7 +65,7 @@ fn is_test_like_function(name: &str) -> bool {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
@@ -380,7 +380,7 @@ fn replacement_check_macro(check_macro: &str, op: &str) -> Option<&'static str> 
 
 fn check_function_size(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
@@ -1143,7 +1143,7 @@ fn check_multiline_if_else_bodies(
 
 fn check_namespace_termination_comment(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
@@ -1194,7 +1194,7 @@ fn check_namespace_termination_comment(
 
 fn check_namespace_indentation(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
@@ -1242,7 +1242,7 @@ fn is_macro_definition(clean_lines: &CleansedLines<'_>, elided_line: &str, linen
 }
 
 fn is_namespace_closing_brace(
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) -> bool {

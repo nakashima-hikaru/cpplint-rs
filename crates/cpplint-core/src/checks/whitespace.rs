@@ -561,7 +561,7 @@ fn has_extra_space_after_leading_nested_open_paren(line: &str) -> bool {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_operator_spacing(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
@@ -1277,7 +1277,7 @@ fn looks_like_type_name(expr: &str) -> bool {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_blank_line_rules(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
@@ -1374,7 +1374,7 @@ fn check_blank_line_rules(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_section_spacing(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
     keywords: &MatchedKeywords,
@@ -1464,7 +1464,7 @@ fn check_section_spacing(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_access_specifier_indentation(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
     keywords: &MatchedKeywords,
@@ -1525,7 +1525,7 @@ fn check_access_specifier_indentation(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_class_closing_brace_alignment(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {
@@ -1656,7 +1656,7 @@ fn check_indentation(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(
     linter: &mut FileLinter,
-    facts: &FileFacts,
+    facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
 ) {

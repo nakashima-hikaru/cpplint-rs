@@ -1,6 +1,7 @@
 use crate::categories;
 use crate::checks::{copyright, headers, readability, runtime, whitespace};
 use crate::cleanse::CleansedLines;
+use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use std::sync::LazyLock;
 
@@ -212,13 +213,13 @@ impl RuleRegistry {
     pub fn run_line(
         &self,
         linter: &mut FileLinter<'_>,
+        facts: &FileFacts<'_>,
         clean_lines: &CleansedLines<'_>,
         linenum: usize,
     ) {
-        let facts = linter.facts_arc();
-        whitespace::check(linter, facts.as_ref(), clean_lines, linenum);
-        runtime::check(linter, facts.as_ref(), clean_lines, linenum);
-        readability::check(linter, facts.as_ref(), clean_lines, linenum);
+        whitespace::check(linter, facts, clean_lines, linenum);
+        runtime::check(linter, facts, clean_lines, linenum);
+        readability::check(linter, facts, clean_lines, linenum);
     }
 
     pub fn run_finalize<S: AsRef<str>>(&self, linter: &mut FileLinter<'_>, raw_lines: &[S]) {
