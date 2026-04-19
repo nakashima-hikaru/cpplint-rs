@@ -9,8 +9,8 @@ pub enum LintMessage {
     NolintBlockNeverEnded,
     NolintBlockAlreadyDefined(usize),
     NotInNolintBlock,
-    UnknownNolintCategory(String),
-    NolintCategoriesNotSupportedInEnd(String),
+    UnknownNolintCategory(Box<str>),
+    NolintCategoriesNotSupportedInEnd(Box<str>),
     UnterminatedMultilineComment,
 
     // Legal
@@ -22,12 +22,12 @@ pub enum LintMessage {
     MissingUsernameInTodo,
     TodoShouldBeFollowedBySpace,
     ShouldHaveSpaceBetweenSlashesAndComment,
-    MissingSpacesAround(String),
-    ExtraSpaceForOperator(String),
+    MissingSpacesAround(Box<str>),
+    ExtraSpaceForOperator(Box<str>),
     MissingSpacesAroundBracket,
     ExtraSpaceBeforeBracket,
     ExtraSpaceAfterParen,
-    ExtraSpaceBeforeParenIn(String), // e.g., "if"
+    ExtraSpaceBeforeParenIn(Box<str>), // e.g., "if"
     ExtraSpaceBeforeParenInFuncCall,
     MismatchingSpacesInsideParen,
     MissingSpaceBeforeOpenParen,
@@ -50,87 +50,99 @@ pub enum LintMessage {
     BlankLineAtStartOfBlock,
     BlankLineAtEndOfBlock,
     NoBlankLineAfterSection,
-    ShouldBeIndented(String),      // e.g., "+1 space inside"
-    ClosingBraceAlignment(String), // e.g., "class"
+    ShouldBeIndented(Box<str>),      // e.g., "+1 space inside"
+    ClosingBraceAlignment(Box<str>), // e.g., "class"
 
     // Runtime
-    DeprecatedCastingStyle(String),
+    DeprecatedCastingStyle(Box<str>),
     AddressOfCast,
     ConstructorShouldBeExplicit(bool),
-    CStyleCast(String, String),
+    CStyleCast(Box<str>, Box<str>),
     ChangingPointerInsteadOfValue,
     NonStandardMinMaxOperators,
     MemsetInvalidSize,
     MemsetZeroSize,
-    ThreadsafeFunctionRecommended(String, String),
+    ThreadsafeFunctionRecommended(Box<str>, Box<str>),
     GlobalStringCtor,
     SnprintfArgsNotNumeric,
     SnprintfArgsMismatch,
     SprintfRecommended,
-    VlaFound(String),
-    PrintfFormat(String),
+    VlaFound(Box<str>),
+    PrintfFormat(Box<str>),
     PrintfFormatDeprecatedQ,
     PrintfFormatUndefinedEscape,
-    NonConstReference(String),
+    NonConstReference(Box<str>),
     UnaryOperatorAmpersand,
     PortsShouldBeUnsignedShort,
-    CIntegerType(String),
+    CIntegerType(Box<str>),
 
     // Readability
-    RedundantCast(String),
-    BracesMissing(String),
-    BracesRedundant(String),
+    RedundantCast(Box<str>),
+    BracesMissing(Box<str>),
+    BracesRedundant(Box<str>),
     BuildExplicitMakePair,
     EmptyIfBody,
-    EmptyConditionalBody(String),
-    EmptyLoopBody(String),
+    EmptyConditionalBody(Box<str>),
+    EmptyLoopBody(Box<str>),
     NamespaceIndented,
     TodoNoUsername,
     TodoNoSpace,
     MultilineCommentInLine,
     RawStringUnterminated,
-    NamespaceMissingComment(String),
+    NamespaceMissingComment(Box<str>),
     RedundantVirtual,
     RedundantOverride,
-    AltToken(String, String),
+    AltToken(Box<str>, Box<str>),
 
     // Build
-    IncludeOrder(String, String),
-    IncludeAlpha(String),
-    IwyuAddInclude(String, String), // header, symbol
+    IncludeOrder(Box<str>, Box<str>),
+    IncludeAlpha(Box<str>),
+    IwyuAddInclude(Box<str>, Box<str>), // header, symbol
     MissingSelfHeader {
-        file_from_repo: String,
-        header: String,
+        file_from_repo: Box<str>,
+        header: Box<str>,
         includes_use_aliases: bool,
     },
-    HeaderGuardMissing(String),
-    HeaderGuardWrong(String, String),
-    EndifCommentMissing(String),
+    HeaderGuardMissing(Box<str>),
+    HeaderGuardWrong(Box<str>, Box<str>),
+    EndifCommentMissing(Box<str>),
     NamespacesHeaders,
     NamespacesLiterals,
     NamespacesForwardDecl,
-    AlreadyIncluded(String, String, usize), // include, filename, first_line
-    DoNotIncludeExtensionFromOtherPackages(String),
+    AlreadyIncluded(Box<str>, Box<str>, usize), // include, filename, first_line
+    DoNotIncludeExtensionFromOtherPackages(Box<str>),
 
     // Catch-all for migration
-    Raw(String),
+    Raw(Box<str>),
 }
 
 impl LintMessage {
     fn as_static_str(&self) -> Option<&'static str> {
         match self {
-            Self::InvalidUtf8 => Some("Line contains invalid UTF-8 (or Unicode replacement character)."),
+            Self::InvalidUtf8 => {
+                Some("Line contains invalid UTF-8 (or Unicode replacement character).")
+            }
             Self::NulByte => Some("Line contains NUL byte."),
             Self::MixedLineEndings => Some("Unexpected \\r (^M) found; better to use only \\n"),
             Self::NolintBlockNeverEnded => Some("NOLINT block never ended"),
             Self::NotInNolintBlock => Some("Not in a NOLINT block"),
             Self::UnterminatedMultilineComment => Some("Could not find end of multi-line comment"),
-            Self::NoCopyrightFound => Some("No copyright message found.  You should have a line: \"Copyright [year] <Copyright Owner>\""),
-            Self::AtLeastTwoSpacesBetweenCodeAndComments => Some("At least two spaces is best between code and comments"),
+            Self::NoCopyrightFound => Some(
+                "No copyright message found.  You should have a line: \"Copyright [year] <Copyright Owner>\"",
+            ),
+            Self::AtLeastTwoSpacesBetweenCodeAndComments => {
+                Some("At least two spaces is best between code and comments")
+            }
             Self::TooManySpacesBeforeTodo => Some("Too many spaces before TODO"),
-            Self::MissingUsernameInTodo => Some("Missing username in TODO; it should look like \"// TODO(my_username): Stuff.\""),
-            Self::TodoShouldBeFollowedBySpace => Some("TODO(my_username) should be followed by a space"),
-            Self::ShouldHaveSpaceBetweenSlashesAndComment => Some("Should have a space between // and comment"),
+            Self::MissingUsernameInTodo => Some(
+                "Missing username in TODO; it should look like \"// TODO(my_username): Stuff.\"",
+            ),
+            Self::TodoShouldBeFollowedBySpace => {
+                Some("TODO(my_username) should be followed by a space")
+            }
+            Self::ShouldHaveSpaceBetweenSlashesAndComment => {
+                Some("Should have a space between // and comment")
+            }
             Self::MissingSpacesAroundBracket => Some("Missing spaces around [ ]"),
             Self::ExtraSpaceBeforeBracket => Some("Extra space before ["),
             Self::ExtraSpaceAfterParen => Some("Extra space after ("),
@@ -147,39 +159,73 @@ impl LintMessage {
             Self::ExtraSpaceAfterComma => Some("Extra space after ,"),
             Self::MissingSpaceAfterComma => Some("Missing space after ,"),
             Self::ExtraSpaceBeforeCloseParen => Some("Extra space before )"),
-            Self::ClosingParenShouldBeMovedToPreviousLine => Some("Closing ) should be moved to the previous line"),
+            Self::ClosingParenShouldBeMovedToPreviousLine => {
+                Some("Closing ) should be moved to the previous line")
+            }
             Self::TrailingWhitespace => Some("Lines should not have trailing whitespace"),
             Self::TabFound => Some("Tab found; better to use spaces"),
-            Self::NewlineShouldBeAtEndOfFile => Some("Could not find a newline character at the end of the file."),
+            Self::NewlineShouldBeAtEndOfFile => {
+                Some("Could not find a newline character at the end of the file.")
+            }
             Self::MultipleBlankLines | Self::BlankLineAtStartOfBlock => {
                 Some("Blank line at the start of a code block.  Is this needed?")
             }
-            Self::BlankLineAtEndOfBlock => Some("Blank line at the end of a code block.  Is this needed?"),
+            Self::BlankLineAtEndOfBlock => {
+                Some("Blank line at the end of a code block.  Is this needed?")
+            }
             Self::NoBlankLineAfterSection => Some("No blank line after section"),
-            Self::BuildExplicitMakePair => Some("For C++11-compatibility, omit template arguments from make_pair OR use pair directly OR if appropriate, construct a pair directly"),
+            Self::BuildExplicitMakePair => Some(
+                "For C++11-compatibility, omit template arguments from make_pair OR use pair directly OR if appropriate, construct a pair directly",
+            ),
             Self::EmptyIfBody => Some("If statement had no body and no else clause"),
-            Self::AddressOfCast => Some("Are you taking an address of a cast?  This is dangerous: could be a temp var.  Take the address before doing the cast, rather than after"),
-            Self::ChangingPointerInsteadOfValue => Some("Changing pointer instead of value (or unused value of operator*)."),
-            Self::NonStandardMinMaxOperators => Some(">? and <? (max and min) operators are non-standard and deprecated."),
+            Self::AddressOfCast => Some(
+                "Are you taking an address of a cast?  This is dangerous: could be a temp var.  Take the address before doing the cast, rather than after",
+            ),
+            Self::ChangingPointerInsteadOfValue => {
+                Some("Changing pointer instead of value (or unused value of operator*).")
+            }
+            Self::NonStandardMinMaxOperators => {
+                Some(">? and <? (max and min) operators are non-standard and deprecated.")
+            }
             Self::MemsetInvalidSize => Some("Why not use a numeric size for memset?"),
             Self::MemsetZeroSize => Some("Why not use zero as the value for memset?"),
-            Self::GlobalStringCtor => Some("For global/static strings, use a char array instead of a std::string to avoid dynamic initialization."),
-            Self::SnprintfArgsNotNumeric => Some("snprintf with non-numeric second argument is potentially unsafe."),
-            Self::SnprintfArgsMismatch => Some("snprintf size argument should be the size of the buffer."),
+            Self::GlobalStringCtor => Some(
+                "For global/static strings, use a char array instead of a std::string to avoid dynamic initialization.",
+            ),
+            Self::SnprintfArgsNotNumeric => {
+                Some("snprintf with non-numeric second argument is potentially unsafe.")
+            }
+            Self::SnprintfArgsMismatch => {
+                Some("snprintf size argument should be the size of the buffer.")
+            }
             Self::SprintfRecommended => Some("Consider using snprintf instead of sprintf."),
-            Self::PrintfFormatDeprecatedQ => Some("%q in format strings is deprecated.  Use %ll instead."),
-            Self::PrintfFormatUndefinedEscape => Some("%, [, (, and { are undefined character escapes.  Unescape them."),
+            Self::PrintfFormatDeprecatedQ => {
+                Some("%q in format strings is deprecated.  Use %ll instead.")
+            }
+            Self::PrintfFormatUndefinedEscape => {
+                Some("%, [, (, and { are undefined character escapes.  Unescape them.")
+            }
             Self::UnaryOperatorAmpersand => Some("Unary operator& is dangerous.  Do not use it."),
-            Self::PortsShouldBeUnsignedShort => Some("Use \"unsigned short\" for ports, not \"short\""),
+            Self::PortsShouldBeUnsignedShort => {
+                Some("Use \"unsigned short\" for ports, not \"short\"")
+            }
             Self::NamespaceIndented => Some("Namespace should not be indented."),
-            Self::TodoNoUsername => Some("Missing username in TODO; it should look like \"// TODO(my_username): Stuff.\""),
+            Self::TodoNoUsername => Some(
+                "Missing username in TODO; it should look like \"// TODO(my_username): Stuff.\"",
+            ),
             Self::TodoNoSpace => Some("TODO(my_username) should be followed by a space"),
-            Self::MultilineCommentInLine => Some("Multi-line comment found on a single line. Use // instead."),
+            Self::MultilineCommentInLine => {
+                Some("Multi-line comment found on a single line. Use // instead.")
+            }
             Self::RawStringUnterminated => Some("Unterminated raw string."),
-            Self::RedundantVirtual => Some("virtual is redundant since override/final already implies a virtual function"),
+            Self::RedundantVirtual => {
+                Some("virtual is redundant since override/final already implies a virtual function")
+            }
             Self::RedundantOverride => Some("override is redundant when final is present"),
             Self::NamespacesHeaders => Some("Do not use using-directives in headers."),
-            Self::NamespacesLiterals => Some("Do not use using-directives for literals in headers."),
+            Self::NamespacesLiterals => {
+                Some("Do not use using-directives for literals in headers.")
+            }
             Self::NamespacesForwardDecl => Some("Do not use forward declarations in headers."),
             Self::ConstructorShouldBeExplicit(one_arg) => {
                 if *one_arg {
@@ -200,7 +246,9 @@ impl fmt::Display for LintMessage {
         }
 
         match self {
-            Self::NolintBlockAlreadyDefined(line) => write!(f, "NOLINT block already defined on line {}", line),
+            Self::NolintBlockAlreadyDefined(line) => {
+                write!(f, "NOLINT block already defined on line {}", line)
+            }
             Self::UnknownNolintCategory(cat) => write!(f, "Unknown NOLINT error category: {}", cat),
             Self::NolintCategoriesNotSupportedInEnd(cat) => {
                 write!(f, "NOLINT categories not supported in block END: {}", cat)
@@ -210,7 +258,9 @@ impl fmt::Display for LintMessage {
             Self::ExtraSpaceBeforeParenIn(ctx) => write!(f, "Extra space before ( in {} (", ctx),
             Self::LineLength(len) => write!(f, "Lines should be <= {} characters long", len),
             Self::ShouldBeIndented(msg) => write!(f, "should be indented {}", msg),
-            Self::EmptyConditionalBody(kind) => write!(f, "Empty conditional bodies should use {}", kind),
+            Self::EmptyConditionalBody(kind) => {
+                write!(f, "Empty conditional bodies should use {}", kind)
+            }
             Self::EmptyLoopBody(kind) => write!(f, "Empty loop bodies should use {}", kind),
             Self::ClosingBraceAlignment(expected) => {
                 write!(
@@ -220,16 +270,32 @@ impl fmt::Display for LintMessage {
                 )
             }
             Self::DeprecatedCastingStyle(t) => {
-                write!(f, "Using deprecated casting style.  Use static_cast<{}>(...) instead", t)
+                write!(
+                    f,
+                    "Using deprecated casting style.  Use static_cast<{}>(...) instead",
+                    t
+                )
             }
             Self::CStyleCast(cast_type, type_str) => {
-                write!(f, "Using C-style cast.  Use {}<{}>(...) instead", cast_type, type_str)
+                write!(
+                    f,
+                    "Using C-style cast.  Use {}<{}>(...) instead",
+                    cast_type, type_str
+                )
             }
             Self::ThreadsafeFunctionRecommended(old, new) => {
-                write!(f, "Consider using {} instead of {}, which is not thread-safe.", new, old)
+                write!(
+                    f,
+                    "Consider using {} instead of {}, which is not thread-safe.",
+                    new, old
+                )
             }
             Self::VlaFound(name) => {
-                write!(f, "Variable-length array {} found. Use a fixed-size array or a vector instead.", name)
+                write!(
+                    f,
+                    "Variable-length array {} found. Use a fixed-size array or a vector instead.",
+                    name
+                )
             }
             Self::PrintfFormat(fmt_part) => write!(f, "Printf format string contains {}", fmt_part),
             Self::NonConstReference(name) => write!(
@@ -241,31 +307,55 @@ impl fmt::Display for LintMessage {
                 write!(f, "Use int16_t/int64_t/etc, rather than the C type {}", ty)
             }
             Self::RedundantCast(t) => write!(f, "Redundant cast to {}", t),
-            Self::BracesMissing(kind) => write!(f, "Else/If should always be enclosed in braces: {}", kind),
+            Self::BracesMissing(kind) => {
+                write!(f, "Else/If should always be enclosed in braces: {}", kind)
+            }
             Self::BracesRedundant(kind) => write!(f, "Redundant braces around {}", kind),
             Self::NamespaceMissingComment(name) => {
-                write!(f, "Namespace should be terminated with \"// namespace {}\"", name)
+                write!(
+                    f,
+                    "Namespace should be terminated with \"// namespace {}\"",
+                    name
+                )
             }
             Self::AltToken(token, key) => write!(f, "Use operator {} instead of {}", token, key),
             Self::IncludeOrder(msg, stem) => {
-                write!(f, "{}. Should be: {}.h, c system, c++ system, other.", msg, stem)
+                write!(
+                    f,
+                    "{}. Should be: {}.h, c system, c++ system, other.",
+                    msg, stem
+                )
             }
-            Self::IncludeAlpha(include) => write!(f, "Include \"{}\" not in alphabetical order", include),
-            Self::IwyuAddInclude(header, symbol) => write!(f, "Add #include <{}> for {}", header, symbol),
+            Self::IncludeAlpha(include) => {
+                write!(f, "Include \"{}\" not in alphabetical order", include)
+            }
+            Self::IwyuAddInclude(header, symbol) => {
+                write!(f, "Add #include <{}> for {}", header, symbol)
+            }
             Self::MissingSelfHeader {
                 file_from_repo,
                 header,
                 includes_use_aliases,
             } => {
-                write!(f, "{} should include its header file {}", file_from_repo, header)?;
+                write!(
+                    f,
+                    "{} should include its header file {}",
+                    file_from_repo, header
+                )?;
                 if *includes_use_aliases {
                     f.write_str(". Relative paths like . and .. are not allowed.")?;
                 }
                 Ok(())
             }
-            Self::HeaderGuardMissing(path) => write!(f, "No #ifndef header guard found, should be {}", path),
+            Self::HeaderGuardMissing(path) => {
+                write!(f, "No #ifndef header guard found, should be {}", path)
+            }
             Self::HeaderGuardWrong(_found, expected) => {
-                write!(f, "#ifndef header guard has wrong name, should be {}", expected)
+                write!(
+                    f,
+                    "#ifndef header guard has wrong name, should be {}",
+                    expected
+                )
             }
             Self::EndifCommentMissing(expected) => {
                 write!(f, "#endif line should be \"#endif  // {}\"", expected)
@@ -284,24 +374,24 @@ impl fmt::Display for LintMessage {
 
 impl From<&str> for LintMessage {
     fn from(s: &str) -> Self {
-        Self::Raw(s.to_string())
+        Self::Raw(s.into())
     }
 }
 
 impl From<String> for LintMessage {
     fn from(s: String) -> Self {
-        Self::Raw(s)
+        Self::Raw(s.into_boxed_str())
     }
 }
 
 impl From<&String> for LintMessage {
     fn from(s: &String) -> Self {
-        Self::Raw(s.clone())
+        Self::Raw(s.as_str().into())
     }
 }
 
 impl From<std::sync::Arc<str>> for LintMessage {
     fn from(s: std::sync::Arc<str>) -> Self {
-        Self::Raw(s.to_string())
+        Self::Raw(s.as_ref().into())
     }
 }

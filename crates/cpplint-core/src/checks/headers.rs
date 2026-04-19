@@ -1014,8 +1014,8 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 Category::BuildInclude,
                 4,
                 crate::messages::LintMessage::AlreadyIncluded(
-                    include.to_string(),
-                    linter.filename().to_string(),
+                    include.to_string().into(),
+                    linter.filename().to_string().into(),
                     first_line + 1,
                 ),
             );
@@ -1034,7 +1034,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 Category::BuildInclude,
                 4,
                 crate::messages::LintMessage::DoNotIncludeExtensionFromOtherPackages(
-                    extension.to_string(),
+                    extension.to_string().into(),
                 ),
             );
             continue;
@@ -1058,8 +1058,8 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                     Category::BuildIncludeOrder,
                     4,
                     crate::messages::LintMessage::IncludeOrder(
-                        message.to_string(),
-                        basename.to_string(),
+                        message.to_string().into(),
+                        basename.to_string().into(),
                     ),
                 );
             }
@@ -1073,7 +1073,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                     linenum,
                     Category::BuildIncludeAlpha,
                     4,
-                    crate::messages::LintMessage::IncludeAlpha(include.to_string()),
+                    crate::messages::LintMessage::IncludeAlpha(include.to_string().into()),
                 );
             }
             include_state.set_last_header(&canonical_include);
@@ -1254,7 +1254,10 @@ fn check_include_what_you_use(
                 linenum,
                 Category::BuildIncludeWhatYouUse,
                 4,
-                crate::messages::LintMessage::IwyuAddInclude(header.as_str().to_string(), symbol),
+                crate::messages::LintMessage::IwyuAddInclude(
+                    header.as_str().to_string().into(),
+                    symbol.into(),
+                ),
             );
         }
     }
@@ -1450,8 +1453,8 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
             Category::BuildInclude,
             5,
             crate::messages::LintMessage::MissingSelfHeader {
-                file_from_repo: path_from_repo,
-                header: header_name,
+                file_from_repo: path_from_repo.into(),
+                header: header_name.into(),
                 includes_use_aliases,
             },
         );

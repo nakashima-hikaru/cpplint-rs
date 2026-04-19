@@ -235,7 +235,7 @@ impl<'a> FileLinter<'a> {
                         Category::ReadabilityNolint,
                         5,
                         crate::messages::LintMessage::NolintCategoriesNotSupportedInEnd(
-                            category.to_string(),
+                            category.to_string().into(),
                         ),
                     );
                 }
@@ -283,7 +283,9 @@ impl<'a> FileLinter<'a> {
                     linenum,
                     Category::ReadabilityNolint,
                     5,
-                    crate::messages::LintMessage::UnknownNolintCategory(category.to_string()),
+                    crate::messages::LintMessage::UnknownNolintCategory(
+                        category.to_string().into(),
+                    ),
                 );
             }
         }

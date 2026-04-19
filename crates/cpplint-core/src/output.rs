@@ -368,19 +368,23 @@ fn render_counts(counting_style: CountingStyle, diagnostics: &[Diagnostic]) -> S
 fn sed_fixup(message: &crate::messages::LintMessage) -> Option<&'static str> {
     use crate::messages::LintMessage;
     match message {
-        LintMessage::MissingSpacesAround(op) if op == "=" => Some(r"s/ = /=/"),
-        LintMessage::MissingSpacesAround(op) if op == "!=" => Some(r"s/ != /!=/"),
-        LintMessage::Raw(m) if m == "Extra space before ( in if (" => Some(r"s/if (/if(/"),
-        LintMessage::Raw(m) if m == "Extra space before ( in for (" => Some(r"s/for (/for(/"),
-        LintMessage::Raw(m) if m == "Extra space before ( in while (" => Some(r"s/while (/while(/"),
-        LintMessage::Raw(m) if m == "Extra space before ( in switch (" => {
+        LintMessage::MissingSpacesAround(op) if op.as_ref() == "=" => Some(r"s/ = /=/"),
+        LintMessage::MissingSpacesAround(op) if op.as_ref() == "!=" => Some(r"s/ != /!=/"),
+        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in if (" => Some(r"s/if (/if(/"),
+        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in for (" => {
+            Some(r"s/for (/for(/")
+        }
+        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in while (" => {
+            Some(r"s/while (/while(/")
+        }
+        LintMessage::Raw(m) if m.as_ref() == "Extra space before ( in switch (" => {
             Some(r"s/switch (/switch(/")
         }
         LintMessage::ShouldHaveSpaceBetweenSlashesAndComment => Some(r"s/\/\//\/\/ /"),
-        LintMessage::Raw(m) if m == "Missing space before {" => Some(r"s/\([^ ]\){/\1 {/"),
+        LintMessage::Raw(m) if m.as_ref() == "Missing space before {" => Some(r"s/\([^ ]\){/\1 {/"),
         LintMessage::TabFound => Some(r"s/\t/  /g"),
         LintMessage::TrailingWhitespace => Some(r"s/\s*$//"),
-        LintMessage::BracesRedundant(kind) if kind == "}" => Some(r"s/};/}/"),
+        LintMessage::BracesRedundant(kind) if kind.as_ref() == "}" => Some(r"s/};/}/"),
         LintMessage::MissingSpaceAfterComma => Some(r"s/,\([^ ]\)/, \1/g"),
         _ => None,
     }

@@ -490,7 +490,7 @@ fn missing_self_header_from_diagnostics(diagnostics: &[Diagnostic]) -> Option<St
     use crate::messages::LintMessage;
     diagnostics.iter().find_map(|diagnostic| {
         if let LintMessage::MissingSelfHeader { header, .. } = &diagnostic.message {
-            Some(header.clone())
+            Some(header.to_string())
         } else {
             None
         }
@@ -503,7 +503,7 @@ fn missing_iwyu_headers_from_diagnostics(diagnostics: &[Diagnostic]) -> Vec<Stri
         .iter()
         .filter_map(|diagnostic| {
             if let LintMessage::IwyuAddInclude(header, _) = &diagnostic.message {
-                Some(header.clone())
+                Some(header.to_string())
             } else {
                 None
             }
@@ -548,7 +548,9 @@ fn fix_brace_placement(diagnostics: &[Diagnostic], lines: &mut Vec<String>) -> b
         .iter()
         .filter(|diagnostic| match &diagnostic.message {
             LintMessage::MissingSpaceBeforeOpenBrace => true,
-            LintMessage::Raw(m) => m == "{ should almost always be at the end of the previous line",
+            LintMessage::Raw(m) => {
+                m.as_ref() == "{ should almost always be at the end of the previous line"
+            }
             _ => false,
         })
         .map(|diagnostic| diagnostic.linenum.saturating_sub(1))
@@ -655,7 +657,7 @@ fn apply_line_fixes(
                     changed |= fix_semicolon_spacing(line, m);
                 }
             }
-            LintMessage::ExtraSpaceForOperator(op) if op == ":" => {
+            LintMessage::ExtraSpaceForOperator(op) if op.as_ref() == ":" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_range_for_colon(line);
@@ -668,11 +670,11 @@ fn apply_line_fixes(
                 }
             }
             LintMessage::BracesMissing(kind)
-                if kind == "if" || kind == "while" || kind == "for" =>
+                if kind.as_ref() == "if" || kind.as_ref() == "while" || kind.as_ref() == "for" =>
             {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_empty_control_body(line, &[kind.as_str()]);
+                    changed |= fix_empty_control_body(line, &[kind.as_ref()]);
                 }
             }
             LintMessage::EmptyIfBody
@@ -729,7 +731,7 @@ fn apply_line_fixes(
                     changed |= fix_check_macro(line);
                 }
             }
-            LintMessage::Raw(m) if m == "You don't need a ; after a }" => {
+            LintMessage::Raw(m) if m.as_ref() == "You don't need a ; after a }" => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
@@ -1046,14 +1048,17 @@ fn fix_semicolon_spacing(line: &mut String, message: &crate::messages::LintMessa
         LintMessage::MissingSpaceBeforeSemicolon => update_code(line, |code| {
             SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
         }),
-        LintMessage::Raw(m) if m == "Missing space after ;" => update_code(line, |code| {
+        LintMessage::Raw(m) if m.as_ref() == "Missing space after ;" => update_code(line, |code| {
             SEMICOLON_SPACE_RE.replace_all(code, "; $1").into_owned()
         }),
-        LintMessage::Raw(m) if m == "Semicolon defining empty statement. Use {} instead." => {
+        LintMessage::Raw(m)
+            if m.as_ref() == "Semicolon defining empty statement. Use {} instead." =>
+        {
             COLON_SEMICOLON_RE.replace(line, ": {}").into_owned()
         }
         LintMessage::Raw(m)
-            if m == "Line contains only semicolon. If this should be an empty statement, use {} instead." =>
+            if m.as_ref()
+                == "Line contains only semicolon. If this should be an empty statement, use {} instead." =>
         {
             let indent = line
                 .chars()
@@ -1065,7 +1070,8 @@ fn fix_semicolon_spacing(line: &mut String, message: &crate::messages::LintMessa
             SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
         }
         LintMessage::Raw(m)
-            if m == "Extra space before last semicolon. If this should be an empty statement, use {} instead." =>
+            if m.as_ref()
+                == "Extra space before last semicolon. If this should be an empty statement, use {} instead." =>
         {
             SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
         }
@@ -1132,7 +1138,9 @@ fn fix_brace_spacing(line: &mut String, message: &crate::messages::LintMessage) 
         LintMessage::MissingSpaceBeforeOpenBrace => BRACE_MISSING_SPACE_RE
             .replace_all(line, "$1 {")
             .into_owned(),
-        LintMessage::Raw(m) if m == "Missing space before else" => line.replace("}else", "} else"),
+        LintMessage::Raw(m) if m.as_ref() == "Missing space before else" => {
+            line.replace("}else", "} else")
+        }
         _ => return false,
     };
     if *line != fixed {

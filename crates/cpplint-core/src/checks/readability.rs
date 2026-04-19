@@ -170,7 +170,10 @@ fn check_alt_tokens(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, li
             linenum,
             Category::ReadabilityAltTokens,
             2,
-            crate::messages::LintMessage::AltToken(token.to_string(), key.to_string()),
+            crate::messages::LintMessage::AltToken(
+                token.to_string().into(),
+                key.to_string().into(),
+            ),
         );
     }
 }
@@ -199,7 +202,7 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
         linenum,
         category,
         5,
-        crate::messages::LintMessage::BracesRedundant("namespace using-directives".to_string()),
+        crate::messages::LintMessage::BracesRedundant("namespace using-directives".into()),
     );
 }
 
@@ -758,7 +761,7 @@ fn check_empty_bodies(
                 linenum,
                 Category::WhitespaceEmptyConditionalBody,
                 5,
-                crate::messages::LintMessage::EmptyConditionalBody("{}".to_string()),
+                crate::messages::LintMessage::EmptyConditionalBody("{}".into()),
             );
             return;
         }
@@ -770,7 +773,7 @@ fn check_empty_bodies(
                 linenum,
                 Category::WhitespaceEmptyLoopBody,
                 5,
-                crate::messages::LintMessage::EmptyLoopBody("{}".to_string()),
+                crate::messages::LintMessage::EmptyLoopBody("{}".into()),
             );
             return;
         }
@@ -1163,7 +1166,7 @@ fn check_namespace_termination_comment(
             linenum,
             Category::ReadabilityNamespace,
             5,
-            crate::messages::LintMessage::NamespaceMissingComment(String::new()),
+            crate::messages::LintMessage::NamespaceMissingComment("".into()),
         );
         return;
     }
@@ -1178,7 +1181,7 @@ fn check_namespace_termination_comment(
         linenum,
         Category::ReadabilityNamespace,
         5,
-        crate::messages::LintMessage::NamespaceMissingComment(name.to_string()),
+        crate::messages::LintMessage::NamespaceMissingComment(name.to_string().into()),
     );
 }
 

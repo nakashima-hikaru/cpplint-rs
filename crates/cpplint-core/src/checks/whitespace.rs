@@ -603,7 +603,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            crate::messages::LintMessage::MissingSpacesAround("=".to_string()),
+            crate::messages::LintMessage::MissingSpacesAround("=".into()),
         );
     }
 
@@ -612,7 +612,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             3,
-            crate::messages::LintMessage::MissingSpacesAround(op.to_string()),
+            crate::messages::LintMessage::MissingSpacesAround(op.to_string().into()),
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if let Some(end_pos) = analysis.less_pos
@@ -622,7 +622,7 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                crate::messages::LintMessage::MissingSpacesAround("<".to_string()),
+                crate::messages::LintMessage::MissingSpacesAround("<".into()),
             );
         }
 
@@ -634,7 +634,7 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                crate::messages::LintMessage::MissingSpacesAround(">".to_string()),
+                crate::messages::LintMessage::MissingSpacesAround(">".into()),
             );
         }
     }
@@ -650,7 +650,7 @@ fn check_operator_spacing(
                 linenum,
                 Category::WhitespaceOperators,
                 3,
-                crate::messages::LintMessage::MissingSpacesAround("<<".to_string()),
+                crate::messages::LintMessage::MissingSpacesAround("<<".into()),
             );
         }
     }
@@ -660,7 +660,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             3,
-            crate::messages::LintMessage::MissingSpacesAround(">>".to_string()),
+            crate::messages::LintMessage::MissingSpacesAround(">>".into()),
         );
     }
 
@@ -669,7 +669,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            crate::messages::LintMessage::ExtraSpaceForOperator(op.to_string()),
+            crate::messages::LintMessage::ExtraSpaceForOperator(op.to_string().into()),
         );
     }
 }
@@ -1498,10 +1498,13 @@ fn check_access_specifier_indentation(
             linenum,
             Category::WhitespaceIndent,
             3,
-            crate::messages::LintMessage::ShouldBeIndented(format!(
-                "{}{}: should be indented +1 space inside {}",
-                access, slots, class_name
-            )),
+            crate::messages::LintMessage::ShouldBeIndented(
+                format!(
+                    "{}{}: should be indented +1 space inside {}",
+                    access, slots, class_name
+                )
+                .into(),
+            ),
         );
     }
 }
@@ -1549,7 +1552,7 @@ fn check_class_closing_brace_alignment(
         linenum,
         Category::WhitespaceIndent,
         3,
-        crate::messages::LintMessage::ClosingBraceAlignment(parent),
+        crate::messages::LintMessage::ClosingBraceAlignment(parent.into()),
     );
 }
 

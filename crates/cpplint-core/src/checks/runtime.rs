@@ -325,7 +325,7 @@ fn check_casts(
                         Category::ReadabilityCasting,
                         4,
                         crate::messages::LintMessage::DeprecatedCastingStyle(
-                            matched_type.to_string(),
+                            matched_type.to_string().into(),
                         ),
                     );
                 }
@@ -540,7 +540,10 @@ fn check_c_style_cast_internal(
         linenum,
         Category::ReadabilityCasting,
         4,
-        crate::messages::LintMessage::CStyleCast(cast_type.to_string(), type_str.to_string()),
+        crate::messages::LintMessage::CStyleCast(
+            cast_type.to_string().into(),
+            type_str.to_string().into(),
+        ),
     );
     true
 }
@@ -1162,9 +1165,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintfFormat,
                 2,
-                crate::messages::LintMessage::PrintfFormat(
-                    "%N$ formats are unconventional".to_string(),
-                ),
+                crate::messages::LintMessage::PrintfFormat("%N$ formats are unconventional".into()),
             );
         }
     }
@@ -1286,7 +1287,7 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
         linenum,
         Category::RuntimeInt,
         4,
-        crate::messages::LintMessage::CIntegerType(ty.to_string()),
+        crate::messages::LintMessage::CIntegerType(ty.to_string().into()),
     );
 }
 
@@ -1339,7 +1340,7 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
             linenum,
             Category::RuntimeReferences,
             2,
-            crate::messages::LintMessage::NonConstReference(normalized.into_owned()),
+            crate::messages::LintMessage::NonConstReference(normalized.into_owned().into()),
         );
     }
 }
@@ -1392,7 +1393,7 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
             linenum,
             Category::RuntimeArrays,
             1,
-            crate::messages::LintMessage::VlaFound(size_expr.to_string()),
+            crate::messages::LintMessage::VlaFound(size_expr.to_string().into()),
         );
         return;
     }
