@@ -612,7 +612,7 @@ fn check_operator_spacing(
     }
 
     if let Some(op) = analysis.missing_comparison_space {
-        if let Some(op) = crate::messages::OperatorSymbol::from_str(op) {
+        if let Some(op) = crate::messages::OperatorSymbol::from_str_opt(op) {
             linter.error(
                 linenum,
                 Category::WhitespaceOperators,
@@ -678,15 +678,16 @@ fn check_operator_spacing(
         );
     }
 
-    if let Some(op) = analysis.extra_unary_space {
-        if let Some(op) = crate::messages::OperatorSymbol::from_str(op) {
-            linter.error(
-                linenum,
-                Category::WhitespaceOperators,
-                4,
-                crate::messages::LintMessage::ExtraSpaceForOperator(op),
-            );
-        }
+    if let Some(op) = analysis
+        .extra_unary_space
+        .and_then(crate::messages::OperatorSymbol::from_str_opt)
+    {
+        linter.error(
+            linenum,
+            Category::WhitespaceOperators,
+            4,
+            crate::messages::LintMessage::ExtraSpaceForOperator(op),
+        );
     }
 }
 

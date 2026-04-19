@@ -15,21 +15,29 @@ pub enum OperatorSymbol {
     Tilde,
 }
 
-impl OperatorSymbol {
-    pub fn from_str(value: &str) -> Option<Self> {
+impl std::str::FromStr for OperatorSymbol {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "=" => Some(Self::Eq),
-            "!=" => Some(Self::Ne),
-            "<" => Some(Self::Lt),
-            ">" => Some(Self::Gt),
-            "<<" => Some(Self::LShift),
-            ">>" => Some(Self::RShift),
-            ":" => Some(Self::Colon),
-            "!" => Some(Self::Bang),
-            "! " => Some(Self::BangSpaced),
-            "~" => Some(Self::Tilde),
-            _ => None,
+            "=" => Ok(Self::Eq),
+            "!=" => Ok(Self::Ne),
+            "<" => Ok(Self::Lt),
+            ">" => Ok(Self::Gt),
+            "<<" => Ok(Self::LShift),
+            ">>" => Ok(Self::RShift),
+            ":" => Ok(Self::Colon),
+            "!" => Ok(Self::Bang),
+            "! " => Ok(Self::BangSpaced),
+            "~" => Ok(Self::Tilde),
+            _ => Err(()),
         }
+    }
+}
+
+impl OperatorSymbol {
+    pub fn from_str_opt(value: &str) -> Option<Self> {
+        <Self as std::str::FromStr>::from_str(value).ok()
     }
 
     pub fn as_display_str(self) -> &'static str {
