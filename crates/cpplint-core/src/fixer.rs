@@ -834,11 +834,11 @@ fn fix_blank_line(
             | LintMessage::BlankLineAtStartOfBlock
             | LintMessage::BlankLineAtEndOfBlock
             | LintMessage::NoBlankLineAfterSection
-    )
-        && lines[idx].trim().is_empty() {
-            lines.remove(idx);
-            return true;
-        }
+    ) && lines[idx].trim().is_empty()
+    {
+        lines.remove(idx);
+        return true;
+    }
     // Note: Some blank line fixes are not easily mapped to a single variant yet
     // but the above covers the main cases.
     false
@@ -1636,7 +1636,6 @@ fn find_line_comment_start(line: &str) -> Option<usize> {
 fn previous_non_blank_line(lines: &[String], start: usize) -> Option<usize> {
     (0..start).rev().find(|&idx| !lines[idx].trim().is_empty())
 }
-
 
 fn find_matching_paren(line: &str, open: usize) -> Option<usize> {
     let mut depth = 0usize;
