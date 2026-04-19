@@ -107,19 +107,19 @@ run_bench() {
         return
     fi
 
-    # If running under MSYS/Cygwin, convert target_path and binaries to Windows format
+    # If running under MSYS/Cygwin, convert target_path and binaries to Windows format.
     local run_path="$target_path"
-    if [ -n "$CPPLINT_CPP" ]; then
-        cpp_bin=$(cygpath -w "$CPPLINT_CPP")
-    fi
-    if [ -n "$CPPLINT_RS" ]; then
-        rs_bin=$(cygpath -w "$CPPLINT_RS")
-    fi
+    local cpp_bin="$CPPLINT_CPP"
+    local rs_bin="$CPPLINT_RS"
 
     if command -v cygpath &> /dev/null; then
         run_path=$(cygpath -w "$target_path")
-        cpp_bin=$(cygpath -w "$CPPLINT_CPP")
-        rs_bin=$(cygpath -w "$CPPLINT_RS")
+        if [ -n "$CPPLINT_CPP" ]; then
+            cpp_bin=$(cygpath -w "$CPPLINT_CPP")
+        fi
+        if [ -n "$CPPLINT_RS" ]; then
+            rs_bin=$(cygpath -w "$CPPLINT_RS")
+        fi
     fi
 
     echo "Debugging paths before hyperfine:"
