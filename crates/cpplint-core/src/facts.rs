@@ -56,6 +56,7 @@ impl FileFacts {
         let mut closing_brace_starts = Vec::with_capacity(n);
         let mut macro_lines = Vec::with_capacity(n);
         let mut matching_block_starts = vec![None; n];
+        let mut matching_block_ends = vec![None; n];
         let mut non_blank_elided_prefix = Vec::with_capacity(n + 1);
         non_blank_elided_prefix.push(0);
 
@@ -67,6 +68,7 @@ impl FileFacts {
 
         let mut top_ns_stack = Vec::new();
         let mut top_ns_depth = 0usize;
+        let mut top_non_namespace_depth = 0usize;
         let mut block_kind = vec![None; n];
         let mut namespace_decl_line = vec![None; n];
         let mut non_namespace_indent_depth_before = Vec::with_capacity(n);
@@ -200,11 +202,7 @@ impl FileFacts {
             }
 
             // 3b. namespace_top_level_depth
-            let non_ns_before = top_ns_stack
-                .iter()
-                .filter(|&&k| k == ScopeKind::Block)
-                .count();
-            non_namespace_indent_depth_before.push(non_ns_before);
+            non_namespace_indent_depth_before.push(top_non_namespace_depth);
 
             namespace_top_level_depth.push((top_ns_depth > 0).then_some(top_ns_depth));
             if l_braces > 0 && block_kind[linenum] == Some(ScopeKind::Namespace) {
@@ -212,31 +210,41 @@ impl FileFacts {
                 top_ns_depth += 1;
                 for _ in 1..l_braces {
                     top_ns_stack.push(ScopeKind::Block);
+                    top_non_namespace_depth += 1;
                 }
                 for _ in 0..r_braces {
-                    if let Some(popped) = top_ns_stack.pop()
-                        && popped == ScopeKind::Namespace
-                    {
-                        top_ns_depth = top_ns_depth.saturating_sub(1);
+                    if let Some(popped) = top_ns_stack.pop() {
+                        match popped {
+                            ScopeKind::Namespace => {
+                                top_ns_depth = top_ns_depth.saturating_sub(1);
+                            }
+                            ScopeKind::Block => {
+                                top_non_namespace_depth = top_non_namespace_depth.saturating_sub(1);
+                            }
+                            ScopeKind::Extern => {}
+                        }
                     }
                 }
             } else {
                 for _ in 0..l_braces {
                     top_ns_stack.push(ScopeKind::Block);
+                    top_non_namespace_depth += 1;
                 }
                 for _ in 0..r_braces {
-                    if let Some(popped) = top_ns_stack.pop()
-                        && popped == ScopeKind::Namespace
-                    {
-                        top_ns_depth = top_ns_depth.saturating_sub(1);
+                    if let Some(popped) = top_ns_stack.pop() {
+                        match popped {
+                            ScopeKind::Namespace => {
+                                top_ns_depth = top_ns_depth.saturating_sub(1);
+                            }
+                            ScopeKind::Block => {
+                                top_non_namespace_depth = top_non_namespace_depth.saturating_sub(1);
+                            }
+                            ScopeKind::Extern => {}
+                        }
                     }
                 }
             }
-            let non_ns_depth = top_ns_stack
-                .iter()
-                .filter(|&&k| k == ScopeKind::Block)
-                .count();
-            non_namespace_indent_depth.push(non_ns_depth);
+            non_namespace_indent_depth.push(top_non_namespace_depth);
 
             // 3c. closing_brace_starts
             let cbs = if r_braces == 0 {
@@ -288,6 +296,7 @@ impl FileFacts {
             let mut last_popped = None;
             for _ in 0..r_braces {
                 if let Some(start) = matching_stack.pop() {
+                    matching_block_ends[start] = Some(linenum);
                     last_popped = Some(start);
                 }
             }
@@ -295,7 +304,7 @@ impl FileFacts {
         }
 
         let (class_facts, class_fact_by_line) =
-            build_class_facts(&clean_lines.elided, &line_braces);
+            build_class_facts(&clean_lines.elided, &line_braces, &matching_block_ends);
 
         Self {
             in_namespace_or_extern_block,
@@ -389,6 +398,7 @@ static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
 fn build_class_facts<S: AsRef<str>>(
     lines: &[S],
     line_braces: &[(u32, u32)],
+    matching_block_ends: &[Option<usize>],
 ) -> (Vec<ClassFact>, Vec<Option<usize>>) {
     let mut class_facts = Vec::new();
     let mut pending: Option<(usize, String, bool)> = None;
@@ -427,22 +437,12 @@ fn build_class_facts<S: AsRef<str>>(
         }
 
         let (l, r) = line_braces[linenum];
-        let mut depth = l as isize - r as isize;
-        if depth <= 0 {
+        if l <= r {
             pending = None;
             continue;
         }
 
-        let mut class_end = None;
-        for (end, &(l, r)) in line_braces.iter().enumerate().skip(linenum + 1) {
-            depth += l as isize;
-            depth -= r as isize;
-            if depth == 0 {
-                class_end = Some(end);
-                break;
-            }
-        }
-        if let Some(end) = class_end {
+        if let Some(end) = matching_block_ends[linenum] {
             let (_, name, is_struct) = pending.take().unwrap();
             class_facts.push(ClassFact {
                 range: ClassRange { start, end },
@@ -566,6 +566,8 @@ mod tests {
         let facts = FileFacts::new(&clean_lines);
 
         assert_eq!(facts.namespace_top_level_depth(1), Some(1));
+        assert_eq!(facts.non_namespace_indent_depth_before(6), 1);
+        assert_eq!(facts.non_namespace_indent_depth(6), 1);
         assert_eq!(facts.matching_block_start(2), Some(0));
         assert_eq!(
             facts.enclosing_class_range(6),
@@ -584,6 +586,8 @@ mod tests {
         let facts = FileFacts::new(&clean_lines);
 
         assert_eq!(facts.namespace_top_level_depth(3), Some(1));
+        assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
+        assert_eq!(facts.non_namespace_indent_depth(3), 0);
         assert_eq!(facts.matching_block_start(4), Some(2));
     }
 
@@ -603,6 +607,8 @@ mod tests {
 
         let facts = FileFacts::new(&clean_lines);
 
+        assert_eq!(facts.non_namespace_indent_depth_before(4), 0);
+        assert_eq!(facts.non_namespace_indent_depth(4), 1);
         assert_eq!(facts.matching_block_start(3), Some(1));
     }
 }

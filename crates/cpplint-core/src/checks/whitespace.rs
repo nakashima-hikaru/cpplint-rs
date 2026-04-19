@@ -797,6 +797,7 @@ fn check_spacing_for_function_call(
                 linenum,
                 keywords,
             );
+            return;
         }
     } else if keywords.has_while()
         && let Some(captures) = WHILE_CALL_RE.captures(elided_line)
@@ -820,7 +821,8 @@ fn check_spacing_for_function_call(
         linenum,
         keywords,
     );
-    if raw_line.trim_end() != raw_line && raw_line.trim_end().ends_with('(') {
+    let trimmed_raw_line = raw_line.trim_end();
+    if trimmed_raw_line != raw_line && trimmed_raw_line.ends_with('(') {
         check_spacing_for_function_call_base(
             linter, raw_line, raw_line, raw_line, linenum, keywords,
         );
