@@ -682,8 +682,8 @@ fn apply_line_fixes(
                 }
             }
             LintMessage::EmptyIfBody
-            | LintMessage::EmptyLoopBody(_)
-            | LintMessage::EmptyConditionalBody(_) => {
+            | LintMessage::EmptyLoopBody
+            | LintMessage::EmptyConditionalBody => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if idx < lines.len() {
                     changed |= fix_empty_if_body(lines, idx);

@@ -208,7 +208,9 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
         linenum,
         category,
         5,
-        crate::messages::LintMessage::BracesRedundant("namespace using-directives".into()),
+        crate::messages::LintMessage::BracesRedundant(
+            crate::messages::BracesRedundantKind::NamespaceUsingDirectives,
+        ),
     );
 }
 
@@ -767,7 +769,7 @@ fn check_empty_bodies(
                 linenum,
                 Category::WhitespaceEmptyConditionalBody,
                 5,
-                crate::messages::LintMessage::EmptyConditionalBody("{}".into()),
+                crate::messages::LintMessage::EmptyConditionalBody,
             );
             return;
         }
@@ -779,7 +781,7 @@ fn check_empty_bodies(
                 linenum,
                 Category::WhitespaceEmptyLoopBody,
                 5,
-                crate::messages::LintMessage::EmptyLoopBody("{}".into()),
+                crate::messages::LintMessage::EmptyLoopBody,
             );
             return;
         }

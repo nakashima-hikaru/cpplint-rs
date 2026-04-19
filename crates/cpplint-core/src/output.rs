@@ -366,7 +366,7 @@ fn render_counts(counting_style: CountingStyle, diagnostics: &[Diagnostic]) -> S
 }
 
 fn sed_fixup(message: &crate::messages::LintMessage) -> Option<&'static str> {
-    use crate::messages::{LintMessage, OperatorSymbol};
+    use crate::messages::{BracesRedundantKind, LintMessage, OperatorSymbol};
     match message {
         LintMessage::MissingSpacesAround(OperatorSymbol::Eq) => Some(r"s/ = /=/"),
         LintMessage::MissingSpacesAround(OperatorSymbol::Ne) => Some(r"s/ != /!=/"),
@@ -384,7 +384,7 @@ fn sed_fixup(message: &crate::messages::LintMessage) -> Option<&'static str> {
         LintMessage::MissingSpaceBeforeOpenBrace => Some(r"s/\([^ ]\){/\1 {/"),
         LintMessage::TabFound => Some(r"s/\t/  /g"),
         LintMessage::TrailingWhitespace => Some(r"s/\s*$//"),
-        LintMessage::BracesRedundant(kind) if kind.as_ref() == "}" => Some(r"s/};/}/"),
+        LintMessage::BracesRedundant(BracesRedundantKind::ClosingBrace) => Some(r"s/};/}/"),
         LintMessage::MissingSpaceAfterComma => Some(r"s/,\([^ ]\)/, \1/g"),
         _ => None,
     }

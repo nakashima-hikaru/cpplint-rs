@@ -1173,7 +1173,9 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintfFormat,
                 2,
-                crate::messages::LintMessage::PrintfFormat("%N$ formats are unconventional".into()),
+                crate::messages::LintMessage::PrintfFormat(
+                    crate::messages::PrintfFormatIssue::UnconventionalPositionalFormats,
+                ),
             );
         }
     }
@@ -1295,7 +1297,11 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
         linenum,
         Category::RuntimeInt,
         4,
-        crate::messages::LintMessage::CIntegerType(ty.to_string().into()),
+        crate::messages::LintMessage::CIntegerType(match ty {
+            "short" => crate::messages::CIntegerTypeKind::Short,
+            "long" => crate::messages::CIntegerTypeKind::Long,
+            _ => unreachable!("runtime/int only reports short or long"),
+        }),
     );
 }
 

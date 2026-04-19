@@ -63,6 +63,49 @@ impl OperatorSymbol {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CIntegerTypeKind {
+    Short,
+    Long,
+}
+
+impl CIntegerTypeKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Short => "short",
+            Self::Long => "long",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PrintfFormatIssue {
+    UnconventionalPositionalFormats,
+}
+
+impl PrintfFormatIssue {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::UnconventionalPositionalFormats => "%N$ formats are unconventional",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BracesRedundantKind {
+    NamespaceUsingDirectives,
+    ClosingBrace,
+}
+
+impl BracesRedundantKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NamespaceUsingDirectives => "namespace using-directives",
+            Self::ClosingBrace => "}",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LintMessage {
     // Core / Suppression messages
@@ -162,22 +205,22 @@ pub enum LintMessage {
     SprintfRecommended,
     VlogShouldUseNumericVerbosityLevel,
     VlaFound(Box<str>),
-    PrintfFormat(Box<str>),
+    PrintfFormat(PrintfFormatIssue),
     PrintfFormatDeprecatedQ,
     PrintfFormatUndefinedEscape,
     NonConstReference(Box<str>),
     UnaryOperatorAmpersand,
     PortsShouldBeUnsignedShort,
-    CIntegerType(Box<str>),
+    CIntegerType(CIntegerTypeKind),
 
     // Readability
     RedundantCast(Box<str>),
     BracesMissing(Box<str>),
-    BracesRedundant(Box<str>),
+    BracesRedundant(BracesRedundantKind),
     BuildExplicitMakePair,
     EmptyIfBody,
-    EmptyConditionalBody(Box<str>),
-    EmptyLoopBody(Box<str>),
+    EmptyConditionalBody,
+    EmptyLoopBody,
     NamespaceIndented,
     TodoNoUsername,
     TodoNoSpace,
@@ -449,10 +492,10 @@ impl fmt::Display for LintMessage {
             ),
             Self::LineLength(len) => write!(f, "Lines should be <= {} characters long", len),
             Self::ShouldBeIndented(msg) => write!(f, "should be indented {}", msg),
-            Self::EmptyConditionalBody(kind) => {
-                write!(f, "Empty conditional bodies should use {}", kind)
+            Self::EmptyConditionalBody => {
+                write!(f, "Empty conditional bodies should use {{}}")
             }
-            Self::EmptyLoopBody(kind) => write!(f, "Empty loop bodies should use {}", kind),
+            Self::EmptyLoopBody => write!(f, "Empty loop bodies should use {{}}"),
             Self::ClosingBraceAlignment(expected) => {
                 write!(
                     f,
@@ -508,20 +551,32 @@ impl fmt::Display for LintMessage {
                     name
                 )
             }
-            Self::PrintfFormat(fmt_part) => write!(f, "Printf format string contains {}", fmt_part),
+            Self::PrintfFormat(fmt_part) => {
+                write!(
+                    f,
+                    "Printf format string contains {}",
+                    fmt_part.as_str()
+                )
+            }
             Self::NonConstReference(name) => write!(
                 f,
                 "Is {} a non-const reference? If so, make it a pointer or a const reference.",
                 name
             ),
             Self::CIntegerType(ty) => {
-                write!(f, "Use int16_t/int64_t/etc, rather than the C type {}", ty)
+                write!(
+                    f,
+                    "Use int16_t/int64_t/etc, rather than the C type {}",
+                    ty.as_str()
+                )
             }
             Self::RedundantCast(t) => write!(f, "Redundant cast to {}", t),
             Self::BracesMissing(kind) => {
                 write!(f, "Else/If should always be enclosed in braces: {}", kind)
             }
-            Self::BracesRedundant(kind) => write!(f, "Redundant braces around {}", kind),
+            Self::BracesRedundant(kind) => {
+                write!(f, "Redundant braces around {}", kind.as_str())
+            }
             Self::NamespaceMissingComment(name) => {
                 write!(
                     f,
