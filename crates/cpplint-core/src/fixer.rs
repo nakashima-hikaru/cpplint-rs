@@ -1,4 +1,5 @@
 use crate::c_headers;
+use crate::categories::Category;
 use crate::cleanse::CleansedLines;
 use crate::diagnostics::Diagnostic;
 use crate::errors::Result;
@@ -304,11 +305,11 @@ fn fix_include_block(
     let additions = missing_include_entries_from_diagnostics(path, options, diagnostics);
     let relevant = diagnostics.iter().any(|diagnostic| {
         matches!(
-            diagnostic.category.as_str(),
-            "build/include"
-                | "build/include_alpha"
-                | "build/include_order"
-                | "build/include_what_you_use"
+            diagnostic.category,
+            Category::BuildInclude
+                | Category::BuildIncludeAlpha
+                | Category::BuildIncludeOrder
+                | Category::BuildIncludeWhatYouUse
         )
     });
     if !relevant && additions.is_empty() {
