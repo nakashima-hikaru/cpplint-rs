@@ -854,7 +854,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
                 line_idx,
                 Category::BuildHeaderGuard,
                 5,
-                &format!(
+                format!(
                     "#ifndef header guard has wrong style, please use: {}",
                     expected_guard
                 ),
@@ -877,7 +877,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
                 endif_idx,
                 Category::BuildHeaderGuard,
                 0,
-                &format!(r#"#endif line should be "{}""#, expected_slash),
+                format!(r#"#endif line should be "{}""#, expected_slash),
             );
             return;
         }
@@ -887,7 +887,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
                 endif_idx,
                 Category::BuildHeaderGuard,
                 0,
-                &format!(r#"#endif line should be "{}""#, expected_block),
+                format!(r#"#endif line should be "{}""#, expected_block),
             );
             return;
         }
@@ -896,7 +896,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
             endif_idx,
             Category::BuildHeaderGuard,
             5,
-            &format!(r#"#endif line should be "{}""#, expected_slash),
+            format!(r#"#endif line should be "{}""#, expected_slash),
         );
         return;
     }
@@ -905,7 +905,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
         0,
         Category::BuildHeaderGuard,
         5,
-        &format!(
+        format!(
             "No #ifndef header guard found, suggested CPP variable is: {}",
             expected_guard
         ),
@@ -987,7 +987,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 linenum,
                 Category::BuildCpp11,
                 5,
-                &format!("<{}> is an unapproved C++11 header.", include),
+                format!("<{}> is an unapproved C++11 header.", include),
             );
         }
 

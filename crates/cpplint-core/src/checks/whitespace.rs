@@ -107,11 +107,10 @@ fn has_ref_call(fncall: &str) -> bool {
             if bytes[j] == b'[' {
                 // ARRAY_REF: ` (...)\[...\]` — just need at least one char before ']'
                 let k = j + 1;
-                if let Some(close) = memchr::memchr(b']', &bytes[k..]) {
-                    if close > 0 {
+                if let Some(close) = memchr::memchr(b']', &bytes[k..])
+                    && close > 0 {
                         return true;
                     }
-                }
             } else {
                 // FUNC_REF: ` (...)(...)` where inner must end with ')' or ','
                 let inner_start = j;
@@ -243,9 +242,7 @@ impl CallSpacingFlags {
         }
 
         // DEFINE pattern: uses `#`, `typedef`, or `using … =`
-        if s.contains('#') || s.contains("typedef") {
-            flags.define = true;
-        } else if s.contains("using") && s.contains('=') {
+        if s.contains('#') || s.contains("typedef") || (s.contains("using") && s.contains('=')) {
             flags.define = true;
         }
 
@@ -256,14 +253,13 @@ impl CallSpacingFlags {
         }
 
         // CASE pattern: `\bcase\s+(`
-        if let Some(pos) = s.find("case") {
-            if string_utils::is_word_match(s, pos, pos + 4) {
+        if let Some(pos) = s.find("case")
+            && string_utils::is_word_match(s, pos, pos + 4) {
                 let after = s[pos + 4..].trim_start();
                 if after.starts_with('(') {
                     flags.case = true;
                 }
             }
-        }
 
         flags
     }
@@ -807,25 +803,23 @@ impl OperatorSpacingAnalysis {
                         i += 1;
                     }
                 }
-                b'|' => {
+                b'|'
                     if analysis.missing_comparison_space.is_none()
                         && bytes.get(i + 1) == Some(&b'|')
                         && has_missing_comparison_space_at(bytes, i)
-                    {
+                    => {
                         analysis.missing_comparison_space = Some("||");
                         i += 1;
                     }
-                }
-                b'~' => {
+                b'~'
                     if analysis.extra_unary_space.is_none()
                         && bytes
                             .get(i + 1)
                             .is_some_and(|next| next.is_ascii_whitespace())
-                    {
+                    => {
                         analysis.extra_unary_space = Some("~");
                     }
-                }
-                b'+' | b'-' => {
+                b'+' | b'-'
                     if analysis.extra_unary_space.is_none()
                         && bytes.get(i + 1) == Some(&bytes[i])
                         && i > 0
@@ -833,12 +827,11 @@ impl OperatorSpacingAnalysis {
                         && bytes
                             .get(i + 2)
                             .is_some_and(|after| after.is_ascii_whitespace() || *after == b';')
-                    {
+                    => {
                         analysis.extra_unary_space =
                             Some(if bytes[i] == b'-' { "--" } else { "++" });
                         i += 1;
                     }
-                }
                 _ => {}
             }
             i += 1;
@@ -1020,7 +1013,7 @@ fn check_parenthesis_spacing(
                     linenum,
                     Category::WhitespaceParens,
                     5,
-                    &format!(
+                    format!(
                         "Should have zero or one spaces inside ( and ) in {}",
                         keyword
                     ),

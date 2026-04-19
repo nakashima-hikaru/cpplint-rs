@@ -878,7 +878,7 @@ fn check_memset(linter: &mut FileLinter, line: &str, linenum: usize) {
         linenum,
         Category::RuntimeMemset,
         4,
-        &format!(r#"Did you mean "memset({}, 0, {})"?"#, target, size),
+        format!(r#"Did you mean "memset({}, 0, {})"?"#, target, size),
     );
 }
 
@@ -894,7 +894,7 @@ fn check_threadsafe_functions(linter: &mut FileLinter, elided_line: &str, linenu
         linenum,
         Category::RuntimeThreadsafeFn,
         2,
-        &format!(
+        format!(
             "Consider using {}_r(...) instead of {}(...) for improved thread safety.",
             funcname, funcname
         ),
@@ -986,7 +986,7 @@ fn check_global_strings(linter: &mut FileLinter, line: &str, linenum: usize) {
             linenum,
             Category::RuntimeString,
             4,
-            &format!(
+            format!(
                 "For a static/global string constant, use a C style string instead: \"{}char{} {}[]\".",
                 prefix, suffix_const, name
             ),
@@ -1112,7 +1112,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
                 linenum,
                 Category::RuntimePrintf,
                 4,
-                &format!("Almost always, snprintf is better than {}", func),
+                format!("Almost always, snprintf is better than {}", func),
             );
         }
     }
@@ -1126,7 +1126,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
                     linenum,
                     Category::RuntimePrintf,
                     3,
-                    &format!(
+                    format!(
                         "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
                         buffer, size
                     ),

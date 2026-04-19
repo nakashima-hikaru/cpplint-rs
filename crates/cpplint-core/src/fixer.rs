@@ -834,12 +834,11 @@ fn fix_blank_line(
             | LintMessage::BlankLineAtStartOfBlock
             | LintMessage::BlankLineAtEndOfBlock
             | LintMessage::NoBlankLineAfterSection
-    ) {
-        if lines[idx].trim().is_empty() {
+    )
+        && lines[idx].trim().is_empty() {
             lines.remove(idx);
             return true;
         }
-    }
     // Note: Some blank line fixes are not easily mapped to a single variant yet
     // but the above covers the main cases.
     false
@@ -1001,15 +1000,20 @@ fn fix_empty_if_body(lines: &mut Vec<String>, idx: usize) -> bool {
 
     // Check if it's empty
     let mut is_empty = true;
-    for i in opening_idx..=closing_idx {
+    for (i, line) in lines
+        .iter()
+        .enumerate()
+        .take(closing_idx + 1)
+        .skip(opening_idx)
+    {
         let l = if i == opening_idx {
-            let start = lines[i].find('{').unwrap();
-            &lines[i][start + 1..]
+            let start = line.find('{').unwrap();
+            &line[start + 1..]
         } else if i == closing_idx {
-            let end = lines[i].find('}').unwrap();
-            &lines[i][..end]
+            let end = line.find('}').unwrap();
+            &line[..end]
         } else {
-            &lines[i]
+            line
         };
         if !l.trim().is_empty() {
             is_empty = false;
@@ -1018,7 +1022,7 @@ fn fix_empty_if_body(lines: &mut Vec<String>, idx: usize) -> bool {
     }
 
     if is_empty {
-        let indent = lines[idx]
+        let _indent = lines[idx]
             .chars()
             .take_while(|ch| ch.is_ascii_whitespace())
             .collect::<String>();
@@ -1633,9 +1637,6 @@ fn previous_non_blank_line(lines: &[String], start: usize) -> Option<usize> {
     (0..start).rev().find(|&idx| !lines[idx].trim().is_empty())
 }
 
-fn next_non_blank_line(lines: &[String], start: usize) -> Option<usize> {
-    (start..lines.len()).find(|&idx| !lines[idx].trim().is_empty())
-}
 
 fn find_matching_paren(line: &str, open: usize) -> Option<usize> {
     let mut depth = 0usize;

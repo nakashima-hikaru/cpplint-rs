@@ -56,9 +56,6 @@ static NAMESPACE_TERMINATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*};*\s*(//|/\*).*\bnamespace\b"#).unwrap());
 static ANONYMOUS_NAMESPACE_TERMINATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*};*\s*(//|/\*).*\bnamespace[\*/\.\\\s]*$"#).unwrap());
-static ANONYMOUS_NAMESPACE_TERM_MSG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^\s*}.*\b(namespace anonymous|anonymous namespace)\b"#).unwrap()
-});
 
 fn is_test_like_function(name: &str) -> bool {
     name.starts_with("TEST") || name.starts_with("Test")
@@ -267,7 +264,7 @@ fn check_check_macro(
         linenum,
         Category::ReadabilityCheck,
         2,
-        &format!(
+        format!(
             "Consider using {} instead of {}(a {} b)",
             replacement, check_macro, op
         ),
@@ -412,7 +409,7 @@ fn check_function_size(
             start_line,
             Category::ReadabilityFnSize,
             0,
-            &format!(
+            format!(
                 "Small and focused functions are preferred: {} has {} non-blank lines (error triggered by exceeding {} lines).",
                 display_name, line_count, limit
             ),
@@ -431,7 +428,7 @@ fn check_missing_function_body(
             linenum,
             Category::ReadabilityFnSize,
             5,
-            &format!(
+            format!(
                 "Lint failed to find start of function body for {}.",
                 function_name.as_ref()
             ),
@@ -993,7 +990,7 @@ fn check_single_line_control_bodies(
                             linenum,
                             Category::WhitespaceNewline,
                             5,
-                            &format!(
+                            format!(
                                 "Controlled statements inside brackets of {} clause should be on a separate line",
                                 kw
                             ),
