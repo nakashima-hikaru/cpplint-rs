@@ -1,5 +1,5 @@
 use crate::categories::Category;
-use crate::cleanse::{CleansedLines, LineFeatures};
+use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
 use crate::file_linter::FileLinter;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
@@ -172,43 +172,32 @@ static THREADSAFE_FN_AC: LazyLock<AhoCorasick> =
 static C_INTEGER_TYPES_NEEDLES: [&str; 3] = ["port", "short", "long"];
 static C_INTEGER_TYPES_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(C_INTEGER_TYPES_NEEDLES).unwrap());
-const RUNTIME_CHECK_NEEDLES: &[&str] = &[
-    "explicit",
-    "register",
-    "static",
-    "extern",
-    "typedef",
-    "class",
-    "struct",
-    "#endif",
-    "memset",
-    "VLOG",
-    "make_pair",
-    "strcpy",
-    "strcat",
-    "snprintf",
-    "sprintf",
-    "printf",
-    "port",
-    "short",
-    "long",
-    "string",
-    "asctime",
-    "ctime",
-    "getgrgid",
-    "getgrnam",
-    "getlogin",
-    "getpwnam",
-    "getpwuid",
-    "gmtime",
-    "localtime",
-    "rand",
-    "strtok",
-    "ttyname",
-];
 
-static RUNTIME_CHECK_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(RUNTIME_CHECK_NEEDLES).unwrap());
+const STORAGE_CLASS_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_truncate(
+    MatchedKeywords::REGISTER.bits()
+        | MatchedKeywords::STATIC.bits()
+        | MatchedKeywords::EXTERN.bits()
+        | MatchedKeywords::TYPEDEF.bits(),
+);
+
+const PRINTF_FORMAT_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_truncate(
+    MatchedKeywords::EXPLICIT.bits()
+        | MatchedKeywords::REGISTER.bits()
+        | MatchedKeywords::STATIC.bits()
+        | MatchedKeywords::EXTERN.bits()
+        | MatchedKeywords::TYPEDEF.bits()
+        | MatchedKeywords::CLASS.bits()
+        | MatchedKeywords::STRUCT.bits()
+        | MatchedKeywords::ENDIF.bits()
+        | MatchedKeywords::MEMSET.bits()
+        | MatchedKeywords::VLOG.bits()
+        | MatchedKeywords::MAKE_PAIR.bits()
+        | MatchedKeywords::STRCPY_STRCAT.bits()
+        | MatchedKeywords::PRINTF.bits()
+        | MatchedKeywords::C_INTEGER_TYPE.bits()
+        | MatchedKeywords::STRING.bits()
+        | MatchedKeywords::THREADSAFE_FN.bits(),
+);
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
@@ -221,14 +210,12 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let has_angle_question = line_features.contains(LineFeatures::ANGLE_QUESTION);
     let has_hash = line_features.contains(LineFeatures::HASH);
     let has_bracket = line_features.contains(LineFeatures::BRACKET);
+    let keywords = clean_lines.keywords(linenum);
 
-    // Keyword based skip
-    let has_keyword = RUNTIME_CHECK_AC.is_match(elided_line);
-
-    if has_paren || has_ampersand || has_keyword {
+    if has_paren || has_ampersand {
         check_casts(linter, clean_lines, elided_line, linenum);
     }
-    if has_paren || has_keyword {
+    if has_paren {
         check_explicit_constructors(linter, clean_lines, elided_line, linenum);
     }
     if has_plus_minus {
@@ -237,25 +224,33 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     if has_angle_question {
         check_deprecated_min_max_operators(linter, elided_line, linenum);
     }
-    if has_keyword {
+    if keywords.intersects(STORAGE_CLASS_CANDIDATE) {
         check_storage_class_specifier(linter, elided_line, linenum);
+    }
+    if keywords.contains(MatchedKeywords::CLASS) {
         check_forward_decl(linter, elided_line, linenum);
     }
-    if has_hash && has_keyword {
+    if has_hash && keywords.contains(MatchedKeywords::ENDIF) {
         check_endif_comment(linter, elided_line, linenum);
     }
 
-    if has_ampersand && has_keyword {
+    if has_ampersand && keywords.contains(MatchedKeywords::STRING) {
         check_const_string_member(linter, elided_line, linenum);
     }
 
-    if has_keyword {
+    if keywords.contains(MatchedKeywords::MEMSET) {
         check_memset(linter, elided_line, linenum);
+    }
+    if keywords.contains(MatchedKeywords::THREADSAFE_FN) {
         check_threadsafe_functions(linter, elided_line, linenum);
+    }
+    if keywords.contains(MatchedKeywords::VLOG) {
         check_vlog_arguments(linter, elided_line, linenum);
+    }
+    if keywords.contains(MatchedKeywords::MAKE_PAIR) {
         check_make_pair_uses_deduction(linter, elided_line, linenum);
-        check_global_strings(linter, elided_line, linenum);
-    } else if elided_line.contains("string") {
+    }
+    if keywords.contains(MatchedKeywords::STRING) {
         check_global_strings(linter, elided_line, linenum);
     }
 
@@ -263,10 +258,10 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_init_with_self(linter, clean_lines, linenum);
     }
 
-    if has_keyword {
+    if keywords.intersects(MatchedKeywords::PRINTF | MatchedKeywords::STRCPY_STRCAT) {
         check_printf(linter, elided_line, linenum);
     }
-    if has_keyword {
+    if keywords.intersects(PRINTF_FORMAT_CANDIDATE) {
         check_printf_format(linter, line, linenum);
     }
 
@@ -274,7 +269,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_unary_operator_ampersand(linter, elided_line, linenum);
     }
 
-    if has_keyword {
+    if keywords.contains(MatchedKeywords::C_INTEGER_TYPE) {
         check_c_integer_types(linter, elided_line, clean_lines.raw_lines[linenum], linenum);
     }
 

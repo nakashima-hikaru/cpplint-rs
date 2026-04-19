@@ -1315,11 +1315,11 @@ fn check_class_closing_brace_alignment(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_tabs_and_line_length(
     linter: &mut FileLinter,
-    raw_line: &str,
     line_without_raw_strings: &str,
     linenum: usize,
+    line_features: LineFeatures,
 ) {
-    let has_tab = raw_line.contains('\t');
+    let has_tab = line_features.contains(LineFeatures::RAW_HAS_TAB);
     if has_tab {
         linter.error(
             linenum,
@@ -1330,6 +1330,10 @@ fn check_tabs_and_line_length(
     }
 
     let line_length_limit = linter.options().line_length;
+    if !has_tab && line_without_raw_strings.len() <= line_length_limit {
+        return;
+    }
+
     let width = if !has_tab && line_without_raw_strings.is_ascii() {
         line_without_raw_strings.len()
     } else {
@@ -1353,14 +1357,19 @@ fn check_indentation(
     line: &str,
     linenum: usize,
     keywords: &MatchedKeywords,
+    line_features: LineFeatures,
 ) {
-    if raw_line.ends_with(' ') || raw_line.ends_with('\t') {
+    if line_features.contains(LineFeatures::RAW_TRAILING_WHITESPACE) {
         linter.error(
             linenum,
             Category::WhitespaceEndOfLine,
             4,
             "Line ends in whitespace.  Consider deleting these extra spaces.",
         );
+    }
+
+    if !line_features.contains(LineFeatures::RAW_STARTS_WITH_WHITESPACE) {
+        return;
     }
 
     let initial_spaces = crate::line_utils::get_indent_level(raw_line);
@@ -1398,7 +1407,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let elided_line = &clean_lines.elided[linenum];
     let line_features = clean_lines.line_features[linenum];
 
-    let has_slash = raw_line.contains('/');
+    let has_slash = line_features.contains(LineFeatures::RAW_HAS_SLASH);
     let has_colon = line_features.contains(LineFeatures::COLON);
     let has_paren = line_features.contains(LineFeatures::PAREN);
     let has_comma = line_features.contains(LineFeatures::COMMA);
@@ -1406,6 +1415,8 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     let has_brace = line_features.contains(LineFeatures::BRACE);
     let has_bracket = line_features.contains(LineFeatures::BRACKET);
     let has_operator = line_features.contains(LineFeatures::OP);
+    let semicolon_before_block_comment =
+        line_features.contains(LineFeatures::RAW_HAS_SEMICOLON_BLOCK_COMMENT);
 
     let keywords = clean_lines.keywords(linenum);
 
@@ -1413,7 +1424,9 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_comment_spacing(linter, clean_lines, linenum);
     }
 
-    check_blank_line_rules(linter, clean_lines, linenum);
+    if line_features.contains(LineFeatures::LINE_WITHOUT_RAW_STRINGS_BLANK) {
+        check_blank_line_rules(linter, clean_lines, linenum);
+    }
 
     if linenum > 0 {
         check_section_spacing(linter, clean_lines, linenum, &keywords);
@@ -1427,8 +1440,16 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         check_class_closing_brace_alignment(linter, clean_lines, linenum);
     }
 
-    check_tabs_and_line_length(linter, raw_line, line_without_raw_strings, linenum);
-    check_indentation(linter, clean_lines, raw_line, line, linenum, &keywords);
+    check_tabs_and_line_length(linter, line_without_raw_strings, linenum, line_features);
+    check_indentation(
+        linter,
+        clean_lines,
+        raw_line,
+        line,
+        linenum,
+        &keywords,
+        line_features,
+    );
 
     if has_bracket && has_extra_space_before_bracket(elided_line) {
         linter.error(
@@ -1464,7 +1485,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
         );
     }
 
-    if has_comma || has_semicolon || raw_line.contains(";/*") {
+    if has_comma || has_semicolon || semicolon_before_block_comment {
         if has_comma {
             let check_line_bytes = elided_line.as_bytes();
             let original_line_bytes = line.as_bytes();
@@ -1545,7 +1566,6 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
             }
         }
 
-        let semicolon_before_block_comment = raw_line.contains(";/*");
         if missing_semicolon_space || semicolon_before_block_comment {
             let mut target_linenum = linenum;
             if semicolon_before_block_comment && !raw_line.contains("*/") {

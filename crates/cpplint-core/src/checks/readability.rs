@@ -67,12 +67,11 @@ fn is_test_like_function(name: &str) -> bool {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: usize) {
     let elided_line = &clean_lines.elided[linenum];
-    let raw_line = &clean_lines.raw_lines[linenum];
     let line_features = clean_lines.line_features[linenum];
     let has_brace = line_features.contains(LineFeatures::BRACE);
     let has_semicolon = line_features.contains(LineFeatures::SEMI);
 
-    let has_slash = raw_line.contains('/');
+    let has_slash = line_features.contains(LineFeatures::RAW_HAS_SLASH);
     let keywords = clean_lines.keywords(linenum);
 
     if keywords.has_alt_token() {
@@ -103,7 +102,7 @@ pub fn check(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>, linenum: 
     if has_slash {
         check_multiline_comments(linter, clean_lines, linenum);
     }
-    if raw_line.contains('"') {
+    if line_features.contains(LineFeatures::RAW_HAS_QUOTE) {
         check_multiline_strings(linter, clean_lines, linenum);
     }
 

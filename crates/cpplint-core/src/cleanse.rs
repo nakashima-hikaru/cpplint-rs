@@ -68,13 +68,43 @@ const KEYWORDS: &[&str] = &[
     "inline",
     "constexpr",
     "static",
+    "explicit",
+    "register",
+    "extern",
+    "class",
+    "struct",
+    "#endif",
+    "memset",
+    "VLOG",
+    "make_pair",
+    "strcpy",
+    "strcat",
+    "snprintf",
+    "sprintf",
+    "printf",
+    "port",
+    "short",
+    "long",
+    "string",
+    "asctime",
+    "ctime",
+    "getgrgid",
+    "getgrnam",
+    "getlogin",
+    "getpwnam",
+    "getpwuid",
+    "gmtime",
+    "localtime",
+    "rand",
+    "strtok",
+    "ttyname",
 ];
 
 static KEYWORDS_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(KEYWORDS).unwrap());
 
 bitflags! {
     #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-    pub struct MatchedKeywords: u32 {
+    pub struct MatchedKeywords: u64 {
         const IF          = 1 << 0;
         const FOR         = 1 << 1;
         const WHILE       = 1 << 2;
@@ -103,12 +133,26 @@ bitflags! {
         const CONSTEXPR   = 1 << 25;
         const STATIC      = 1 << 26;
         const HAS_ALT_TOKEN = 1 << 27;
+        const EXPLICIT    = 1 << 28;
+        const REGISTER    = 1 << 29;
+        const EXTERN      = 1 << 30;
+        const CLASS       = 1 << 31;
+        const STRUCT      = 1 << 32;
+        const ENDIF       = 1 << 33;
+        const MEMSET      = 1 << 34;
+        const VLOG        = 1 << 35;
+        const MAKE_PAIR   = 1 << 36;
+        const STRCPY_STRCAT = 1 << 37;
+        const PRINTF      = 1 << 38;
+        const C_INTEGER_TYPE = 1 << 39;
+        const STRING      = 1 << 40;
+        const THREADSAFE_FN = 1 << 41;
     }
 }
 
 bitflags! {
     #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-    pub struct LineFeatures: u16 {
+    pub struct LineFeatures: u32 {
         const COLON          = 1 << 0;
         const PAREN          = 1 << 1;
         const COMMA          = 1 << 2;
@@ -120,10 +164,17 @@ bitflags! {
         const PLUS_MINUS     = 1 << 8;
         const ANGLE_QUESTION = 1 << 9;
         const HASH           = 1 << 10;
+        const RAW_HAS_TAB    = 1 << 11;
+        const RAW_TRAILING_WHITESPACE = 1 << 12;
+        const RAW_STARTS_WITH_WHITESPACE = 1 << 13;
+        const LINE_WITHOUT_RAW_STRINGS_BLANK = 1 << 14;
+        const RAW_HAS_SLASH  = 1 << 15;
+        const RAW_HAS_QUOTE  = 1 << 16;
+        const RAW_HAS_SEMICOLON_BLOCK_COMMENT = 1 << 17;
     }
 }
 
-static LINE_FEATURE_LUT: [u16; 256] = {
+static LINE_FEATURE_LUT: [u32; 256] = {
     let mut lut = [0; 256];
     lut[b':' as usize] |= 1 << 0;
     lut[b'(' as usize] |= 1 << 1;
@@ -187,6 +238,20 @@ impl MatchedKeywords {
                 30 => Self::INLINE,
                 31 => Self::CONSTEXPR,
                 32 => Self::STATIC,
+                33 => Self::EXPLICIT,
+                34 => Self::REGISTER,
+                35 => Self::EXTERN,
+                36 => Self::CLASS,
+                37 => Self::STRUCT,
+                38 => Self::ENDIF,
+                39 => Self::MEMSET,
+                40 => Self::VLOG,
+                41 => Self::MAKE_PAIR,
+                42 | 43 => Self::STRCPY_STRCAT,
+                44..=46 => Self::PRINTF,
+                47..=49 => Self::C_INTEGER_TYPE,
+                50 => Self::STRING,
+                51..=62 => Self::THREADSAFE_FN,
                 _ => Self::empty(),
             };
         }
@@ -360,9 +425,43 @@ fn has_alternate_tokens(line: &str) -> bool {
         .any(|mat| is_valid_alt_token_match(bytes, mat.start(), mat.end()))
 }
 
-fn scan_line_features(line: &str) -> LineFeatures {
+fn scan_line_features(
+    raw_line: &str,
+    line_without_raw_strings: &str,
+    elided_line: &str,
+) -> LineFeatures {
+    let raw_bytes = raw_line.as_bytes();
+    let mut mask = 0u32;
+    if raw_bytes.first().is_some_and(u8::is_ascii_whitespace) {
+        mask |= LineFeatures::RAW_STARTS_WITH_WHITESPACE.bits();
+    }
+    if raw_bytes
+        .last()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        mask |= LineFeatures::RAW_TRAILING_WHITESPACE.bits();
+    }
+    if raw_bytes.contains(&b'\t') {
+        mask |= LineFeatures::RAW_HAS_TAB.bits();
+    }
+    if raw_bytes.contains(&b'/') {
+        mask |= LineFeatures::RAW_HAS_SLASH.bits();
+    }
+    if raw_bytes.contains(&b'"') {
+        mask |= LineFeatures::RAW_HAS_QUOTE.bits();
+    }
+    if raw_line.contains(";/*") {
+        mask |= LineFeatures::RAW_HAS_SEMICOLON_BLOCK_COMMENT.bits();
+    }
+    if line_without_raw_strings
+        .bytes()
+        .all(|byte| byte.is_ascii_whitespace())
+    {
+        mask |= LineFeatures::LINE_WITHOUT_RAW_STRINGS_BLANK.bits();
+    }
+
+    let line = elided_line;
     let bytes = line.as_bytes();
-    let mut mask = 0u16;
     let mut i = 0;
     while i + 32 <= bytes.len() {
         let chunk = u8x32::from_slice(&bytes[i..i + 32]);
@@ -570,7 +669,11 @@ impl<'a> CleansedLines<'a> {
                 if has_alt {
                     bits |= MatchedKeywords::HAS_ALT_TOKEN;
                 }
-                line_features.push(scan_line_features(line_elided_ref));
+                line_features.push(scan_line_features(
+                    raw_line_ref,
+                    line_without_raw_ref,
+                    line_elided_ref,
+                ));
                 keywords.push(bits);
                 elided.push(line_elided_ref);
             } else {
@@ -580,7 +683,11 @@ impl<'a> CleansedLines<'a> {
                 if has_alt {
                     bits |= MatchedKeywords::HAS_ALT_TOKEN;
                 }
-                line_features.push(scan_line_features(elided_line));
+                line_features.push(scan_line_features(
+                    raw_line_ref,
+                    line_without_raw_ref,
+                    elided_line,
+                ));
                 keywords.push(bits);
             }
         }
