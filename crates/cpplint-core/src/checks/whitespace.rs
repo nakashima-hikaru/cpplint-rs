@@ -605,9 +605,7 @@ fn check_operator_spacing(
             linenum,
             Category::WhitespaceOperators,
             4,
-            crate::messages::LintMessage::MissingSpacesAround(
-                crate::messages::OperatorSymbol::Eq,
-            ),
+            crate::messages::LintMessage::MissingSpacesAround(crate::messages::OperatorSymbol::Eq),
         );
     }
 

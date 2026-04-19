@@ -267,10 +267,11 @@ fn check_check_macro(
         linenum,
         Category::ReadabilityCheck,
         2,
-        format!(
-            "Consider using {} instead of {}(a {} b)",
-            replacement, check_macro, op
-        ),
+        crate::messages::LintMessage::CheckMacroSuggestion {
+            replacement: replacement.into(),
+            check_macro: check_macro.into(),
+            op: op.into(),
+        },
     );
 }
 

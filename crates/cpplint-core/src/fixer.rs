@@ -666,7 +666,8 @@ fn apply_line_fixes(
                     changed |= fix_range_for_colon(line);
                 }
             }
-            m @ (LintMessage::MissingSpaceBeforeOpenBrace | LintMessage::MissingSpaceBeforeElse) => {
+            m
+            @ (LintMessage::MissingSpaceBeforeOpenBrace | LintMessage::MissingSpaceBeforeElse) => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_brace_spacing(line, m);
@@ -729,7 +730,7 @@ fn apply_line_fixes(
                     changed |= fix_alt_tokens(line);
                 }
             }
-            LintMessage::Raw(m) if m.starts_with("Consider using") && m.contains("instead of") => {
+            LintMessage::CheckMacroSuggestion { .. } => {
                 let idx = diagnostic.linenum.saturating_sub(1);
                 if let Some(line) = lines.get_mut(idx) {
                     changed |= fix_check_macro(line);
@@ -1177,7 +1178,9 @@ fn fix_paren_spacing(
             }
         }
         LintMessage::ExtraSpaceAfterParen | LintMessage::ExtraSpaceAfterParenInFuncCall => {
-            let fixed = PAREN_SPACE_AFTER_RE.replace_all(&lines[idx], "(").into_owned();
+            let fixed = PAREN_SPACE_AFTER_RE
+                .replace_all(&lines[idx], "(")
+                .into_owned();
             if lines[idx] != fixed {
                 lines[idx] = fixed;
                 return true;
@@ -1225,12 +1228,12 @@ fn fix_operator_spacing(line: &mut String, message: &crate::messages::LintMessag
         return false;
     }
     let fixed = match message {
-        LintMessage::MissingSpacesAround(op) => {
-            update_code(line, |code| add_spaces_around_operator(code, op.as_fix_str()))
-        }
-        LintMessage::ExtraSpaceForOperator(op) => {
-            update_code(line, |code| remove_spaces_after_unary_operator(code, op.as_fix_str()))
-        }
+        LintMessage::MissingSpacesAround(op) => update_code(line, |code| {
+            add_spaces_around_operator(code, op.as_fix_str())
+        }),
+        LintMessage::ExtraSpaceForOperator(op) => update_code(line, |code| {
+            remove_spaces_after_unary_operator(code, op.as_fix_str())
+        }),
         _ => return false,
     };
     if *line != fixed {

@@ -123,7 +123,7 @@ pub enum LintMessage {
     NonStandardMinMaxOperators,
     MemsetInvalidSize,
     MemsetZeroSize,
-    ThreadsafeFunctionRecommended(Box<str>, Box<str>),
+    ThreadsafeFunctionSuggestion(Box<str>),
     GlobalStringCtor,
     SnprintfArgsNotNumeric,
     SnprintfArgsMismatch,
@@ -154,6 +154,11 @@ pub enum LintMessage {
     RedundantVirtual,
     RedundantOverride,
     AltToken(Box<str>, Box<str>),
+    CheckMacroSuggestion {
+        replacement: Box<str>,
+        check_macro: Box<str>,
+        op: Box<str>,
+    },
 
     // Build
     IncludeOrder(Box<str>, Box<str>),
@@ -225,12 +230,12 @@ impl LintMessage {
             Self::SemicolonDefiningEmptyStatementUseBraces => {
                 Some("Semicolon defining empty statement. Use {} instead.")
             }
-            Self::LineContainsOnlySemicolonUseBraces => {
-                Some("Line contains only semicolon. If this should be an empty statement, use {} instead.")
-            }
-            Self::ExtraSpaceBeforeLastSemicolonUseBraces => {
-                Some("Extra space before last semicolon. If this should be an empty statement, use {} instead.")
-            }
+            Self::LineContainsOnlySemicolonUseBraces => Some(
+                "Line contains only semicolon. If this should be an empty statement, use {} instead.",
+            ),
+            Self::ExtraSpaceBeforeLastSemicolonUseBraces => Some(
+                "Extra space before last semicolon. If this should be an empty statement, use {} instead.",
+            ),
             Self::ExtraSpaceBeforeCloseParen => Some("Extra space before )"),
             Self::ClosingParenShouldBeMovedToPreviousLine => {
                 Some("Closing ) should be moved to the previous line")
@@ -360,11 +365,11 @@ impl fmt::Display for LintMessage {
                     cast_type, type_str
                 )
             }
-            Self::ThreadsafeFunctionRecommended(old, new) => {
+            Self::ThreadsafeFunctionSuggestion(funcname) => {
                 write!(
                     f,
-                    "Consider using {} instead of {}, which is not thread-safe.",
-                    new, old
+                    "Consider using {}_r(...) instead of {}(...) for improved thread safety.",
+                    funcname, funcname
                 )
             }
             Self::VlaFound(name) => {
@@ -396,6 +401,15 @@ impl fmt::Display for LintMessage {
                 )
             }
             Self::AltToken(token, key) => write!(f, "Use operator {} instead of {}", token, key),
+            Self::CheckMacroSuggestion {
+                replacement,
+                check_macro,
+                op,
+            } => write!(
+                f,
+                "Consider using {} instead of {}(a {} b)",
+                replacement, check_macro, op
+            ),
             Self::IncludeOrder(msg, stem) => {
                 write!(
                     f,

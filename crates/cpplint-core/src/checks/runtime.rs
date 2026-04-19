@@ -897,10 +897,7 @@ fn check_threadsafe_functions(linter: &mut FileLinter, elided_line: &str, linenu
         linenum,
         Category::RuntimeThreadsafeFn,
         2,
-        format!(
-            "Consider using {}_r(...) instead of {}(...) for improved thread safety.",
-            funcname, funcname
-        ),
+        crate::messages::LintMessage::ThreadsafeFunctionSuggestion(funcname.into()),
     );
 }
 
