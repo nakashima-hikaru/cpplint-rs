@@ -1165,63 +1165,41 @@ fn collapse_quotes_and_separators(elided: &str) -> String {
     let mut i = 0usize;
 
     while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'"' {
-            let mut found = false;
-            let mut j = i + 1;
-            while j < bytes.len() {
-                if bytes[j] == b'"' {
-                    result.push_str("\"\"");
-                    i = j + 1;
-                    found = true;
+        let Some(offset) = memchr::memchr2(b'"', b'\'', &bytes[i..]) else {
+            result.push_str(&elided[i..]);
+            break;
+        };
+        let quote_pos = i + offset;
+        result.push_str(&elided[i..quote_pos]);
+
+        match bytes[quote_pos] {
+            b'"' => {
+                let Some(end_offset) = memchr::memchr(b'"', &bytes[quote_pos + 1..]) else {
+                    result.push_str(&elided[quote_pos..]);
                     break;
-                }
-                j += 1;
+                };
+                result.push_str("\"\"");
+                i = quote_pos + end_offset + 2;
             }
-            if !found {
-                result.push('"');
-                if i + 1 < bytes.len() {
-                    result.push_str(&elided[i + 1..]);
+            b'\'' => {
+                if quote_pos > 0 && quote_pos + 1 < bytes.len() {
+                    let prev = bytes[quote_pos - 1];
+                    let next = bytes[quote_pos + 1];
+                    if prev.is_ascii_hexdigit() && (next.is_ascii_alphanumeric() || next == b'_') {
+                        i = quote_pos + 1;
+                        continue;
+                    }
                 }
-                return result;
-            }
-            continue;
-        }
 
-        if b == b'\'' {
-            // Check for digit separator
-            if i > 0 && i + 1 < bytes.len() {
-                let prev = bytes[i - 1];
-                let next = bytes[i + 1];
-                if prev.is_ascii_hexdigit() && (next.is_ascii_alphanumeric() || next == b'_') {
-                    i += 1;
-                    continue;
-                }
-            }
-
-            let mut found = false;
-            let mut j = i + 1;
-            while j < bytes.len() {
-                if bytes[j] == b'\'' {
-                    result.push_str("''");
-                    i = j + 1;
-                    found = true;
+                let Some(end_offset) = memchr::memchr(b'\'', &bytes[quote_pos + 1..]) else {
+                    result.push_str(&elided[quote_pos..]);
                     break;
-                }
-                j += 1;
+                };
+                result.push_str("''");
+                i = quote_pos + end_offset + 2;
             }
-            if !found {
-                result.push('\'');
-                if i + 1 < bytes.len() {
-                    result.push_str(&elided[i + 1..]);
-                }
-                return result;
-            }
-            continue;
+            _ => unreachable!(),
         }
-
-        result.push(b as char);
-        i += 1;
     }
 
     result

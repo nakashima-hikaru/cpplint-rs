@@ -1,6 +1,8 @@
 use crate::cleanse::CleansedLines;
 use crate::line_utils;
 use regex::Regex;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::u8x32;
 use std::sync::LazyLock;
 
 static CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -106,15 +108,7 @@ impl FileFacts {
             };
             macro_lines.push(is_macro);
 
-            let mut l_braces_count = 0usize;
-            let mut r_braces_count = 0usize;
-            for byte in elided.bytes() {
-                match byte {
-                    b'{' => l_braces_count += 1,
-                    b'}' => r_braces_count += 1,
-                    _ => {}
-                }
-            }
+            let (l_braces_count, r_braces_count) = brace_counts(elided);
             line_braces.push((l_braces_count as u32, r_braces_count as u32));
             let l_braces = l_braces_count;
             let r_braces = r_braces_count;
@@ -530,6 +524,30 @@ fn in_template_argument_list<S: AsRef<str>>(
     false
 }
 
+fn brace_counts(line: &str) -> (usize, usize) {
+    let bytes = line.as_bytes();
+    let mut open = 0usize;
+    let mut close = 0usize;
+    let mut i = 0usize;
+
+    while i + 32 <= bytes.len() {
+        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
+        open += chunk.simd_eq(u8x32::splat(b'{')).to_bitmask().count_ones() as usize;
+        close += chunk.simd_eq(u8x32::splat(b'}')).to_bitmask().count_ones() as usize;
+        i += 32;
+    }
+
+    for &byte in &bytes[i..] {
+        match byte {
+            b'{' => open += 1,
+            b'}' => close += 1,
+            _ => {}
+        }
+    }
+
+    (open, close)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,5 +615,11 @@ mod tests {
         assert_eq!(facts.non_namespace_indent_depth_before(4), 0);
         assert_eq!(facts.non_namespace_indent_depth(4), 1);
         assert_eq!(facts.matching_block_start(3), Some(1));
+    }
+
+    #[test]
+    fn brace_counts_tracks_both_brace_kinds() {
+        assert_eq!(brace_counts("{{ foo } bar }"), (2, 2));
+        assert_eq!(brace_counts("no braces"), (0, 0));
     }
 }
