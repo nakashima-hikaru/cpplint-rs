@@ -2152,10 +2152,7 @@ fn test_explicit_single_parameter_constructor_cases() {
 
 #[test]
 fn test_disallow_macros_at_end() {
-    for macro_name in [
-        "DISALLOW_COPY_AND_ASSIGN",
-        "DISALLOW_IMPLICIT_CONSTRUCTORS",
-    ] {
+    for macro_name in ["DISALLOW_COPY_AND_ASSIGN", "DISALLOW_IMPLICIT_CONSTRUCTORS"] {
         let fail_state = run_lint(vec![
             "// Copyright 2026".to_string(),
             "class SomeClass {".to_string(),
@@ -2186,7 +2183,8 @@ fn test_disallow_macros_at_end() {
         ]);
         assert_eq!(nested_fail_state.error_count(), 1);
         assert!(
-            nested_fail_state.has_error(cpplint_core::categories::Category::ReadabilityConstructors)
+            nested_fail_state
+                .has_error(cpplint_core::categories::Category::ReadabilityConstructors)
         );
         assert_eq!(
             nested_fail_state.diagnostics()[0].message.to_string(),

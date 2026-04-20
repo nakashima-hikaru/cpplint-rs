@@ -999,10 +999,11 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
         }
 
         let include_has_alias = include.contains("./") || include.contains("../");
-        let third_src_header = !include_has_alias && header_extensions.iter().any(|ext| {
-            let headername = format!("{}.{}", basefilename_relative, ext);
-            headername.contains(include) || include.contains(&headername)
-        });
+        let third_src_header = !include_has_alias
+            && header_extensions.iter().any(|ext| {
+                let headername = format!("{}.{}", basefilename_relative, ext);
+                headername.contains(include) || include.contains(&headername)
+            });
         if third_src_header || !is_special_include_name(include) {
             include_state
                 .last_include_list_mut()
@@ -1666,7 +1667,10 @@ mod tests {
             (true, "".to_string())
         );
         assert_eq!(
-            f("xxx/yyy/base/internal/google_unittest.cc", "base/public/google.h"),
+            f(
+                "xxx/yyy/base/internal/google_unittest.cc",
+                "base/public/google.h"
+            ),
             (true, "xxx/yyy/".to_string())
         );
         assert_eq!(
@@ -1821,7 +1825,13 @@ mod tests {
             drop_common_suffixes(Path::new("_test.cc")),
             PathBuf::from("")
         );
-        assert_eq!(drop_common_suffixes(Path::new("test.cc")), PathBuf::from("test"));
-        assert_eq!(drop_common_suffixes(Path::new("test.c++")), PathBuf::from("test"));
+        assert_eq!(
+            drop_common_suffixes(Path::new("test.cc")),
+            PathBuf::from("test")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("test.c++")),
+            PathBuf::from("test")
+        );
     }
 }

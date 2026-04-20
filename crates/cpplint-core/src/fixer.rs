@@ -1064,9 +1064,9 @@ fn fix_semicolon_spacing(line: &mut String, message: &crate::messages::LintMessa
                 .collect::<String>();
             format!("{}{{}}", indent)
         }
-        LintMessage::ExtraSpaceBeforeSemicolon => {
-            update_code(line, |code| SPACE_SEMICOLON_ANY_RE.replace_all(code, ";").into_owned())
-        }
+        LintMessage::ExtraSpaceBeforeSemicolon => update_code(line, |code| {
+            SPACE_SEMICOLON_ANY_RE.replace_all(code, ";").into_owned()
+        }),
         LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces => {
             SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
         }

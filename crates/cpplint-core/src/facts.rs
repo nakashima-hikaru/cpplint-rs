@@ -583,24 +583,30 @@ mod tests {
             assert_eq!(facts.matching_block_start(2), Some(0));
         });
 
-        with_facts!(["namespace", "Foo", "{", "  int value = 0;", "}"], |facts| {
-            assert_eq!(facts.namespace_top_level_depth(3), Some(1));
-            assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
-            assert_eq!(facts.non_namespace_indent_depth(3), 0);
-            assert_eq!(facts.matching_block_start(4), Some(2));
-        });
+        with_facts!(
+            ["namespace", "Foo", "{", "  int value = 0;", "}"],
+            |facts| {
+                assert_eq!(facts.namespace_top_level_depth(3), Some(1));
+                assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
+                assert_eq!(facts.non_namespace_indent_depth(3), 0);
+                assert_eq!(facts.matching_block_start(4), Some(2));
+            }
+        );
     }
 
     #[test]
     fn test_decorated_class() {
-        with_facts!(["class Decorated_123 API A {", "  int value;", "};"], |facts| {
-            assert_eq!(
-                facts.enclosing_class_range(1),
-                Some(ClassRange { start: 0, end: 2 })
-            );
-            assert_eq!(facts.nearest_class_name(1), Some("A"));
-            assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
-        });
+        with_facts!(
+            ["class Decorated_123 API A {", "  int value;", "};"],
+            |facts| {
+                assert_eq!(
+                    facts.enclosing_class_range(1),
+                    Some(ClassRange { start: 0, end: 2 })
+                );
+                assert_eq!(facts.nearest_class_name(1), Some("A"));
+                assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+            }
+        );
     }
 
     #[test]

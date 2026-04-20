@@ -535,10 +535,7 @@ mod tests {
     #[test]
     fn test_get_text_inside() {
         assert_eq!(get_text_inside("fun()", r"fun\("), Some(String::new()));
-        assert_eq!(
-            get_text_inside("f(x, y)", r"f\("),
-            Some("x, y".to_string())
-        );
+        assert_eq!(get_text_inside("f(x, y)", r"f\("), Some("x, y".to_string()));
         assert_eq!(
             get_text_inside("printf(a(), b(c()))", r"printf\("),
             Some("a(), b(c())".to_string())
@@ -553,7 +550,10 @@ mod tests {
             get_text_inside("f(x, g(y, h(z, (a + b))))", r"g\("),
             Some("y, h(z, (a + b))".to_string())
         );
-        assert_eq!(get_text_inside("f(f(f(x)))", r"f\("), Some("f(f(x))".to_string()));
+        assert_eq!(
+            get_text_inside("f(f(f(x)))", r"f\("),
+            Some("f(f(x))".to_string())
+        );
         assert_eq!(
             get_text_inside("int loop(int x) {\n  return loop(x);\n}\n", r"\{"),
             Some("\n  return loop(x);\n".to_string())

@@ -582,7 +582,10 @@ mod tests {
 
         options.root = PathBuf::from("cpplint");
         let linter = FileLinter::new(file_path, &state, options);
-        assert_eq!(linter.header_guard_path(), PathBuf::from("cpplint_test_header.h"));
+        assert_eq!(
+            linter.header_guard_path(),
+            PathBuf::from("cpplint_test_header.h")
+        );
 
         std::fs::remove_dir_all(temp_dir).unwrap();
     }

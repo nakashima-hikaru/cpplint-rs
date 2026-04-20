@@ -739,7 +739,11 @@ mod tests {
         assert_eq!(collected_files.len(), 2);
         assert!(collected_files.iter().any(|file| file.ends_with("one.cpp")));
         assert!(collected_files.iter().any(|file| file.ends_with("two.cpp")));
-        assert!(!collected_files.iter().any(|file| file.ends_with("three.cc")));
+        assert!(
+            !collected_files
+                .iter()
+                .any(|file| file.ends_with("three.cc"))
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

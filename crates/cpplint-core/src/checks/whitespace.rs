@@ -1287,7 +1287,12 @@ fn check_blank_line_rules(
     if !crate::line_utils::is_blank_line(line) {
         return;
     }
-    if clean_lines.in_raw_string.get(linenum).copied().unwrap_or(false) {
+    if clean_lines
+        .in_raw_string
+        .get(linenum)
+        .copied()
+        .unwrap_or(false)
+    {
         return;
     }
     if linenum == 0 {
@@ -1994,11 +1999,26 @@ mod tests {
 
     #[test]
     fn test_class_access() {
-        assert_eq!(parse_access_specifier(" public:"), Some((1, "public", false)));
-        assert_eq!(parse_access_specifier(" private:"), Some((1, "private", false)));
-        assert_eq!(parse_access_specifier(" protected:"), Some((1, "protected", false)));
-        assert_eq!(parse_access_specifier(" signals:"), Some((1, "signals", false)));
-        assert_eq!(parse_access_specifier(" public slots:"), Some((1, "public", true)));
+        assert_eq!(
+            parse_access_specifier(" public:"),
+            Some((1, "public", false))
+        );
+        assert_eq!(
+            parse_access_specifier(" private:"),
+            Some((1, "private", false))
+        );
+        assert_eq!(
+            parse_access_specifier(" protected:"),
+            Some((1, "protected", false))
+        );
+        assert_eq!(
+            parse_access_specifier(" signals:"),
+            Some((1, "signals", false))
+        );
+        assert_eq!(
+            parse_access_specifier(" public slots:"),
+            Some((1, "public", true))
+        );
         assert_eq!(parse_access_specifier("protracted:"), None);
         assert_eq!(parse_access_specifier("public::"), None);
     }

@@ -1181,10 +1181,7 @@ pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
         let (token, replacement) = ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()];
         result.push_str(&line[last..start]);
         result.push_str(replacement);
-        last = if end < bytes.len()
-            && matches!(token, "not" | "compl")
-            && bytes[end] == b' '
-        {
+        last = if end < bytes.len() && matches!(token, "not" | "compl") && bytes[end] == b' ' {
             end + 1
         } else {
             end
@@ -1554,7 +1551,13 @@ mod tests {
 
     #[test]
     fn test_remove_multiline_comments_from_range() {
-        let mut lines = vec!["a", "  /* comment ", " * still comment", " comment */   ", "b"];
+        let mut lines = vec![
+            "a",
+            "  /* comment ",
+            " * still comment",
+            " comment */   ",
+            "b",
+        ];
         remove_multiline_comments_from_range(&mut lines, 1, 4);
         assert_eq!(lines, vec!["a", "/**/", "/**/", "/**/", "b"]);
     }
