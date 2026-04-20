@@ -706,7 +706,7 @@ mod tests {
             ..RunnerConfig::default()
         };
 
-        let collected = collect_files(&[root.clone()], &config).unwrap();
+        let collected = collect_files(std::slice::from_ref(&root), &config).unwrap();
         assert_eq!(collected.files.len(), 1);
         assert!(collected.files[0].1.ends_with("keep.cpp"));
 
