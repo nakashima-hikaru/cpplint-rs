@@ -1,6 +1,5 @@
 use crate::categories;
 use crate::categories::Category;
-use crate::checks::headers;
 use crate::cleanse::{
     CleansedLines, find_next_multiline_comment_end, find_next_multiline_comment_start,
     remove_multiline_comments_from_range,
@@ -9,7 +8,7 @@ use crate::diagnostics::FileId;
 use crate::errors::Result;
 use crate::facts::FileFacts;
 use crate::options::Options;
-use crate::registry::{RuleRegistry, rule_registry};
+use crate::registry::{ActiveRulePlan, RulePhase, RuleRegistry, rule_registry};
 use crate::source::{DecodedSource, SourceFile};
 use crate::state::CppLintState;
 use crate::string_utils;
@@ -34,6 +33,7 @@ static FILE_TYPE_RE_SET: LazyLock<RegexSet> = LazyLock::new(|| {
 pub struct FileLinter<'a> {
     session: &'a CppLintState,
     options: Arc<Options>,
+    active_rules: ActiveRulePlan,
     error_suppressions: ErrorSuppressions,
     file_id: FileId,
     source_file: SourceFile,
@@ -73,13 +73,16 @@ impl<'a> FileLinter<'a> {
         options: impl Into<Arc<Options>>,
         file_id: FileId,
     ) -> Self {
+        let options = options.into();
+        let registry = rule_registry();
         Self {
             session: state,
-            options: options.into(),
+            active_rules: registry.active_rule_plan(options.as_ref(), source_file.display_name()),
+            options,
             error_suppressions: ErrorSuppressions::new(),
             file_id,
             source_file,
-            registry: rule_registry(),
+            registry,
             has_error: false,
         }
     }
@@ -142,25 +145,30 @@ impl<'a> FileLinter<'a> {
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     fn process_decoded_source(&mut self, decoded: DecodedSource, arena: &Bump, mode: ProcessMode) {
-        for &linenum in decoded.invalid_utf8_lines() {
-            self.error(
-                linenum,
-                Category::ReadabilityUtf8,
-                5,
-                crate::messages::LintMessage::InvalidUtf8,
-            );
-        }
-        for &linenum in decoded.null_lines() {
-            self.error(
-                linenum,
-                Category::ReadabilityNul,
-                5,
-                crate::messages::LintMessage::NulByte,
-            );
+        if self.active_rules.has_readability() {
+            for &linenum in decoded.invalid_utf8_lines() {
+                self.error(
+                    linenum,
+                    Category::ReadabilityUtf8,
+                    5,
+                    crate::messages::LintMessage::InvalidUtf8,
+                );
+            }
+            for &linenum in decoded.null_lines() {
+                self.error(
+                    linenum,
+                    Category::ReadabilityNul,
+                    5,
+                    crate::messages::LintMessage::NulByte,
+                );
+            }
         }
 
-        let mixed_line_endings = decoded.has_mixed_line_endings();
-        let crlf_lines = decoded.crlf_lines().to_vec();
+        let report_mixed_line_endings = self.active_rules.has_whitespace();
+        let mixed_line_endings = report_mixed_line_endings && decoded.has_mixed_line_endings();
+        let crlf_lines = report_mixed_line_endings
+            .then(|| decoded.crlf_lines().to_vec())
+            .unwrap_or_default();
         self.process_source_lines(decoded.into_lines(), arena, mode);
 
         if mixed_line_endings {
@@ -183,14 +191,35 @@ impl<'a> FileLinter<'a> {
         mode: ProcessMode,
     ) {
         let registry = self.registry;
+        let active_rules = self.active_rules;
         if matches!(mode, ProcessMode::Full) {
-            registry.run_raw_source(self, &lines);
+            registry.run_raw_source(self, &lines, active_rules);
 
-            for &line in &lines {
-                if line.contains("LINT") || line.contains("filetype") {
-                    self.process_global_suppressions(line);
+            if active_rules.needs_global_suppressions() {
+                for &line in &lines {
+                    if line.contains("LINT") || line.contains("filetype") {
+                        self.process_global_suppressions(line);
+                    }
                 }
             }
+        }
+
+        let phase = match mode {
+            ProcessMode::Full => {
+                if active_rules.has_line_checks() {
+                    RulePhase::Line
+                } else if active_rules.has_headers() {
+                    RulePhase::FileStructure
+                } else if active_rules.has_whitespace() {
+                    RulePhase::Finalize
+                } else {
+                    RulePhase::RawSource
+                }
+            }
+            ProcessMode::LanguageRules => RulePhase::FileStructure,
+        };
+        if !active_rules.needs_cleansed_lines(phase) {
+            return;
         }
 
         self.remove_multiline_comments(lines.as_mut_slice());
@@ -201,18 +230,24 @@ impl<'a> FileLinter<'a> {
             self.options.as_ref(),
             self.filename(),
         );
-        let facts = FileFacts::new(&clean_lines);
         match mode {
-            ProcessMode::Full => registry.run_file_structure(self, &clean_lines),
-            ProcessMode::LanguageRules => headers::check_includes(self, &clean_lines),
+            ProcessMode::Full => registry.run_file_structure(self, &clean_lines, active_rules),
+            ProcessMode::LanguageRules => {
+                registry.run_language_rules(self, &clean_lines, active_rules);
+            }
         }
 
-        for linenum in 0..clean_lines.raw_lines.len() {
-            self.process_line(&clean_lines, &facts, linenum);
+        if active_rules.has_line_checks() {
+            let facts = FileFacts::new(&clean_lines);
+            for linenum in 0..clean_lines.raw_lines.len() {
+                self.process_line(&clean_lines, &facts, linenum);
+            }
         }
 
         if matches!(mode, ProcessMode::Full) {
-            if let Some(begin) = self.error_suppressions.get_open_block_start() {
+            if active_rules.has_line_checks()
+                && let Some(begin) = self.error_suppressions.get_open_block_start()
+            {
                 self.error(
                     begin,
                     Category::ReadabilityNolint,
@@ -221,7 +256,7 @@ impl<'a> FileLinter<'a> {
                 );
             }
 
-            registry.run_finalize(self, &clean_lines.raw_lines);
+            registry.run_finalize(self, &clean_lines.raw_lines, active_rules);
         }
     }
 
@@ -253,7 +288,7 @@ impl<'a> FileLinter<'a> {
             self.parse_nolint_suppressions(raw_line, linenum);
         }
         let registry = self.registry;
-        registry.run_line(self, facts, clean_lines, linenum);
+        registry.run_line(self, facts, clean_lines, linenum, self.active_rules);
     }
 
     fn parse_nolint_suppressions(&mut self, raw_line: &str, linenum: usize) {

@@ -1,8 +1,10 @@
 use crate::categories;
+use crate::categories::Category;
 use crate::checks::{copyright, headers, readability, runtime, whitespace};
 use crate::cleanse::CleansedLines;
 use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
+use crate::options::Options;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +41,75 @@ pub enum RuleSelection {
         category: &'static str,
         family: RuleFamily,
     },
+}
+
+const FAMILY_COPYRIGHT: u8 = 1 << 0;
+const FAMILY_HEADERS: u8 = 1 << 1;
+const FAMILY_WHITESPACE: u8 = 1 << 2;
+const FAMILY_RUNTIME: u8 = 1 << 3;
+const FAMILY_READABILITY: u8 = 1 << 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ActiveRulePlan {
+    enabled_families: u8,
+}
+
+impl ActiveRulePlan {
+    fn enable(&mut self, family: RuleFamily) {
+        self.enabled_families |= family_mask(family.name);
+    }
+
+    pub fn has_any(self) -> bool {
+        self.enabled_families != 0
+    }
+
+    pub fn has_copyright(self) -> bool {
+        self.enabled_families & FAMILY_COPYRIGHT != 0
+    }
+
+    pub fn has_headers(self) -> bool {
+        self.enabled_families & FAMILY_HEADERS != 0
+    }
+
+    pub fn has_whitespace(self) -> bool {
+        self.enabled_families & FAMILY_WHITESPACE != 0
+    }
+
+    pub fn has_runtime(self) -> bool {
+        self.enabled_families & FAMILY_RUNTIME != 0
+    }
+
+    pub fn has_readability(self) -> bool {
+        self.enabled_families & FAMILY_READABILITY != 0
+    }
+
+    pub fn has_line_checks(self) -> bool {
+        self.has_whitespace() || self.has_runtime() || self.has_readability()
+    }
+
+    pub fn needs_cleansed_lines(self, phase: RulePhase) -> bool {
+        match phase {
+            RulePhase::RawSource => false,
+            RulePhase::FileStructure => self.has_headers(),
+            RulePhase::Line => self.has_line_checks(),
+            RulePhase::Finalize => self.has_whitespace(),
+        }
+    }
+
+    pub fn needs_global_suppressions(self) -> bool {
+        self.has_headers() || self.has_line_checks() || self.has_whitespace()
+    }
+}
+
+fn family_mask(name: &str) -> u8 {
+    match name {
+        "copyright" => FAMILY_COPYRIGHT,
+        "headers" => FAMILY_HEADERS,
+        "whitespace" => FAMILY_WHITESPACE,
+        "runtime" => FAMILY_RUNTIME,
+        "readability" => FAMILY_READABILITY,
+        _ => 0,
+    }
 }
 
 pub struct RuleRegistry {
@@ -201,13 +272,54 @@ impl RuleRegistry {
         categories::ERROR_CATEGORIES
     }
 
-    pub fn run_raw_source<S: AsRef<str>>(&self, linter: &mut FileLinter<'_>, raw_lines: &[S]) {
-        copyright::check(linter, raw_lines);
+    pub fn active_rule_plan(&self, options: &Options, filename: &str) -> ActiveRulePlan {
+        let mut plan = ActiveRulePlan::default();
+        for &family in self.families {
+            let family_active = family.categories.iter().any(|category| {
+                category.parse::<Category>().ok().is_some_and(|category| {
+                    options.can_print_error_for_some_line(category, filename)
+                })
+            });
+            if family_active {
+                plan.enable(family);
+            }
+        }
+        plan
     }
 
-    pub fn run_file_structure(&self, linter: &mut FileLinter<'_>, clean_lines: &CleansedLines<'_>) {
+    pub fn run_raw_source<S: AsRef<str>>(
+        &self,
+        linter: &mut FileLinter<'_>,
+        raw_lines: &[S],
+        active_rules: ActiveRulePlan,
+    ) {
+        if active_rules.has_copyright() {
+            copyright::check(linter, raw_lines);
+        }
+    }
+
+    pub fn run_file_structure(
+        &self,
+        linter: &mut FileLinter<'_>,
+        clean_lines: &CleansedLines<'_>,
+        active_rules: ActiveRulePlan,
+    ) {
+        if !active_rules.has_headers() {
+            return;
+        }
         headers::check_header_guard(linter, clean_lines);
         headers::check_includes(linter, clean_lines);
+    }
+
+    pub fn run_language_rules(
+        &self,
+        linter: &mut FileLinter<'_>,
+        clean_lines: &CleansedLines<'_>,
+        active_rules: ActiveRulePlan,
+    ) {
+        if active_rules.has_headers() {
+            headers::check_includes(linter, clean_lines);
+        }
     }
 
     pub fn run_line(
@@ -216,20 +328,35 @@ impl RuleRegistry {
         facts: &FileFacts<'_>,
         clean_lines: &CleansedLines<'_>,
         linenum: usize,
+        active_rules: ActiveRulePlan,
     ) {
-        whitespace::check(linter, facts, clean_lines, linenum);
-        runtime::check(linter, facts, clean_lines, linenum);
-        readability::check(linter, facts, clean_lines, linenum);
+        if active_rules.has_whitespace() {
+            whitespace::check(linter, facts, clean_lines, linenum);
+        }
+        if active_rules.has_runtime() {
+            runtime::check(linter, facts, clean_lines, linenum);
+        }
+        if active_rules.has_readability() {
+            readability::check(linter, facts, clean_lines, linenum);
+        }
     }
 
-    pub fn run_finalize<S: AsRef<str>>(&self, linter: &mut FileLinter<'_>, raw_lines: &[S]) {
-        whitespace::check_eof_newline(linter, raw_lines);
+    pub fn run_finalize<S: AsRef<str>>(
+        &self,
+        linter: &mut FileLinter<'_>,
+        raw_lines: &[S],
+        active_rules: ActiveRulePlan,
+    ) {
+        if active_rules.has_whitespace() {
+            whitespace::check_eof_newline(linter, raw_lines);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::options::Options;
 
     #[test]
     fn registry_resolves_families_and_categories() {
@@ -264,5 +391,25 @@ mod tests {
                 "missing rule family for category {category}"
             );
         }
+    }
+
+    #[test]
+    fn active_rule_plan_tracks_filtered_families() {
+        let registry = rule_registry();
+        let mut options = Options::new();
+        options.add_filter("-");
+        options.add_filter("+whitespace");
+        options.add_filter("+runtime/printf:test.cc:14");
+
+        let test_file_plan = registry.active_rule_plan(&options, "test.cc");
+        assert!(test_file_plan.has_whitespace());
+        assert!(test_file_plan.has_runtime());
+        assert!(!test_file_plan.has_headers());
+        assert!(!test_file_plan.has_readability());
+        assert!(!test_file_plan.has_copyright());
+
+        let other_file_plan = registry.active_rule_plan(&options, "other.cc");
+        assert!(other_file_plan.has_whitespace());
+        assert!(!other_file_plan.has_runtime());
     }
 }

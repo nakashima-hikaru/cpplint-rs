@@ -52,20 +52,18 @@ impl Filter {
     }
 
     pub fn is_matched(&self, category: &str, file: &str, linenum: usize) -> bool {
-        if !category.starts_with(&self.category) {
-            return false;
-        }
-        if let Some(expected_file) = &self.file
-            && expected_file != file
-        {
-            return false;
-        }
-        if let Some(expected_line) = self.linenum
-            && expected_line != linenum
-        {
-            return false;
-        }
-        true
+        self.matches_category_and_file(category, file)
+            && self
+                .linenum
+                .is_none_or(|expected_line| expected_line == linenum)
+    }
+
+    fn matches_category_and_file(&self, category: &str, file: &str) -> bool {
+        category.starts_with(&self.category)
+            && self
+                .file
+                .as_ref()
+                .is_none_or(|expected_file| expected_file == file)
     }
 }
 
@@ -172,6 +170,40 @@ impl Options {
         result
     }
 
+    pub(crate) fn can_print_error_for_some_line(
+        &self,
+        category: crate::categories::Category,
+        filename: &str,
+    ) -> bool {
+        let mut default_result = true;
+        let mut line_results = Vec::<(usize, bool)>::new();
+
+        for filter in &self.filters {
+            if !filter.matches_category_and_file(category.as_str(), filename) {
+                continue;
+            }
+
+            if let Some(linenum) = filter.linenum {
+                if let Some((_, state)) = line_results
+                    .iter_mut()
+                    .find(|(candidate, _)| *candidate == linenum)
+                {
+                    *state = filter.sign;
+                } else {
+                    line_results.push((linenum, filter.sign));
+                }
+                continue;
+            }
+
+            default_result = filter.sign;
+            for (_, state) in &mut line_results {
+                *state = filter.sign;
+            }
+        }
+
+        default_result || line_results.into_iter().any(|(_, state)| state)
+    }
+
     pub fn add_filter(&mut self, filter_str: &str) {
         self.filters.push(Filter::new(filter_str));
     }
@@ -274,5 +306,32 @@ mod tests {
             "test.cc",
             14
         ));
+    }
+
+    #[test]
+    fn test_can_print_error_for_some_line_tracks_line_overrides() {
+        let mut options = Options::new();
+        assert!(options.add_filters("-,+runtime/printf:test.cc:14,-runtime/printf:test.cc:15"));
+
+        assert!(
+            options.can_print_error_for_some_line(
+                crate::categories::Category::RuntimePrintf,
+                "test.cc"
+            )
+        );
+        assert!(
+            !options.can_print_error_for_some_line(
+                crate::categories::Category::RuntimePrintf,
+                "other.cc"
+            )
+        );
+
+        options.add_filter("-runtime/printf");
+        assert!(
+            !options.can_print_error_for_some_line(
+                crate::categories::Category::RuntimePrintf,
+                "test.cc"
+            )
+        );
     }
 }
