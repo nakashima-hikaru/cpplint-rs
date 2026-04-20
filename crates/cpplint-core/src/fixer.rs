@@ -60,6 +60,7 @@ static BRACE_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"}\s*
 static SEMICOLON_SPACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#";([^\s};\\)/])"#).unwrap());
 static COLON_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#":\s*;\s*$"#).unwrap());
+static SPACE_SEMICOLON_ANY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s+;"#).unwrap());
 static SPACE_SEMICOLON_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\s+;\s*$"#).unwrap());
 static PRINTF_Q_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"%([-+ 0#]*\d*(?:\.\d+)?)q"#).unwrap());
@@ -812,7 +813,7 @@ fn apply_line_fixes(
                             }
                         }
                     }
-                    "runtime/printf_format" => {
+                    "runtime/printf_format" | "build/printf_format" => {
                         let idx = diagnostic.linenum.saturating_sub(1);
                         if let Some(line) = lines.get_mut(idx) {
                             changed |= fix_printf_format(line, &diagnostic.message);
@@ -1063,8 +1064,10 @@ fn fix_semicolon_spacing(line: &mut String, message: &crate::messages::LintMessa
                 .collect::<String>();
             format!("{}{{}}", indent)
         }
-        LintMessage::ExtraSpaceBeforeSemicolon
-        | LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces => {
+        LintMessage::ExtraSpaceBeforeSemicolon => {
+            update_code(line, |code| SPACE_SEMICOLON_ANY_RE.replace_all(code, ";").into_owned())
+        }
+        LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces => {
             SPACE_SEMICOLON_RE.replace(line, ";").into_owned()
         }
         _ => return false,
@@ -1977,6 +1980,8 @@ fn relative_from_subdir(file: &Path, subdir: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    #[cfg(unix)]
+    use std::{fs, os::unix::fs::PermissionsExt};
 
     static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -2165,5 +2170,448 @@ mod tests {
         assert!(contents.contains("\n};\n"));
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn helper_fixers_cover_common_string_rewrites() {
+        let mut line = String::from("int x; //comment");
+        assert!(fix_comment_spacing(
+            &mut line,
+            &crate::messages::LintMessage::AtLeastTwoSpacesBetweenCodeAndComments
+        ));
+        assert_eq!(line, "int x;  //comment");
+
+        let mut line = String::from("//TODO(user):fix this");
+        assert!(fix_todo_spacing(&mut line));
+        assert_eq!(line, "// TODO(user): fix this");
+
+        let mut line = String::from("if (ready);");
+        assert!(fix_empty_control_body(&mut line, &["if"]));
+        assert_eq!(line, "if (ready) {}");
+
+        let mut line = String::from("for (auto value:collection) {}");
+        assert!(fix_range_for_colon(&mut line));
+        assert!(line.contains(" : "));
+
+        let mut line = String::from("int x [10];");
+        assert!(fix_brace_spacing(
+            &mut line,
+            &crate::messages::LintMessage::ExtraSpaceBeforeBracket
+        ));
+        assert_eq!(line, "int x[10];");
+
+        let mut line = String::from("if (ready){");
+        assert!(fix_brace_spacing(
+            &mut line,
+            &crate::messages::LintMessage::MissingSpaceBeforeOpenBrace
+        ));
+        assert_eq!(line, "if (ready) {");
+
+        let mut line = String::from("}else");
+        assert!(fix_brace_spacing(
+            &mut line,
+            &crate::messages::LintMessage::MissingSpaceBeforeElse
+        ));
+        assert_eq!(line, "} else");
+
+        let mut lines = vec![String::from("if(ready)")];
+        assert!(fix_paren_spacing(
+            &mut lines,
+            0,
+            &crate::messages::LintMessage::MissingSpaceBeforeOpenParen
+        ));
+        assert_eq!(lines[0], "if (ready)");
+
+        let mut lines = vec![String::from("foo( bar )")];
+        assert!(fix_paren_spacing(
+            &mut lines,
+            0,
+            &crate::messages::LintMessage::MismatchingSpacesInsideParen
+        ));
+        assert_eq!(lines[0], "foo(bar)");
+
+        let mut line = String::from("x = 1 and y or z");
+        assert!(fix_alt_tokens(&mut line));
+        assert_eq!(line, "x = 1 && y || z");
+
+        let mut line = String::from("CHECK(value == \"kFoo\")");
+        assert!(fix_check_macro(&mut line));
+        assert!(line.contains("CHECK_EQ"));
+
+        let mut line = String::from("virtual void Run() override;");
+        assert!(fix_inheritance_redundancy(
+            &mut line,
+            &crate::messages::LintMessage::RedundantVirtual
+        ));
+        assert_eq!(line, "void Run() override;");
+
+        let mut line = String::from("#endif foo");
+        assert!(fix_endif_comment(&mut line));
+        assert_eq!(line, "#endif  // foo");
+
+        let mut line = String::from("auto pair = make_pair<int, int>(1, 2);");
+        assert!(fix_make_pair(&mut line));
+        assert_eq!(line, "auto pair = make_pair(1, 2);");
+
+        let mut line = String::from("memset(buf, size, 0);");
+        assert!(fix_memset(&mut line));
+        assert_eq!(line, "memset(buf, 0, size);");
+
+        let mut line = String::from("printf(\"%q\", value);");
+        assert!(fix_printf_format(
+            &mut line,
+            &crate::messages::LintMessage::PrintfFormatDeprecatedQ
+        ));
+        assert_eq!(line, "printf(\"%ll\", value);");
+
+        let mut line = String::from("  namespace demo");
+        assert!(fix_namespace_indentation(&mut line));
+        assert_eq!(line, "namespace demo");
+
+        let mut line = String::from("int static number;");
+        assert!(fix_storage_class(&mut line));
+        assert_eq!(line, "static int number;");
+    }
+
+    #[test]
+    fn helper_fixers_cover_parsing_and_macro_rewrites() {
+        let mut line = String::from("return x;y");
+        assert!(fix_semicolon_spacing(
+            &mut line,
+            &crate::messages::LintMessage::MissingSpaceBeforeSemicolon
+        ));
+        assert_eq!(line, "return x; y");
+
+        let mut line = String::from("int x ; y");
+        assert!(fix_semicolon_spacing(
+            &mut line,
+            &crate::messages::LintMessage::ExtraSpaceBeforeSemicolon
+        ));
+        assert_eq!(line, "int x; y");
+
+        let mut line = String::from("if (ready):;");
+        assert!(fix_semicolon_spacing(
+            &mut line,
+            &crate::messages::LintMessage::SemicolonDefiningEmptyStatementUseBraces
+        ));
+        assert_eq!(line, "if (ready): {}");
+
+        let mut line = String::from("    ;");
+        assert!(fix_semicolon_spacing(
+            &mut line,
+            &crate::messages::LintMessage::LineContainsOnlySemicolonUseBraces
+        ));
+        assert_eq!(line, "    {}");
+
+        let mut line = String::from("if (ready) ;");
+        assert!(fix_semicolon_spacing(
+            &mut line,
+            &crate::messages::LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces
+        ));
+        assert_eq!(line, "if (ready);");
+
+        let mut line = String::from("if (ready);");
+        assert!(fix_empty_control_body(&mut line, &["if", "while"]));
+        assert_eq!(line, "if (ready) {}");
+
+        let line = String::from("if (ready) {\n  work();\n}");
+        let mut lines = vec![line.clone()];
+        assert!(!fix_empty_if_body(&mut lines, 0));
+        assert_eq!(lines[0], line);
+
+        let mut lines = vec![String::from("if (ready) {"), String::from("}")];
+        assert!(fix_empty_if_body(&mut lines, 0));
+        assert_eq!(lines, vec![String::from("if (ready) {}")]);
+
+        let mut line = String::from("if(ready)");
+        assert_eq!(normalize_control_parentheses(&line), "if (ready)");
+        line = String::from("foo( bar )");
+        assert_eq!(normalize_control_parentheses(&line), "foo(bar)");
+
+        let mut line = String::from("x = 1 and y or z");
+        assert!(fix_alt_tokens(&mut line));
+        assert_eq!(line, "x = 1 && y || z");
+
+        assert_eq!(remove_spaces_after_unary_operator("! value", "!"), "!value");
+        assert_eq!(remove_spaces_after_unary_operator("~ value", "~"), "~value");
+
+        let mut line = String::from("CHECK(value == \"kFoo\")");
+        assert!(fix_check_macro(&mut line));
+        assert_eq!(line, "CHECK_EQ(value, \"kFoo\")");
+
+        let mut line = String::from("EXPECT_FALSE(0 != \"x\")");
+        assert!(fix_check_macro(&mut line));
+        assert_eq!(line, "EXPECT_EQ(0, \"x\")");
+
+        let mut line = String::from("CHECK(x && y)");
+        assert!(!fix_check_macro(&mut line));
+        assert_eq!(line, "CHECK(x && y)");
+
+        let cases = [
+            (
+                crate::messages::CheckMacroName::Dcheck,
+                crate::messages::ComparisonOperator::Eq,
+                crate::messages::CheckMacroReplacement::DcheckEq,
+            ),
+            (
+                crate::messages::CheckMacroName::Check,
+                crate::messages::ComparisonOperator::Ne,
+                crate::messages::CheckMacroReplacement::CheckNe,
+            ),
+            (
+                crate::messages::CheckMacroName::ExpectTrue,
+                crate::messages::ComparisonOperator::Ge,
+                crate::messages::CheckMacroReplacement::ExpectGe,
+            ),
+            (
+                crate::messages::CheckMacroName::AssertTrue,
+                crate::messages::ComparisonOperator::Gt,
+                crate::messages::CheckMacroReplacement::AssertGt,
+            ),
+            (
+                crate::messages::CheckMacroName::ExpectFalse,
+                crate::messages::ComparisonOperator::Le,
+                crate::messages::CheckMacroReplacement::ExpectGt,
+            ),
+            (
+                crate::messages::CheckMacroName::AssertFalse,
+                crate::messages::ComparisonOperator::Lt,
+                crate::messages::CheckMacroReplacement::AssertGe,
+            ),
+        ];
+        for (check_macro, op, expected) in cases {
+            assert_eq!(replacement_check_macro(check_macro, op), Some(expected));
+        }
+
+        assert_eq!(
+            split_comparison_expression("value == \"x\""),
+            Some(("value ", crate::messages::ComparisonOperator::Eq, " \"x\""))
+        );
+        assert_eq!(split_comparison_expression("lhs && rhs"), None);
+        assert!(is_check_const("\"x\""));
+        assert!(is_check_const("'x'"));
+        assert!(!is_check_const("x"));
+
+        let line = "code // comment";
+        assert_eq!(find_line_comment_start(line), Some(5));
+        let line = "puts(\"// not comment\"); // comment";
+        assert_eq!(
+            find_line_comment_start(line),
+            Some(line.find("// comment").unwrap())
+        );
+        let line = r#"puts("// not comment");"#;
+        assert_eq!(find_line_comment_start(line), None);
+
+        let lines = vec![
+            String::from(""),
+            String::from("alpha"),
+            String::from(""),
+            String::from("beta"),
+        ];
+        assert_eq!(previous_non_blank_line(&lines, 3), Some(1));
+        assert_eq!(previous_non_blank_line(&lines, 1), None);
+
+        assert_eq!(find_matching_paren("f(a(b))", 1), Some(6));
+        assert_eq!(find_matching_paren("f(a(b)", 1), None);
+        assert_eq!(
+            find_matching_angle_bracket("std::vector<int>", 11),
+            Some(15)
+        );
+        assert_eq!(find_matching_angle_bracket("std::vector<int", 11), None);
+
+        assert_eq!(
+            update_code("x=1 //c", |code| code.replace("=", " = ")),
+            "x = 1 //c"
+        );
+        let mut line = String::from("x=1 //c");
+        assert!(update_code_and_comment(&mut line, |code| code.replace("=", " = ")));
+        assert_eq!(line, "x = 1 //c");
+        assert_eq!(add_spaces_around_operator("x&&y", "&&"), "x && y");
+        assert_eq!(remove_spaces_after_unary_operator("! value", "!"), "!value");
+    }
+
+    #[test]
+    fn helper_fixers_cover_include_block_and_guard_helpers() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("src").join("demo.cc");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "// Copyright 2026\nint main() {}\n").unwrap();
+
+        let mut options = Options::new();
+        options.repository = root.clone();
+
+        let lines = vec![
+            String::from("// Copyright 2026"),
+            String::from("/* header */"),
+            String::from(""),
+            String::from("#pragma once"),
+            String::from(""),
+            String::from("#include <string>"),
+            String::from("#include \"src/demo.h\""),
+            String::from("#include \"src/demo.h\""),
+            String::from("int main() {}"),
+        ];
+        assert_eq!(header_guard_insertion_index(&lines), 3);
+        assert_eq!(top_level_include_block(&lines), Some((5, 8)));
+        assert_eq!(include_block_insertion_index(&lines), 5);
+
+        let mut file_table = crate::diagnostics::FileTable::new();
+        let file_id = file_table.intern("src/demo.cc");
+        let diagnostics = vec![
+            crate::diagnostics::Diagnostic {
+                file_id,
+                linenum: 1,
+                category: crate::categories::Category::BuildIncludeWhatYouUse,
+                confidence: 1,
+                message: crate::messages::LintMessage::MissingSelfHeader {
+                    file_from_repo: "src/demo.cc".into(),
+                    header: "src/demo.h".into(),
+                    includes_use_aliases: false,
+                },
+            },
+            crate::diagnostics::Diagnostic {
+                file_id,
+                linenum: 1,
+                category: crate::categories::Category::BuildIncludeWhatYouUse,
+                confidence: 1,
+                message: crate::messages::LintMessage::IwyuAddInclude(
+                    crate::iwyu::IwyuHeader::String,
+                    "name".into(),
+                ),
+            },
+        ];
+
+        let additions = missing_include_entries_from_diagnostics(&file, &options, &diagnostics);
+        assert_eq!(
+            additions
+                .into_iter()
+                .map(|entry| entry.raw_line)
+                .collect::<Vec<_>>(),
+            vec![
+                String::from("#include \"src/demo.h\""),
+                String::from("#include <string>"),
+            ]
+        );
+
+        let mut include_lines = vec![
+            String::from("// Copyright 2026"),
+            String::from("#include <vector>"),
+            String::from("#include <string>"),
+            String::from("int main() {}"),
+        ];
+        assert_eq!(top_level_include_block(&include_lines), Some((1, 3)));
+        assert!(fix_include_block(
+            &file,
+            &options,
+            &diagnostics,
+            &mut include_lines
+        ));
+        assert_eq!(
+            include_lines,
+            vec![
+                String::from("// Copyright 2026"),
+                String::from("#include \"src/demo.h\""),
+                String::from("#include <string>"),
+                String::from("#include <vector>"),
+                String::from("int main() {}"),
+            ]
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn helper_fixers_cover_class_layout_adjustments() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("sample.h");
+        std::fs::write(
+            &file,
+            concat!(
+                "// Copyright 2026\n",
+                "class Foo {\n",
+                " public:\n",
+                "  int value;\n",
+                " };\n",
+            ),
+        )
+        .unwrap();
+
+        let options = Options::new();
+        let mut lines = vec![
+            "// Copyright 2026".to_string(),
+            "class Foo {".to_string(),
+            "   public:".to_string(),
+            "  int value;".to_string(),
+            " };".to_string(),
+        ];
+
+        assert!(fix_access_specifier_indentation(
+            &file, &options, &mut lines, 2
+        ));
+        assert_eq!(lines[2], " public:");
+
+        assert!(fix_class_closing_brace_alignment(
+            &file, &options, &mut lines, 4
+        ));
+        assert_eq!(lines[4], "};");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fix_file_is_noop_for_dash_input() {
+        let options = Options::new();
+        assert!(!fix_file_in_place(Path::new("-"), &options).unwrap());
+    }
+
+    #[test]
+    fn fix_file_returns_false_for_clean_file() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("sample.cc");
+        std::fs::write(&file, "// Copyright 2026\nint main() {}\n").unwrap();
+
+        let options = Options::new();
+        assert!(!fix_file_in_place(&file, &options).unwrap());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fix_file_returns_false_for_invalid_utf8_input() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("sample.cc");
+        std::fs::write(&file, b"\xFF\xFE\xFA\n").unwrap();
+
+        let options = Options::new();
+        assert!(!fix_file_in_place(&file, &options).unwrap());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fix_file_reports_write_failure_for_read_only_file() {
+        let root = temp_dir();
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("sample.cc");
+        fs::write(&file, "int x=0;\n").unwrap();
+
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        permissions.set_mode(0o444);
+        fs::set_permissions(&file, permissions).unwrap();
+
+        let options = Options::new();
+        let result = fix_file_in_place(&file, &options);
+
+        let mut permissions = fs::metadata(&file).unwrap().permissions();
+        permissions.set_mode(0o644);
+        fs::set_permissions(&file, permissions).unwrap();
+        fs::remove_dir_all(root).unwrap();
+
+        assert!(result.is_err());
     }
 }

@@ -333,16 +333,19 @@ pub const OTHER_NOLINT_CATEGORY_PREFIXES: &[&str] = &[
 ];
 
 /// Returns true if the category is a valid error category.
+#[inline]
 pub fn is_error_category(category: &str) -> bool {
     ERROR_CATEGORIES.contains(&category)
 }
 
 /// Returns true if the category is a legacy error category.
+#[inline]
 pub fn is_legacy_error_category(category: &str) -> bool {
     LEGACY_ERROR_CATEGORIES.contains(&category)
 }
 
 /// Returns true if the category is from another tool (based on prefix).
+#[inline]
 pub fn is_other_nolint_category(category: &str) -> bool {
     OTHER_NOLINT_CATEGORY_PREFIXES
         .iter()
@@ -363,5 +366,15 @@ mod tests {
     fn test_is_other_nolint_category() {
         assert!(is_other_nolint_category("clang-analyzer-dead-store"));
         assert!(!is_other_nolint_category("readability/braces"));
+    }
+
+    #[test]
+    fn categories_roundtrip_all_known_values() {
+        for &category in ERROR_CATEGORIES {
+            let parsed: Category = category.parse().unwrap();
+            assert_eq!(parsed.as_str(), category);
+            assert_eq!(parsed.to_string(), category);
+        }
+        assert!("not/a/category".parse::<Category>().is_err());
     }
 }

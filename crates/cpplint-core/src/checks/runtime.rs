@@ -2,6 +2,7 @@ use crate::categories::Category;
 use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
 use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
+use crate::line_utils::close_expression_in_lines;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use regex::{Regex, RegexSet};
@@ -266,6 +267,9 @@ pub fn check(
 
     if keywords.intersects(MatchedKeywords::PRINTF | MatchedKeywords::STRCPY_STRCAT) {
         check_printf(linter, elided_line, linenum);
+    }
+    if has_paren && (line.contains("printf") || line.contains("StringPrintf")) {
+        check_potential_format_string_bug(linter, line, linenum);
     }
     if keywords.intersects(PRINTF_FORMAT_CANDIDATE) {
         check_printf_format(linter, line, linenum);
@@ -639,8 +643,12 @@ fn split_args(args: &str) -> Vec<&str> {
     parts
 }
 
-fn normalize_template_spacing(arg: &str) -> Cow<'_, str> {
-    REF_TEMPLATE_SPACE_RE.replace_all(arg.trim(), "<")
+fn normalize_template_spacing(arg: &str) -> Option<String> {
+    let trimmed = arg.trim();
+    match REF_TEMPLATE_SPACE_RE.replace_all(trimmed, "<") {
+        Cow::Borrowed(_) => None,
+        Cow::Owned(owned) => Some(owned),
+    }
 }
 
 fn strip_keyword_prefix<'a>(s: &'a str, keyword: &str) -> Option<&'a str> {
@@ -727,8 +735,9 @@ fn strip_optional_template_args(s: &str) -> Option<&str> {
 }
 
 fn matches_constructor_arg_kind(arg: &str, class_name: &str, ref_token: &str) -> bool {
-    let normalized = normalize_template_spacing(arg);
-    let arg = strip_trailing_param_name(normalized.as_ref());
+    let normalized_owned = normalize_template_spacing(arg);
+    let normalized = normalized_owned.as_deref().unwrap_or(arg.trim());
+    let arg = strip_trailing_param_name(normalized);
     let arg = strip_cv_prefix(arg);
     let Some(rest) = arg.strip_prefix(class_name) else {
         return false;
@@ -1156,6 +1165,78 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
     }
 }
 
+fn has_top_level_comma(args: &str) -> bool {
+    let mut depth = 0usize;
+    for ch in args.chars() {
+        match ch {
+            '(' | '[' | '{' | '<' => depth += 1,
+            ')' | ']' | '}' | '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn check_potential_format_string_bug(linter: &mut FileLinter, line: &str, linenum: usize) {
+    for function in ["printf", "StringPrintf"] {
+        let mut search_start = 0usize;
+        while let Some(offset) = line[search_start..].find(function) {
+            let start = search_start + offset;
+            let end = start + function.len();
+            if (start > 0 && string_utils::is_word_char(line.as_bytes()[start - 1]))
+                || (end < line.len() && string_utils::is_word_char(line.as_bytes()[end]))
+            {
+                search_start = end;
+                continue;
+            }
+
+            let open = line[end..]
+                .char_indices()
+                .find_map(|(i, ch)| (!ch.is_ascii_whitespace()).then_some((end + i, ch)));
+            let Some((open_index, '(')) = open else {
+                search_start = end;
+                continue;
+            };
+
+            let Some((_, close_index)) = close_expression_in_lines(&[line], 0, open_index) else {
+                search_start = end;
+                continue;
+            };
+            if close_index <= open_index + 1 {
+                search_start = close_index;
+                continue;
+            }
+
+            let args = &line[open_index + 1..close_index - 1];
+            if has_top_level_comma(args) {
+                search_start = close_index;
+                continue;
+            }
+            let arg = args.trim();
+            if arg.is_empty()
+                || arg == "__VA_ARGS__"
+                || arg.starts_with('"')
+                || arg.starts_with('\'')
+            {
+                search_start = close_index;
+                continue;
+            }
+
+            linter.error(
+                linenum,
+                Category::RuntimePrintf,
+                4,
+                crate::messages::LintMessage::PotentialFormatStringBug {
+                    function: function.into(),
+                    arg: arg.into(),
+                },
+            );
+            search_start = close_index;
+        }
+    }
+}
+
 fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
     if line.contains("printf") {
         let matches = PRINTF_FORMAT_SET.matches(line);
@@ -1203,7 +1284,7 @@ fn check_printf_format(linter: &mut FileLinter, line: &str, linenum: usize) {
     if printf_unescape {
         linter.error(
             linenum,
-            Category::RuntimePrintfFormat,
+            Category::BuildPrintfFormat,
             3,
             crate::messages::LintMessage::PrintfFormatUndefinedEscape,
         );
@@ -1340,8 +1421,9 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
     }
 
     for arg in split_args(args) {
-        let normalized = normalize_template_spacing(arg);
-        let type_only = strip_trailing_param_name(normalized.as_ref());
+        let normalized_owned = normalize_template_spacing(arg);
+        let normalized = normalized_owned.as_deref().unwrap_or(arg.trim());
+        let type_only = strip_trailing_param_name(normalized);
         if !type_only.ends_with('&') || type_only.ends_with("&&") {
             continue;
         }
@@ -1354,7 +1436,7 @@ fn check_non_const_references(linter: &mut FileLinter, line: &str, linenum: usiz
             linenum,
             Category::RuntimeReferences,
             2,
-            crate::messages::LintMessage::NonConstReference(normalized.into_owned().into()),
+            crate::messages::LintMessage::NonConstReference(normalized.to_string().into()),
         );
     }
 }
@@ -1410,5 +1492,93 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
             crate::messages::LintMessage::VlaFound(size_expr.to_string().into()),
         );
         return;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file_linter::FileLinter;
+    use crate::options::Options;
+    use crate::state::CppLintState;
+    use std::path::PathBuf;
+
+    fn runtime_diagnostics(lines: &[&str]) -> Vec<crate::diagnostics::Diagnostic> {
+        let state = CppLintState::new();
+        let mut linter = FileLinter::new(PathBuf::from("sample.cc"), &state, Options::new());
+        linter.process_file_data(lines.iter().copied());
+        state.diagnostics()
+    }
+
+    #[test]
+    fn runtime_checker_flags_representative_diagnostics() {
+        let diagnostics = runtime_diagnostics(&[
+            "// Copyright 2026",
+            "class Foo::Bar;",
+            "int static number;",
+            "#endif extra",
+            "const string &member;",
+            "memset(buf, size, 0);",
+            "foo = localtime(&t);",
+            "VLOG(INFO) << value;",
+            "auto p = make_pair<int, int>(1, 2);",
+            "std::string g;",
+            "void f(int& value) { value++; }",
+            "printf(\"%q\", value);",
+            "printf(\"\\%\");",
+            "int x = (int)1.0;",
+            "short port;",
+            "long value;",
+            "int values[foo + 1];",
+            "int arr[] = {1};",
+        ]);
+
+        let categories: Vec<_> = diagnostics
+            .iter()
+            .map(|diag| diag.category.as_str())
+            .collect();
+        assert!(categories.contains(&"readability/casting"));
+        assert!(categories.contains(&"build/storage_class"));
+        assert!(categories.contains(&"build/endif_comment"));
+        assert!(categories.contains(&"runtime/member_string_references"));
+        assert!(categories.contains(&"runtime/memset"));
+        assert!(categories.contains(&"runtime/threadsafe_fn"));
+        assert!(categories.contains(&"runtime/vlog"));
+        assert!(categories.contains(&"build/explicit_make_pair"));
+        assert!(categories.contains(&"runtime/string"));
+        assert!(categories.contains(&"runtime/references"));
+        assert!(categories.contains(&"runtime/printf_format"));
+        assert!(categories.contains(&"runtime/int"));
+        assert!(categories.contains(&"runtime/arrays"));
+    }
+
+    #[test]
+    fn helper_parsers_cover_constructor_and_comparison_edges() {
+        assert_eq!(
+            parse_constructor_signature("inline explicit Foo(const Foo& other)", "Foo"),
+            Some((true, "const Foo& other"))
+        );
+        assert_eq!(
+            parse_constructor_signature("constexpr Foo(int value)", "Foo"),
+            Some((false, "int value"))
+        );
+        assert!(parse_constructor_signature("Foo value;", "Foo").is_none());
+
+        assert!(is_copy_constructor_arg("const Foo& other", "Foo"));
+        assert!(is_move_constructor_arg("Foo&& other", "Foo"));
+        assert!(matches_constructor_arg_kind(
+            "Foo<T> const & other",
+            "Foo",
+            "&"
+        ));
+        assert!(strip_optional_template_args("<T> rest").is_some());
+        assert_eq!(strip_cv_prefix("const volatile Foo"), "Foo");
+        assert_eq!(strip_trailing_param_name("Foo value"), "Foo");
+        assert_eq!(
+            normalize_template_spacing("Foo < Bar >").as_deref(),
+            Some("Foo< Bar >")
+        );
+        assert_eq!(find_word_at("short port", 0, "short"), Some(0));
+        assert_eq!(find_word_at("notshort", 0, "short"), None);
     }
 }

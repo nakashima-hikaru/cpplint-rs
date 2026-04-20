@@ -1,4 +1,6 @@
 use std::collections::BTreeSet;
+use unicode_normalization::UnicodeNormalization;
+use unicode_width::UnicodeWidthChar;
 
 /// Split string by comma, strip white spaces, and remove duplicated items.
 pub fn parse_comma_separated_list(s: &str) -> BTreeSet<String> {
@@ -22,19 +24,23 @@ pub fn set_to_str(set: &BTreeSet<String>, prefix: &str, delim: &str, suffix: &st
 }
 
 /// Returns the last non-space character or '\0'.
+#[inline]
 pub fn get_last_non_space(s: &str) -> char {
     s.trim_end().chars().next_back().unwrap_or('\0')
 }
 
 /// Returns true if the string consists of only digits.
+#[inline]
 pub fn str_is_digit(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
 }
 
+#[inline]
 pub fn is_word_char(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
+#[inline]
 pub fn is_word_match(s: &str, start: usize, end: usize) -> bool {
     let bytes = s.as_bytes();
     let before_ok = start == 0 || !is_word_char(bytes[start - 1]);
@@ -42,6 +48,7 @@ pub fn is_word_match(s: &str, start: usize, end: usize) -> bool {
     before_ok && after_ok
 }
 
+#[inline]
 pub fn contains_word(s: &str, word: &str) -> bool {
     if word.is_empty() {
         return false;
@@ -59,6 +66,7 @@ pub fn contains_word(s: &str, word: &str) -> bool {
     false
 }
 
+#[inline]
 pub fn trimmed_starts_with_word(s: &str, word: &str) -> bool {
     let trimmed = s.trim_start();
     let Some(rest) = trimmed.strip_prefix(word) else {
@@ -67,6 +75,7 @@ pub fn trimmed_starts_with_word(s: &str, word: &str) -> bool {
     rest.is_empty() || !is_word_char(rest.as_bytes()[0])
 }
 
+#[inline]
 pub fn ends_with_word(s: &str, word: &str) -> bool {
     if !s.ends_with(word) {
         return false;
@@ -75,6 +84,7 @@ pub fn ends_with_word(s: &str, word: &str) -> bool {
     start == 0 || !is_word_char(s.as_bytes()[start - 1])
 }
 
+#[inline]
 pub fn contains_word_start(s: &str, word: &str) -> bool {
     let mut search_start = 0;
     while let Some(offset) = s[search_start..].find(word) {
@@ -87,9 +97,20 @@ pub fn contains_word_start(s: &str, word: &str) -> bool {
     false
 }
 
+#[inline]
 pub fn ends_with_word_and_optional_spaces(s: &str, word: &str) -> bool {
     let trimmed = s.trim_end();
     ends_with_word(trimmed, word)
+}
+
+/// Returns the display width of a line in column positions.
+///
+/// This mirrors cpplint.py's normalization-first behavior closely enough for
+/// the upstream width tests, while staying in Rust types.
+pub fn get_line_width(line: &str) -> usize {
+    line.nfc()
+        .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+        .sum()
 }
 
 #[cfg(test)]
@@ -162,5 +183,14 @@ mod tests {
             "my_decltype",
             "decltype"
         ));
+    }
+
+    #[test]
+    fn test_get_line_width() {
+        assert_eq!(get_line_width(""), 0);
+        assert_eq!(get_line_width(&"x".repeat(10)), 10);
+        assert_eq!(get_line_width("都|道|府|県|支庁"), 16);
+        assert_eq!(get_line_width("d𝐱/dt"), 5);
+        assert_eq!(get_line_width("f : t ⨯ 𝐱 → ℝ"), 13);
     }
 }

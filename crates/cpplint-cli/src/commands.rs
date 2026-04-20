@@ -102,3 +102,35 @@ fn render_family(family: RuleFamily) -> String {
     }
     rendered
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_registry_overview_can_include_categories() {
+        let registry = rule_registry();
+        let rendered = render_registry_overview(registry, true);
+
+        assert!(rendered.starts_with("cpplint rule families\n"));
+        assert!(rendered.contains("Supported categories:"));
+        assert!(rendered.contains("  * build/header_guard"));
+    }
+
+    #[test]
+    fn render_selection_handles_family_and_category_queries() {
+        let registry = rule_registry();
+
+        let family = registry.families()[0];
+        let family_rendered = render_selection(registry, RuleSelection::Family(family));
+        assert!(family_rendered.contains("Family:"));
+        assert!(family_rendered.contains(family.name));
+
+        let category = family.categories[0];
+        let category_rendered =
+            render_selection(registry, RuleSelection::Category { category, family });
+        assert!(category_rendered.contains("Rule:"));
+        assert!(category_rendered.contains("Sibling categories:"));
+        assert!(category_rendered.contains(category));
+    }
+}

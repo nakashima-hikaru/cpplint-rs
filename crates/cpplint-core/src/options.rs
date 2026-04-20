@@ -216,7 +216,19 @@ mod tests {
     fn test_should_print_error() {
         let mut options = Options::new();
         assert!(!options.should_print_error(
+            crate::categories::Category::BuildIncludeAlpha,
+            "test.cpp",
+            10
+        ));
+        assert!(!options.should_print_error(
             crate::categories::Category::ReadabilityFnSize,
+            "test.cpp",
+            10
+        ));
+
+        options.add_filter("+build/include_alpha");
+        assert!(options.should_print_error(
+            crate::categories::Category::BuildIncludeAlpha,
             "test.cpp",
             10
         ));

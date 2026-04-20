@@ -34,3 +34,29 @@ pub fn check<S: AsRef<str>>(linter: &mut FileLinter, lines: &[S]) {
         crate::messages::LintMessage::NoCopyrightFound,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::Options;
+    use crate::state::CppLintState;
+    use std::path::PathBuf;
+
+    #[test]
+    fn check_requires_a_copyright_notice_in_the_first_10_lines() {
+        let state = CppLintState::new();
+        let mut linter = FileLinter::new(PathBuf::from("test.cc"), &state, Options::new());
+
+        check(&mut linter, &["", "", "", "", "", "", "", "", "", "", ""]);
+        assert_eq!(state.error_count(), 1);
+        assert!(state.has_error(Category::LegalCopyright));
+
+        let state = CppLintState::new();
+        let mut linter = FileLinter::new(PathBuf::from("test.cc"), &state, Options::new());
+        check(
+            &mut linter,
+            &["", "", "", "", "", "", "", "", "", "// Copyright 2026", ""],
+        );
+        assert_eq!(state.error_count(), 0);
+    }
+}

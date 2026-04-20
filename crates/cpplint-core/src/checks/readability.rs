@@ -31,13 +31,10 @@ static MULTILINE_IF_LAMBDA_RE: LazyLock<Regex> =
 static NAMESPACE_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*namespace\b\s*([:\w]+)?(.*)$"#).unwrap());
 fn is_check_const(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.len() < 2 {
-        return false;
-    }
-    let first = bytes[0];
-    let last = bytes[bytes.len() - 1];
-    (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'')
+    static CHECK_CONST_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"^([-+]?(\d+|0[xX][0-9a-fA-F]+)[lLuU]{0,3}|".*"|'.*')$"#).unwrap()
+    });
+    CHECK_CONST_RE.is_match(s.trim())
 }
 const INHERITANCE_KEYWORDS: [&str; 3] = ["virtual", "override", "final"];
 static INHERITANCE_KEYWORDS_AC: LazyLock<AhoCorasick> =
@@ -93,6 +90,9 @@ pub fn check(
 
     if has_brace || has_slash || has_semicolon {
         check_namespace_termination_comment(linter, facts, clean_lines, linenum);
+    }
+    if has_brace {
+        check_disallow_macros_at_end(linter, facts, clean_lines, linenum);
     }
 
     if elided_line.contains("CHECK")
@@ -199,8 +199,10 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
         return;
     }
 
-    let category = if trimmed.starts_with("using namespace std::literals") {
+    let category = if trimmed.contains("::literals") {
         Category::BuildNamespacesLiterals
+    } else if is_header_file(linter.filename()) {
+        Category::BuildNamespacesHeaders
     } else {
         Category::BuildNamespaces
     };
@@ -212,6 +214,10 @@ fn check_namespace_using(linter: &mut FileLinter, elided_line: &str, linenum: us
             crate::messages::BracesRedundantKind::NamespaceUsingDirectives,
         ),
     );
+}
+
+fn is_header_file(filename: &str) -> bool {
+    filename.ends_with(".h") || filename.ends_with(".hpp") || filename.ends_with(".hxx")
 }
 
 fn check_unnamed_namespace_in_header(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
@@ -642,6 +648,16 @@ fn check_braces(
             }
         }
 
+        if elided_line[else_pos + 4..].starts_with('{') {
+            linter.error(
+                linenum,
+                Category::WhitespaceBraces,
+                5,
+                crate::messages::LintMessage::MissingSpaceBeforeOpenBrace,
+            );
+            return;
+        }
+
         // Pattern 3 & 4: } \s* else [^{]*$ / ^[^}]* else \s* {
         let has_left_brace = prefix.trim() == "}";
         let suffix = elided_line[else_pos + 4..].trim_start();
@@ -975,7 +991,7 @@ fn check_single_line_control_bodies(
 
     // Manual implementation of SINGLE_LINE_CONTROL_SET patterns:
     // r#"\b(if|else|while|for)\b.*\s*\{[^{}]+\}\s*$"#
-    for kw in ["if", "else", "while", "for"] {
+    for kw in ["if", "else", "while", "for", "do", "try"] {
         if let Some(pos) = elided_line.find(kw) {
             if !string_utils::is_word_match(elided_line, pos, pos + kw.len()) {
                 continue;
@@ -1185,6 +1201,53 @@ fn check_namespace_termination_comment(
         5,
         crate::messages::LintMessage::NamespaceMissingComment(name.to_string().into()),
     );
+}
+
+fn check_disallow_macros_at_end(
+    linter: &mut FileLinter,
+    facts: &FileFacts<'_>,
+    clean_lines: &CleansedLines<'_>,
+    linenum: usize,
+) {
+    let Some(class_range) = facts.enclosing_class_range(linenum) else {
+        return;
+    };
+    if linenum != class_range.end {
+        return;
+    }
+
+    let Some(class_name) = facts.nearest_class_name(linenum) else {
+        return;
+    };
+    if class_name.is_empty() {
+        return;
+    }
+
+    let mut seen_last_thing_in_class = false;
+    for i in (class_range.start + 1..linenum).rev() {
+        let line = clean_lines.elided[i];
+        let matched_macro = ["DISALLOW_COPY_AND_ASSIGN", "DISALLOW_IMPLICIT_CONSTRUCTORS"]
+            .into_iter()
+            .find(|macro_name| line.contains(&format!("{macro_name}({class_name})")));
+
+        if let Some(macro_name) = matched_macro {
+            if seen_last_thing_in_class {
+                linter.error(
+                    i,
+                    Category::ReadabilityConstructors,
+                    3,
+                    crate::messages::LintMessage::DisallowMacroShouldBeLastInClass(
+                        macro_name.into(),
+                    ),
+                );
+            }
+            break;
+        }
+
+        if !line.trim().is_empty() {
+            seen_last_thing_in_class = true;
+        }
+    }
 }
 
 fn check_namespace_indentation(
@@ -1401,5 +1464,30 @@ fn check_trailing_semicolon(
             4,
             crate::messages::LintMessage::UnnecessarySemicolonAfterBrace,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cleanse::CleansedLines;
+    use crate::file_linter::FileLinter;
+    use crate::options::Options;
+    use crate::state::CppLintState;
+    use bumpalo::Bump;
+    use std::path::PathBuf;
+
+    #[test]
+    fn unnamed_namespace_in_header_is_reported() {
+        let state = CppLintState::new();
+        let mut linter = FileLinter::new(PathBuf::from("foo.h"), &state, Options::new());
+        let arena = Bump::new();
+        let lines = ["// Copyright 2026", "namespace {", ""];
+        let clean_lines = CleansedLines::new(&arena, &lines);
+        let facts = crate::facts::FileFacts::new(&clean_lines);
+
+        check(&mut linter, &facts, &clean_lines, 1);
+
+        assert!(state.has_error(Category::BuildNamespacesHeaders));
     }
 }

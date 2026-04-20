@@ -152,3 +152,71 @@ fn fix_flag_rewrites_file_in_place() {
 
     std::fs::remove_dir_all(temp).unwrap();
 }
+
+#[test]
+fn quiet_mode_suppresses_clean_output_but_not_error_output() {
+    let root = repo_root();
+    let temp = temp_dir();
+    std::fs::create_dir_all(&temp).unwrap();
+    let file = temp.join("sample.cc");
+
+    std::fs::write(&file, "int clean = 0;\n").unwrap();
+    let file_arg = file.to_string_lossy().to_string();
+
+    let clean = run_cli(
+        &root,
+        &[
+            "--quiet",
+            "--filter=-legal/copyright,-whitespace/operators",
+            &file_arg,
+        ],
+    );
+    assert_eq!(clean.status.code(), Some(0));
+    assert!(clean.stdout.is_empty());
+    assert!(clean.stderr.is_empty());
+
+    std::fs::write(&file, "int x=0;\n").unwrap();
+    let has_error = run_cli(&root, &["--quiet", "--filter=-legal/copyright", &file_arg]);
+    assert_eq!(has_error.status.code(), Some(1));
+    assert!(!has_error.stderr.is_empty());
+    assert!(
+        String::from_utf8_lossy(&has_error.stderr).contains("[whitespace/operators]"),
+        "stderr should include diagnostics in quiet mode when errors exist"
+    );
+
+    std::fs::remove_dir_all(temp).unwrap();
+}
+
+#[test]
+fn recursive_and_exclude_match_expected_files() {
+    let root = repo_root();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let temp = root
+        .join("target")
+        .join(format!("cpplint-rs-cli-recursive-{}-{}", unique, counter));
+    let nested = temp.join("sub");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(temp.join("keep.cc"), "int keep=0;\n").unwrap();
+    std::fs::write(nested.join("skip.cc"), "int skip=0;\n").unwrap();
+
+    let dir_arg = temp.to_string_lossy().to_string();
+    let output = run_cli(
+        &root,
+        &[
+            "--recursive",
+            "--exclude=**/skip.cc",
+            "--filter=-legal/copyright",
+            &dir_arg,
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("keep.cc"));
+    assert_eq!(stderr.matches("[whitespace/operators]").count(), 1);
+
+    std::fs::remove_dir_all(temp).unwrap();
+}

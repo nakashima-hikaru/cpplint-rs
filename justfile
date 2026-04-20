@@ -29,3 +29,8 @@ measure-quantlib: clone-quantlib build-release
 clean-bench:
 	@echo "Removing {{QUANTLIB_DIR}}..."
 	@rm -rf bench_data
+
+# upstream cpplint.py のテストを実行します
+test-upstream-cpplint:
+	@echo "Running upstream cpplint_unittest.py..."
+	@cd tests/upstream_cpplint && python3 -m pytest cpplint_unittest.py

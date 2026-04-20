@@ -567,7 +567,7 @@ fn check_operator_spacing(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    let mut masked_line: std::borrow::Cow<'_, str> = std::borrow::Cow::Borrowed(elided_line);
+    let mut masked_line_owned: Option<String> = None;
     if keywords.has_operator()
         && elided_line.contains('(')
         && let Some((prefix, operator, suffix)) = find_operator_method(elided_line)
@@ -576,7 +576,7 @@ fn check_operator_spacing(
         replaced.push_str(prefix);
         replaced.extend(std::iter::repeat_n('_', operator.len()));
         replaced.push_str(suffix);
-        masked_line = std::borrow::Cow::Owned(replaced);
+        masked_line_owned = Some(replaced);
     }
 
     let raw_trimmed = clean_lines.raw_lines[linenum].trim();
@@ -596,7 +596,7 @@ fn check_operator_spacing(
         return;
     }
 
-    let line_to_check = masked_line.as_ref();
+    let line_to_check = masked_line_owned.as_deref().unwrap_or(elided_line);
     let check_assignment = !keywords
         .intersects(MatchedKeywords::IF | MatchedKeywords::WHILE | MatchedKeywords::FOR)
         && !line_to_check.contains("operator=");
@@ -1148,11 +1148,13 @@ fn check_spacing_for_function_call_base(
     }
 
     let spacing = CallSpacingFlags::scan(fncall);
+    if spacing.asm {
+        // Inline asm invocations such as `asm volatile (...)` are intentionally
+        // exempt from function-call spacing checks.
+        return;
+    }
     if spacing.main && !spacing.func_ptr {
         let mut exception_mask = MatchedKeywords::empty();
-        if spacing.asm {
-            exception_mask |= MatchedKeywords::VA_OPT;
-        }
         if spacing.define {
             exception_mask |= MatchedKeywords::TYPEDEF | MatchedKeywords::USING;
         }
@@ -1283,6 +1285,9 @@ fn check_blank_line_rules(
 ) {
     let line = &clean_lines.lines_without_raw_strings[linenum];
     if !crate::line_utils::is_blank_line(line) {
+        return;
+    }
+    if clean_lines.in_raw_string.get(linenum).copied().unwrap_or(false) {
         return;
     }
     if linenum == 0 {
@@ -1988,12 +1993,27 @@ mod tests {
     }
 
     #[test]
+    fn test_class_access() {
+        assert_eq!(parse_access_specifier(" public:"), Some((1, "public", false)));
+        assert_eq!(parse_access_specifier(" private:"), Some((1, "private", false)));
+        assert_eq!(parse_access_specifier(" protected:"), Some((1, "protected", false)));
+        assert_eq!(parse_access_specifier(" signals:"), Some((1, "signals", false)));
+        assert_eq!(parse_access_specifier(" public slots:"), Some((1, "public", true)));
+        assert_eq!(parse_access_specifier("protracted:"), None);
+        assert_eq!(parse_access_specifier("public::"), None);
+    }
+
+    #[test]
     fn operator_spacing_analysis_matches_existing_cases() {
         let analysis = OperatorSpacingAnalysis::scan("value=1", true);
         assert!(analysis.missing_assignment_space);
 
         let analysis = OperatorSpacingAnalysis::scan("if (a==b)", false);
         assert_eq!(analysis.missing_comparison_space, Some("=="));
+        let analysis = OperatorSpacingAnalysis::scan("if ((foo)||(bar))", false);
+        assert_eq!(analysis.missing_comparison_space, Some("||"));
+        let analysis = OperatorSpacingAnalysis::scan("if ((foo)||(bar)) return;", false);
+        assert_eq!(analysis.missing_comparison_space, Some("||"));
 
         let analysis = OperatorSpacingAnalysis::scan("foo<<bar", false);
         assert_eq!(analysis.lshift_pos, Some(3));

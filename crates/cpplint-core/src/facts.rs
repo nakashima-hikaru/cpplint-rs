@@ -556,6 +556,183 @@ mod tests {
     use super::*;
     use bumpalo::Bump;
 
+    macro_rules! with_facts {
+        ($lines:expr, |$facts:ident| $body:block) => {{
+            let arena = Bump::new();
+            let clean_lines = CleansedLines::new(&arena, &$lines);
+            let $facts = FileFacts::new(&clean_lines);
+            $body
+        }};
+    }
+
+    #[test]
+    fn test_empty() {
+        with_facts!([], |facts| {
+            assert_eq!(facts.namespace_top_level_depth(0), None);
+            assert_eq!(facts.enclosing_class_range(0), None);
+            assert_eq!(facts.block_kind(0), None);
+        });
+    }
+
+    #[test]
+    fn test_namespace() {
+        with_facts!(["namespace {", "  int value = 0;", "}"], |facts| {
+            assert_eq!(facts.block_kind(0), Some(ScopeKind::Namespace));
+            assert_eq!(facts.namespace_decl_line(0), Some(0));
+            assert_eq!(facts.namespace_top_level_depth(1), Some(1));
+            assert_eq!(facts.matching_block_start(2), Some(0));
+        });
+
+        with_facts!(["namespace", "Foo", "{", "  int value = 0;", "}"], |facts| {
+            assert_eq!(facts.namespace_top_level_depth(3), Some(1));
+            assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
+            assert_eq!(facts.non_namespace_indent_depth(3), 0);
+            assert_eq!(facts.matching_block_start(4), Some(2));
+        });
+    }
+
+    #[test]
+    fn test_decorated_class() {
+        with_facts!(["class Decorated_123 API A {", "  int value;", "};"], |facts| {
+            assert_eq!(
+                facts.enclosing_class_range(1),
+                Some(ClassRange { start: 0, end: 2 })
+            );
+            assert_eq!(facts.nearest_class_name(1), Some("A"));
+            assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+        });
+    }
+
+    #[test]
+    fn test_inner_class() {
+        with_facts!(["class A::B::C {", "  int value;", "};"], |facts| {
+            assert_eq!(
+                facts.enclosing_class_range(1),
+                Some(ClassRange { start: 0, end: 2 })
+            );
+            assert_eq!(facts.nearest_class_name(1), Some("A::B::C"));
+            assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+        });
+    }
+
+    #[test]
+    fn test_class() {
+        with_facts!(["class A {", "  int value;", "};"], |facts| {
+            assert_eq!(
+                facts.enclosing_class_range(1),
+                Some(ClassRange { start: 0, end: 2 })
+            );
+            assert_eq!(facts.nearest_class_name(1), Some("A"));
+            assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+        });
+
+        with_facts!(["struct B : public A {", "  int value;", "};"], |facts| {
+            assert_eq!(
+                facts.enclosing_class_range(1),
+                Some(ClassRange { start: 0, end: 2 })
+            );
+            assert_eq!(facts.nearest_class_name(1), Some("B"));
+            assert_eq!(facts.enclosing_class_is_struct(1), Some(true));
+        });
+
+        with_facts!(["class C", ": public A {", "  int value;", "};"], |facts| {
+            assert_eq!(
+                facts.enclosing_class_range(2),
+                Some(ClassRange { start: 0, end: 3 })
+            );
+            assert_eq!(facts.nearest_class_name(2), Some("C"));
+            assert_eq!(facts.enclosing_class_is_struct(2), Some(false));
+        });
+
+        with_facts!(
+            ["class D {", "  class E {", "    int value;", "  };", "};"],
+            |facts| {
+                assert_eq!(
+                    facts.enclosing_class_range(2),
+                    Some(ClassRange { start: 1, end: 3 })
+                );
+                assert_eq!(facts.nearest_class_name(2), Some("E"));
+                assert_eq!(facts.enclosing_class_is_struct(2), Some(false));
+            }
+        );
+    }
+
+    #[test]
+    fn test_struct() {
+        with_facts!(["struct A {", "  int value;", "};"], |facts| {
+            assert_eq!(
+                facts.enclosing_class_range(1),
+                Some(ClassRange { start: 0, end: 2 })
+            );
+            assert_eq!(facts.nearest_class_name(1), Some("A"));
+            assert_eq!(facts.enclosing_class_is_struct(1), Some(true));
+        });
+    }
+
+    #[test]
+    fn test_template() {
+        with_facts!(
+            [
+                "template <T,",
+                "          class Arg1 = tmpl<T> >",
+                "class A {",
+                "  int value;",
+                "};",
+            ],
+            |facts| {
+                assert_eq!(
+                    facts.enclosing_class_range(3),
+                    Some(ClassRange { start: 2, end: 4 })
+                );
+                assert_eq!(facts.nearest_class_name(3), Some("A"));
+                assert_eq!(facts.enclosing_class_is_struct(3), Some(false));
+            }
+        );
+    }
+
+    #[test]
+    fn test_template_default_arg() {
+        with_facts!(
+            [
+                "template <class T, class D = default_delete<T>> class unique_ptr {",
+                "  T* ptr;",
+                "};",
+            ],
+            |facts| {
+                assert_eq!(
+                    facts.enclosing_class_range(1),
+                    Some(ClassRange { start: 0, end: 2 })
+                );
+                assert_eq!(facts.nearest_class_name(1), Some("unique_ptr"));
+                assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+            }
+        );
+    }
+
+    #[test]
+    fn test_template_inner_class() {
+        with_facts!(
+            [
+                "class A {",
+                " public:",
+                "  template <class B>",
+                "  class C<alloc<B> >",
+                "      : public A {",
+                "    B value;",
+                "  };",
+                "};",
+            ],
+            |facts| {
+                assert_eq!(
+                    facts.enclosing_class_range(5),
+                    Some(ClassRange { start: 0, end: 7 })
+                );
+                assert_eq!(facts.nearest_class_name(5), Some("A"));
+                assert_eq!(facts.enclosing_class_is_struct(5), Some(false));
+            }
+        );
+    }
+
     #[test]
     fn file_facts_capture_namespace_macro_class_and_blocks() {
         let arena = Bump::new();

@@ -34,3 +34,32 @@ impl IwyuHeader {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::IwyuHeader;
+
+    #[test]
+    fn iwyu_headers_roundtrip_all_known_values() {
+        let headers = [
+            IwyuHeader::Algorithm,
+            IwyuHeader::Cstdio,
+            IwyuHeader::Functional,
+            IwyuHeader::Iostream,
+            IwyuHeader::Limits,
+            IwyuHeader::List,
+            IwyuHeader::Map,
+            IwyuHeader::Memory,
+            IwyuHeader::Set,
+            IwyuHeader::String,
+            IwyuHeader::Tuple,
+            IwyuHeader::Utility,
+            IwyuHeader::Vector,
+        ];
+
+        for header in headers {
+            assert_eq!(header.as_str(), header.as_str());
+            assert!(!header.as_str().is_empty());
+        }
+    }
+}

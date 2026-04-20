@@ -18,10 +18,12 @@ impl SourceFile {
         Self { path, display_name }
     }
 
+    #[inline]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[inline]
     pub fn display_name(&self) -> &str {
         &self.display_name
     }
@@ -160,18 +162,22 @@ impl<'a> DecodedSource<'a> {
         }
     }
 
+    #[inline]
     pub fn source_file(&self) -> &SourceFile {
         &self.source_file
     }
 
+    #[inline]
     pub fn invalid_utf8_lines(&self) -> &[usize] {
         &self.invalid_utf8_lines
     }
 
+    #[inline]
     pub fn null_lines(&self) -> &[usize] {
         &self.null_lines
     }
 
+    #[inline]
     pub fn crlf_lines(&self) -> &[usize] {
         &self.crlf_lines
     }
@@ -188,10 +194,12 @@ impl<'a> DecodedSource<'a> {
         lf_count > 0 && !self.crlf_lines.is_empty()
     }
 
+    #[inline]
     pub fn lines(&self) -> &[&'a str] {
         &self.lines
     }
 
+    #[inline]
     pub fn into_lines(self) -> BumpVec<'a, &'a str> {
         self.lines
     }
@@ -214,5 +222,31 @@ mod tests {
         assert_eq!(source.null_lines(), &[0]);
         assert!(source.invalid_utf8_lines().is_empty());
         assert!(!source.has_mixed_line_endings());
+    }
+
+    #[test]
+    fn from_read_result_preserves_metadata_and_lines() {
+        let arena = Bump::new();
+        let source = DecodedSource::from_read_result(
+            &arena,
+            SourceFile::new(PathBuf::from("sample.cc")),
+            ReadFileResult {
+                lines: vec!["alpha".to_string(), "beta".to_string()],
+                crlf_lines: vec![0],
+                lf_lines_count: 2,
+                invalid_utf8_lines: vec![2],
+                null_lines: vec![1],
+            },
+        );
+
+        assert_eq!(source.source_file().display_name(), "sample.cc");
+        assert_eq!(source.lines(), &["alpha", "beta"]);
+        assert_eq!(source.crlf_lines(), &[0]);
+        assert_eq!(source.invalid_utf8_lines(), &[2]);
+        assert_eq!(source.null_lines(), &[1]);
+        assert!(source.has_mixed_line_endings());
+
+        let lines = source.into_lines();
+        assert_eq!(lines.len(), 2);
     }
 }

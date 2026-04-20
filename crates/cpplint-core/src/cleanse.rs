@@ -397,7 +397,7 @@ static RAW_STRING_PREFIXES_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
 
 fn is_valid_alt_token_match(bytes: &[u8], start: usize, end: usize) -> bool {
     start > 0
-        && matches!(bytes[start - 1], b' ' | b'=' | b'(')
+        && matches!(bytes[start - 1], b' ' | b'=' | b'(' | b')')
         && (end == bytes.len() || matches!(bytes[end], b' ' | b'('))
 }
 
@@ -528,6 +528,7 @@ pub struct CleansedLines<'a> {
     pub elided: BumpVec<'a, &'a str>,
     pub lines_without_raw_strings: BumpVec<'a, &'a str>,
     pub has_comment: BumpVec<'a, bool>,
+    pub(crate) in_raw_string: BumpVec<'a, bool>,
     pub(crate) line_features: BumpVec<'a, LineFeatures>,
     pub(crate) keywords: BumpVec<'a, MatchedKeywords>,
     pub(crate) elided_without_alternate_tokens: Option<BumpVec<'a, &'a str>>,
@@ -550,6 +551,7 @@ impl<'a> CleansedLines<'a> {
         let mut elided = BumpVec::with_capacity_in(n, arena);
         let mut has_comment = BumpVec::with_capacity_in(n, arena);
         let mut lines_without_raw_strings = BumpVec::with_capacity_in(n, arena);
+        let mut in_raw_string = BumpVec::with_capacity_in(n, arena);
         let mut line_features = BumpVec::with_capacity_in(n, arena);
         let mut keywords = BumpVec::with_capacity_in(n, arena);
         let mut raw_lines_arena = BumpVec::with_capacity_in(n, arena);
@@ -566,6 +568,7 @@ impl<'a> CleansedLines<'a> {
             replace_alt_tokens.then(|| BumpVec::with_capacity_in(n, arena));
 
         for &raw_line_ref in raw_lines {
+            let was_in_raw_string = !raw_delimiter.is_empty();
             // 1. Cleanse raw strings
             let mut line_without_raw: Cow<'_, str> = Cow::Borrowed(raw_line_ref);
 
@@ -693,6 +696,7 @@ impl<'a> CleansedLines<'a> {
                 ));
                 keywords.push(bits);
             }
+            in_raw_string.push(was_in_raw_string);
         }
 
         CleansedLines {
@@ -701,6 +705,7 @@ impl<'a> CleansedLines<'a> {
             elided,
             lines_without_raw_strings,
             has_comment,
+            in_raw_string,
             line_features,
             keywords,
             elided_without_alternate_tokens,
@@ -715,6 +720,7 @@ impl<'a> CleansedLines<'a> {
             .unwrap_or(self.elided[linenum])
     }
 
+    #[inline]
     pub fn keywords(&self, linenum: usize) -> MatchedKeywords {
         self.keywords[linenum]
     }
@@ -824,6 +830,37 @@ fn prefix_is_in_comment_or_literal(prefix: &str) -> bool {
 pub fn cleanse_comments(line: &str) -> (String, bool) {
     let (mut lines, has_comment) = cleanse_comments_from_lines(&[line.to_string()]);
     (lines.remove(0), has_comment[0])
+}
+
+/// Finds the next line that begins a multi-line comment and continues beyond
+/// the line.
+pub fn find_next_multiline_comment_start<S: AsRef<str>>(lines: &[S], mut lineix: usize) -> usize {
+    while lineix < lines.len() {
+        let trimmed = lines[lineix].as_ref().trim();
+        if trimmed.starts_with("/*") && !trimmed[2..].contains("*/") {
+            return lineix;
+        }
+        lineix += 1;
+    }
+    lines.len()
+}
+
+/// Finds the next line that closes a multi-line comment.
+pub fn find_next_multiline_comment_end<S: AsRef<str>>(lines: &[S], mut lineix: usize) -> usize {
+    while lineix < lines.len() {
+        if lines[lineix].as_ref().trim().ends_with("*/") {
+            return lineix;
+        }
+        lineix += 1;
+    }
+    lines.len()
+}
+
+/// Replaces a range of lines with `/**/` placeholders.
+pub fn remove_multiline_comments_from_range(lines: &mut [&str], begin: usize, end: usize) {
+    for line in &mut lines[begin..end] {
+        *line = "/**/";
+    }
 }
 
 fn cleanse_comments_from_lines(lines: &[String]) -> (Vec<String>, Vec<bool>) {
@@ -1144,7 +1181,10 @@ pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
         let (token, replacement) = ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()];
         result.push_str(&line[last..start]);
         result.push_str(replacement);
-        last = if end < bytes.len() && matches!(token, "not" | "compl") {
+        last = if end < bytes.len()
+            && matches!(token, "not" | "compl")
+            && bytes[end] == b' '
+        {
             end + 1
         } else {
             end
@@ -1208,6 +1248,27 @@ fn collapse_quotes_and_separators(elided: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bumpalo::Bump;
+
+    #[test]
+    fn cleansed_lines_initialize_empty_and_non_empty_inputs() {
+        let arena = Bump::new();
+        let empty = CleansedLines::new(&arena, &[]);
+        assert!(empty.raw_lines.is_empty());
+        assert!(empty.lines.is_empty());
+        assert!(empty.elided.is_empty());
+
+        let raw = ["int x = 0;", "int y = 1; // comment"];
+        let cleansed = CleansedLines::new(&arena, &raw);
+
+        assert_eq!(cleansed.raw_lines.as_slice(), &raw);
+        assert_eq!(cleansed.lines.as_slice(), &["int x = 0;", "int y = 1;"]);
+        assert_eq!(cleansed.elided.as_slice(), &["int x = 0;", "int y = 1;"]);
+        assert_eq!(cleansed.lines_without_raw_strings.as_slice(), &raw);
+        assert_eq!(cleansed.has_comment.as_slice(), &[false, true]);
+        assert_eq!(cleansed.line_features.len(), 2);
+        assert_eq!(cleansed.keywords.len(), 2);
+    }
 
     #[test]
     fn cleanse_raw_strings_handles_single_and_multiline_forms() {
@@ -1282,6 +1343,36 @@ mod tests {
     }
 
     #[test]
+    fn test_replace_alternate_tokens() {
+        assert_eq!(replace_alternate_tokens("tor or orc"), "tor || orc");
+        assert_eq!(replace_alternate_tokens("orc or tor"), "orc || tor");
+        assert_eq!(replace_alternate_tokens("tor or (orc)"), "tor || (orc)");
+        assert_eq!(replace_alternate_tokens("tor or(orc)"), "tor ||(orc)");
+        assert_eq!(
+            replace_alternate_tokens("sand and(android)"),
+            "sand &&(android)"
+        );
+        assert_eq!(
+            replace_alternate_tokens("(sand) and (android)"),
+            "(sand) && (android)"
+        );
+        assert_eq!(replace_alternate_tokens(" not note"), " !note");
+        assert_eq!(replace_alternate_tokens(")not note"), ")!note");
+        assert_eq!(replace_alternate_tokens("(not note"), "(!note");
+        assert_eq!(replace_alternate_tokens(" not(note)"), " !(note)");
+        assert_eq!(replace_alternate_tokens(" not (splinot)"), " !(splinot)");
+        assert_eq!(
+            replace_alternate_tokens("tor and orc or android"),
+            "tor && orc || android"
+        );
+        assert_eq!(
+            replace_alternate_tokens("tor or orc and ands not note"),
+            "tor || orc && ands !note"
+        );
+        assert_eq!(replace_alternate_tokens("(foo)or(bar)"), "(foo)||(bar)");
+    }
+
+    #[test]
     fn cleansed_lines_normalizes_alternate_tokens_but_preserves_detection_view() {
         let arena = Bump::new();
         let mut options = Options::new();
@@ -1290,6 +1381,7 @@ mod tests {
             "// Copyright 2026",
             "if (true or false) return;",
             "if (not ready) return;",
+            "if ((foo)or(bar)) return;",
         ];
 
         let cleansed = CleansedLines::new_with_options(&arena, &lines, &options, "test.cpp");
@@ -1304,6 +1396,11 @@ mod tests {
             "if (not ready) return;"
         );
         assert_eq!(cleansed.elided[2], "if (!ready) return;");
+        assert_eq!(
+            cleansed.line_without_alternate_tokens(3),
+            "if ((foo)or(bar)) return;"
+        );
+        assert_eq!(cleansed.elided[3], "if ((foo)||(bar)) return;");
     }
 
     #[test]
@@ -1371,5 +1468,107 @@ mod tests {
         assert_eq!(actual[0], ("or", "||"));
         assert_eq!(actual[1], ("and", "&&"));
         assert_eq!(actual[2], ("not", "!"));
+    }
+
+    #[test]
+    fn helper_functions_cover_raw_string_and_comment_edges() {
+        assert_eq!(
+            find_raw_string_start(r#"auto x = R"tag(value)tag";"#),
+            Some(("auto x = ", "tag", "value)tag\";"))
+        );
+        assert_eq!(
+            find_raw_string_start(r#"auto x = fooR"tag(value)tag";"#),
+            None
+        );
+        assert!(has_raw_string_word_boundary(r#"R"(value)"#, 0));
+        assert!(!has_raw_string_word_boundary(r#"fooR"(value)"#, 4));
+
+        assert!(prefix_is_in_comment_or_literal(r#"int x = "unterminated"#));
+        assert!(prefix_is_in_comment_or_literal("int x = // comment"));
+        assert!(!prefix_is_in_comment_or_literal("int x = 0;"));
+
+        let (cleaned, is_comment, still_in_block, has_meta) =
+            cleanse_comments_line("int x = 0;", false);
+        assert_eq!(cleaned, "int x = 0;");
+        assert!(!is_comment);
+        assert!(!still_in_block);
+        assert!(!has_meta);
+
+        assert!(is_cpp_string(r#""unterminated"#));
+        assert!(!is_cpp_string(r#"\"quoted\""#));
+
+        assert_eq!(
+            strip_escape_sequences(r#"\n\x41\101\z\\"#).as_ref(),
+            r#"\z"#
+        );
+    }
+
+    #[test]
+    fn helper_functions_cover_line_features_and_collapse_paths() {
+        assert_eq!(
+            collapse_strings(r#"printf("%s", name)"#).as_ref(),
+            r#"printf("", name)"#
+        );
+        assert_eq!(
+            collapse_strings("#include <string>").as_ref(),
+            "#include <string>"
+        );
+        assert_eq!(
+            collapse_quotes_and_separators(r#"g'x' b"yy"c"#),
+            "g'' b\"\"c"
+        );
+
+        let arena = Bump::new();
+        let lines = ["\tint x = 1;/* comment */"];
+        let cleansed = CleansedLines::new(&arena, &lines);
+        assert!(cleansed.line_features[0].contains(LineFeatures::RAW_HAS_TAB));
+        assert!(cleansed.line_features[0].contains(LineFeatures::RAW_HAS_SEMICOLON_BLOCK_COMMENT));
+        assert!(cleansed.line_features[0].contains(LineFeatures::SEMI));
+        assert!(!cleansed.keywords[0].has_any_control_struct());
+
+        assert!(has_alternate_tokens("if (a and b) return;"));
+        assert!(!has_alternate_tokens("android"));
+        assert_eq!(replace_alternate_tokens("a and_eq b").as_ref(), "a &= b");
+    }
+
+    #[test]
+    fn test_find_next_multiline_comment_start() {
+        let lines = vec![String::from("")];
+        assert_eq!(find_next_multiline_comment_start(&lines, 0), 1);
+
+        let lines = vec!["a".to_string(), "b".to_string(), "/* c".to_string()];
+        assert_eq!(find_next_multiline_comment_start(&lines, 0), 2);
+
+        let lines = vec![r#"char a[] = "/*";"#.to_string()];
+        assert_eq!(find_next_multiline_comment_start(&lines, 0), 1);
+    }
+
+    #[test]
+    fn test_find_next_multiline_comment_end() {
+        let lines = vec![String::from("")];
+        assert_eq!(find_next_multiline_comment_end(&lines, 0), 1);
+
+        let lines = vec!["a".to_string(), "b".to_string(), " c */".to_string()];
+        assert_eq!(find_next_multiline_comment_end(&lines, 0), 2);
+    }
+
+    #[test]
+    fn test_remove_multiline_comments_from_range() {
+        let mut lines = vec!["a", "  /* comment ", " * still comment", " comment */   ", "b"];
+        remove_multiline_comments_from_range(&mut lines, 1, 4);
+        assert_eq!(lines, vec!["a", "/**/", "/**/", "/**/", "b"]);
+    }
+
+    #[test]
+    fn namespace_keyword_is_detected_on_opening_line() {
+        assert!(MatchedKeywords::from_line("namespace {").has_namespace());
+    }
+
+    #[test]
+    fn cleansed_lines_keep_namespace_keyword_on_opening_line() {
+        let arena = Bump::new();
+        let lines = ["// Copyright 2026", "namespace {", ""];
+        let cleansed = CleansedLines::new(&arena, &lines);
+        assert!(cleansed.keywords[1].has_namespace());
     }
 }

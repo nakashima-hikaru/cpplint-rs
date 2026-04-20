@@ -1,5 +1,5 @@
 use clap::{Args, Parser, ValueEnum};
-use cpplint_core::options::{DEFAULT_LINE_LENGTH, IncludeOrder, Options};
+use cpplint_core::options::{DEFAULT_LINE_LENGTH, Filter, IncludeOrder, Options};
 use cpplint_core::runner::RunnerConfig;
 use cpplint_core::state::{CountingStyle, OutputFormat};
 use std::ffi::OsString;
@@ -92,7 +92,7 @@ pub struct CheckArgs {
     #[arg(long, value_enum, default_value_t = CliOutputFormat::Emacs)]
     pub output: CliOutputFormat,
 
-    #[arg(long, short = 'v', default_value_t = 1)]
+    #[arg(long, short = 'v', alias = "v", default_value_t = 1)]
     pub verbose: i32,
 
     #[arg(long)]
@@ -194,11 +194,14 @@ struct RuleCli {
 
 impl CheckArgs {
     pub fn to_runner_config(&self) -> Result<RunnerConfig, String> {
-        if self.verbose < 0 {
+        if self.verbose <= 0 {
             return Err(format!(
-                "Verbosity should be a non-negative integer. (--verbose={})",
+                "Verbosity should be a positive integer. (--verbose={})",
                 self.verbose
             ));
+        }
+        if self.line_length == 0 {
+            return Err("Line length should be a positive integer.".to_string());
         }
         if self.config.contains('/') || self.config.contains('\\') {
             return Err("Config file name must not include directory components.".to_string());
@@ -236,6 +239,9 @@ impl CheckArgs {
             options.set_headers_from_csv(headers);
         }
         for filter in &self.filter {
+            if Filter::parse(filter).is_none() {
+                return Err(format!("Invalid filter: --filter={}", filter));
+            }
             options.add_filter(filter);
         }
 
@@ -272,6 +278,38 @@ fn parse_num_threads(threads: Option<i32>) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("cpplint-rs-{}-{}", prefix, unique))
+    }
+
+    fn base_check_args() -> CheckArgs {
+        CheckArgs {
+            output: CliOutputFormat::Emacs,
+            verbose: 1,
+            quiet: false,
+            counting: CliCountingStyle::Total,
+            root: None,
+            repository: None,
+            line_length: DEFAULT_LINE_LENGTH,
+            filter: Vec::new(),
+            recursive: false,
+            exclude: Vec::new(),
+            extensions: None,
+            headers: None,
+            includeorder: CliIncludeOrder::Default,
+            config: "CPPLINT.cfg".to_string(),
+            timing: false,
+            threads: None,
+            fix: false,
+            files: vec![PathBuf::from("sample.cc")],
+        }
+    }
 
     #[test]
     fn parse_num_threads_caps_default_auto_value() {
@@ -289,5 +327,129 @@ mod tests {
         let available = std::thread::available_parallelism().unwrap().get();
         assert_eq!(parse_num_threads(Some(0)).unwrap(), available);
         assert_eq!(parse_num_threads(Some(-1)).unwrap(), available);
+    }
+
+    #[test]
+    fn to_runner_config_rejects_invalid_inputs() {
+        let mut args = base_check_args();
+        args.verbose = -1;
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("Verbosity should be a positive integer"));
+
+        let mut args = base_check_args();
+        args.verbose = 0;
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("Verbosity should be a positive integer"));
+
+        let mut args = base_check_args();
+        args.line_length = 0;
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("Line length should be a positive integer"));
+
+        let mut args = base_check_args();
+        args.config = "dir/CPPLINT.cfg".to_string();
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("must not include directory components"));
+
+        let mut args = base_check_args();
+        args.filter = vec!["foo".to_string()];
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("Invalid filter"));
+
+        let mut args = base_check_args();
+        args.filter = vec!["".to_string()];
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("Invalid filter"));
+
+        let mut args = base_check_args();
+        args.root = Some(PathBuf::from("/definitely/missing"));
+        let err = args.to_runner_config().unwrap_err();
+        assert!(err.contains("--root=/definitely/missing"));
+    }
+
+    #[test]
+    fn test_parse_arguments() {
+        assert!(LegacyCheckCli::try_parse_from(["cpplint", "--help"]).is_err());
+        assert!(LegacyCheckCli::try_parse_from(["cpplint", "--version"]).is_err());
+        assert!(LegacyCheckCli::try_parse_from(["cpplint", "--output=blah", "foo.cc"]).is_err());
+        assert!(LegacyCheckCli::try_parse_from(["cpplint", "--v=f", "foo.cc"]).is_err());
+        assert!(LegacyCheckCli::try_parse_from(["cpplint", "--headers"]).is_err());
+
+        let parsed = LegacyCheckCli::try_parse_from([
+            "cpplint",
+            "--filter=+runtime/printf,-whitespace",
+            "--linelength=120",
+            "--v=1",
+            "foo.cc",
+        ])
+        .unwrap();
+        assert_eq!(parsed.check.verbose, 1);
+        assert_eq!(parsed.check.line_length, 120);
+        assert_eq!(parsed.check.filter, vec!["+runtime/printf", "-whitespace"]);
+
+        let config = parsed.check.to_runner_config().unwrap();
+        assert_eq!(config.options.line_length, 120);
+        assert_eq!(config.verbose_level, 1);
+    }
+
+    #[test]
+    fn to_runner_config_transfers_normalized_options() {
+        let root = unique_temp_dir("root");
+        let repository = unique_temp_dir("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&repository).unwrap();
+
+        let args = CheckArgs {
+            output: CliOutputFormat::Vs7,
+            verbose: 2,
+            quiet: true,
+            counting: CliCountingStyle::Detailed,
+            root: Some(root.clone()),
+            repository: Some(repository.clone()),
+            line_length: 120,
+            filter: vec!["+runtime/printf".to_string()],
+            recursive: true,
+            exclude: vec!["third_party/**".to_string()],
+            extensions: Some("cc,cpp".to_string()),
+            headers: Some("hpp,hxx".to_string()),
+            includeorder: CliIncludeOrder::Standardcfirst,
+            config: "CPPLINT.custom".to_string(),
+            timing: true,
+            threads: Some(0),
+            fix: true,
+            files: vec![PathBuf::from("sample.cc")],
+        };
+
+        let config = args.to_runner_config().unwrap();
+
+        assert_eq!(config.output_format, OutputFormat::Vs7);
+        assert_eq!(config.counting_style, CountingStyle::Detailed);
+        assert_eq!(config.verbose_level, 2);
+        assert!(config.quiet);
+        assert_eq!(
+            config.num_threads,
+            std::thread::available_parallelism().unwrap().get()
+        );
+        assert!(config.recursive);
+        assert_eq!(config.excludes, vec!["third_party/**"]);
+        assert!(config.fix);
+        assert_eq!(config.options.line_length, 120);
+        assert_eq!(config.options.config_filename, "CPPLINT.custom");
+        assert_eq!(config.options.include_order, IncludeOrder::StandardCFirst);
+        assert!(config.options.valid_extensions.contains("cc"));
+        assert!(config.options.valid_extensions.contains("hpp"));
+        assert!(config.options.header_extensions().contains("hxx"));
+        assert!(
+            config
+                .options
+                .filters
+                .iter()
+                .any(|filter| filter.category == "runtime/printf" && filter.sign)
+        );
+        assert_eq!(config.options.root, root);
+        assert_eq!(config.options.repository, repository);
+
+        std::fs::remove_dir_all(&config.options.root).unwrap();
+        std::fs::remove_dir_all(&config.options.repository).unwrap();
     }
 }

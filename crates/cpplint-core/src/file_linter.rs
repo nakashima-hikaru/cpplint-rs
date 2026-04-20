@@ -1,6 +1,11 @@
 use crate::categories;
 use crate::categories::Category;
-use crate::cleanse::CleansedLines;
+use crate::checks::headers;
+use crate::cleanse::{
+    CleansedLines, find_next_multiline_comment_end, find_next_multiline_comment_start,
+    remove_multiline_comments_from_range,
+};
+use crate::diagnostics::FileId;
 use crate::errors::Result;
 use crate::facts::FileFacts;
 use crate::options::Options;
@@ -30,10 +35,16 @@ pub struct FileLinter<'a> {
     session: &'a CppLintState,
     options: Arc<Options>,
     error_suppressions: ErrorSuppressions,
-    file_index: usize,
+    file_id: FileId,
     source_file: SourceFile,
     registry: &'static RuleRegistry,
     has_error: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProcessMode {
+    Full,
+    LanguageRules,
 }
 
 impl<'a> FileLinter<'a> {
@@ -42,42 +53,58 @@ impl<'a> FileLinter<'a> {
         state: &'a CppLintState,
         options: impl Into<Arc<Options>>,
     ) -> Self {
-        Self::with_index(file_path, state, options, 0)
+        let source_file = SourceFile::new(file_path);
+        let file_id = state.register_file(source_file.display_name());
+        Self::with_source_file(source_file, state, options, file_id)
     }
 
-    pub fn with_index(
+    pub(crate) fn with_file_id(
         file_path: PathBuf,
         state: &'a CppLintState,
         options: impl Into<Arc<Options>>,
-        file_index: usize,
+        file_id: FileId,
+    ) -> Self {
+        Self::with_source_file(SourceFile::new(file_path), state, options, file_id)
+    }
+
+    fn with_source_file(
+        source_file: SourceFile,
+        state: &'a CppLintState,
+        options: impl Into<Arc<Options>>,
+        file_id: FileId,
     ) -> Self {
         Self {
             session: state,
             options: options.into(),
             error_suppressions: ErrorSuppressions::new(),
-            file_index,
-            source_file: SourceFile::new(file_path),
+            file_id,
+            source_file,
             registry: rule_registry(),
             has_error: false,
         }
     }
 
+    #[inline]
     pub fn options(&self) -> &Options {
         self.options.as_ref()
     }
 
+    #[inline]
     pub fn filename(&self) -> &str {
         self.source_file.display_name()
     }
 
+    #[inline]
     pub fn file_path(&self) -> &Path {
         self.source_file.path()
     }
 
-    pub fn file_index(&self) -> usize {
-        self.file_index
+    #[inline]
+    pub fn file_id(&self) -> FileId {
+        self.file_id
     }
 
+    #[inline]
     pub fn has_error(&self) -> bool {
         self.has_error
     }
@@ -86,7 +113,7 @@ impl<'a> FileLinter<'a> {
     pub fn process_file(&mut self) -> Result<()> {
         let arena = Bump::new();
         let decoded = self.source_file.read_into(&arena)?;
-        self.process_decoded_source(decoded, &arena);
+        self.process_decoded_source(decoded, &arena, ProcessMode::Full);
         Ok(())
     }
 
@@ -99,11 +126,22 @@ impl<'a> FileLinter<'a> {
     {
         let arena = Bump::new();
         let decoded = DecodedSource::from_lines(&arena, self.source_file.clone(), lines);
-        self.process_decoded_source(decoded, &arena);
+        self.process_decoded_source(decoded, &arena, ProcessMode::Full);
+    }
+
+    pub fn process_language_rules_data<I, S>(&mut self, lines: I)
+    where
+        I: IntoIterator<Item = S>,
+        I::IntoIter: ExactSizeIterator,
+        S: AsRef<str>,
+    {
+        let arena = Bump::new();
+        let decoded = DecodedSource::from_lines(&arena, self.source_file.clone(), lines);
+        self.process_decoded_source(decoded, &arena, ProcessMode::LanguageRules);
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    fn process_decoded_source(&mut self, decoded: DecodedSource, arena: &Bump) {
+    fn process_decoded_source(&mut self, decoded: DecodedSource, arena: &Bump, mode: ProcessMode) {
         for &linenum in decoded.invalid_utf8_lines() {
             self.error(
                 linenum,
@@ -123,7 +161,7 @@ impl<'a> FileLinter<'a> {
 
         let mixed_line_endings = decoded.has_mixed_line_endings();
         let crlf_lines = decoded.crlf_lines().to_vec();
-        self.process_source_lines(decoded.into_lines(), arena);
+        self.process_source_lines(decoded.into_lines(), arena, mode);
 
         if mixed_line_endings {
             for linenum in crlf_lines {
@@ -138,13 +176,20 @@ impl<'a> FileLinter<'a> {
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    fn process_source_lines<'b>(&mut self, mut lines: BumpVec<'b, &'b str>, arena: &'b Bump) {
+    fn process_source_lines<'b>(
+        &mut self,
+        mut lines: BumpVec<'b, &'b str>,
+        arena: &'b Bump,
+        mode: ProcessMode,
+    ) {
         let registry = self.registry;
-        registry.run_raw_source(self, &lines);
+        if matches!(mode, ProcessMode::Full) {
+            registry.run_raw_source(self, &lines);
 
-        for &line in &lines {
-            if line.contains("LINT") || line.contains("filetype") {
-                self.process_global_suppressions(line);
+            for &line in &lines {
+                if line.contains("LINT") || line.contains("filetype") {
+                    self.process_global_suppressions(line);
+                }
             }
         }
 
@@ -157,22 +202,27 @@ impl<'a> FileLinter<'a> {
             self.filename(),
         );
         let facts = FileFacts::new(&clean_lines);
-        registry.run_file_structure(self, &clean_lines);
+        match mode {
+            ProcessMode::Full => registry.run_file_structure(self, &clean_lines),
+            ProcessMode::LanguageRules => headers::check_includes(self, &clean_lines),
+        }
 
         for linenum in 0..clean_lines.raw_lines.len() {
             self.process_line(&clean_lines, &facts, linenum);
         }
 
-        if let Some(begin) = self.error_suppressions.get_open_block_start() {
-            self.error(
-                begin,
-                Category::ReadabilityNolint,
-                5,
-                crate::messages::LintMessage::NolintBlockNeverEnded,
-            );
-        }
+        if matches!(mode, ProcessMode::Full) {
+            if let Some(begin) = self.error_suppressions.get_open_block_start() {
+                self.error(
+                    begin,
+                    Category::ReadabilityNolint,
+                    5,
+                    crate::messages::LintMessage::NolintBlockNeverEnded,
+                );
+            }
 
-        registry.run_finalize(self, &clean_lines.raw_lines);
+            registry.run_finalize(self, &clean_lines.raw_lines);
+        }
     }
 
     pub fn relative_from_repository(&self) -> PathBuf {
@@ -296,8 +346,13 @@ impl<'a> FileLinter<'a> {
 
     fn remove_multiline_comments(&mut self, lines: &mut [&str]) {
         let mut lineix = 0usize;
-        while let Some(begin) = find_next_multiline_comment_start(lines, lineix) {
-            let Some(end) = find_next_multiline_comment_end(lines, begin) else {
+        loop {
+            let begin = find_next_multiline_comment_start(lines, lineix);
+            if begin >= lines.len() {
+                return;
+            }
+            let end = find_next_multiline_comment_end(lines, begin);
+            if end >= lines.len() {
                 self.error(
                     begin,
                     Category::ReadabilityMultilineComment,
@@ -305,20 +360,9 @@ impl<'a> FileLinter<'a> {
                     crate::messages::LintMessage::UnterminatedMultilineComment,
                 );
                 return;
-            };
-            if !lines[end].trim_end().ends_with("*/") {
-                self.error(
-                    end,
-                    Category::ReadabilityMultilineComment,
-                    5,
-                    crate::messages::LintMessage::UnterminatedMultilineComment,
-                );
-                return;
             }
 
-            for line in lines.iter_mut().take(end + 1).skip(begin) {
-                *line = "/**/";
-            }
+            remove_multiline_comments_from_range(lines, begin, end + 1);
             lineix = end + 1;
         }
     }
@@ -340,14 +384,8 @@ impl<'a> FileLinter<'a> {
         }
 
         self.has_error = true;
-        self.session.record_diagnostic(
-            self.file_index,
-            self.filename(),
-            linenum,
-            category,
-            confidence,
-            message,
-        );
+        self.session
+            .record_diagnostic(self.file_id, linenum, category, confidence, message);
     }
 
     pub fn error_display_line(
@@ -371,8 +409,7 @@ impl<'a> FileLinter<'a> {
 
         self.has_error = true;
         self.session.record_diagnostic_display_line(
-            self.file_index,
-            self.filename(),
+            self.file_id,
             display_linenum,
             category,
             confidence,
@@ -444,29 +481,6 @@ fn relative_from_subdir(file: &Path, subdir: &Path) -> PathBuf {
     file.to_path_buf()
 }
 
-fn find_next_multiline_comment_start(lines: &[&str], start: usize) -> Option<usize> {
-    for (idx, line) in lines.iter().enumerate().skip(start) {
-        let trimmed = line.trim_start();
-        if !trimmed.starts_with("/*") {
-            continue;
-        }
-        if trimmed[2..].contains("*/") {
-            continue;
-        }
-        return Some(idx);
-    }
-    None
-}
-
-fn find_next_multiline_comment_end(lines: &[&str], start: usize) -> Option<usize> {
-    for (idx, line) in lines.iter().enumerate().skip(start) {
-        if line.contains("*/") {
-            return Some(idx);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_file_reports_invalid_utf8() {
+    fn test_invalid_utf8() {
         let state = CppLintState::new();
         let mut options = Options::new();
         options.add_filter("-legal/copyright");
@@ -533,6 +547,65 @@ mod tests {
 
         assert_eq!(state.error_count(), 2);
         assert!(state.has_error(Category::ReadabilityUtf8));
+    }
+
+    #[test]
+    fn test_header_guard_path_honors_repository_and_root() {
+        let state = CppLintState::new();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "cpplint_test_header_guard_path_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let repo_dir = temp_dir.join("trunk");
+        let header_dir = repo_dir.join("cpplint");
+        std::fs::create_dir_all(temp_dir.join(".git")).unwrap();
+        std::fs::create_dir_all(&header_dir).unwrap();
+        let file_path = header_dir.join("cpplint_test_header.h");
+        std::fs::write(&file_path, "").unwrap();
+
+        let linter = FileLinter::new(file_path.clone(), &state, Options::new());
+        assert_eq!(
+            linter.header_guard_path(),
+            PathBuf::from("trunk/cpplint/cpplint_test_header.h")
+        );
+
+        let mut options = Options::new();
+        options.repository = repo_dir.clone();
+        let linter = FileLinter::new(file_path.clone(), &state, options.clone());
+        assert_eq!(
+            linter.header_guard_path(),
+            PathBuf::from("cpplint/cpplint_test_header.h")
+        );
+
+        options.root = PathBuf::from("cpplint");
+        let linter = FileLinter::new(file_path, &state, options);
+        assert_eq!(linter.header_guard_path(), PathBuf::from("cpplint_test_header.h"));
+
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_bad_characters() {
+        let state = CppLintState::new();
+        let mut options = Options::new();
+        options.add_filter("-legal/copyright");
+        options.add_filter("-whitespace/ending_newline");
+
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("cpplint_test_bad_characters.c");
+        std::fs::write(&file_path, b"// Copyright 2026 Your Company.\n\xe9x\0\n").unwrap();
+
+        let mut linter = FileLinter::new(file_path.clone(), &state, options);
+        linter.process_file().unwrap();
+
+        let _ = std::fs::remove_file(file_path);
+
+        assert_eq!(state.error_count(), 2);
+        assert!(state.has_error(Category::ReadabilityUtf8));
+        assert!(state.has_error(Category::ReadabilityNul));
     }
 
     #[test]
@@ -563,5 +636,74 @@ mod tests {
 
         assert_eq!(state.error_count(), 1);
         assert!(state.has_error(Category::ReadabilityMultilineComment));
+    }
+
+    #[test]
+    fn test_process_language_rules_data_reports_unnamed_namespace() {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("foo.h"), &state, options);
+        let lines = vec![
+            "// Copyright 2026".to_string(),
+            "namespace {".to_string(),
+            "".to_string(),
+        ];
+
+        linter.process_language_rules_data(lines);
+
+        assert!(state.has_error(Category::BuildNamespacesHeaders));
+    }
+
+    #[test]
+    fn test_process_language_rules_data_ignores_unnamed_namespace_in_non_headers() {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("foo.cc"), &state, options);
+        let lines = vec![
+            "// Copyright 2026".to_string(),
+            "namespace {".to_string(),
+            "".to_string(),
+        ];
+
+        linter.process_language_rules_data(lines);
+
+        assert_eq!(state.error_count(), 0);
+    }
+
+    #[test]
+    fn test_process_language_rules_data_handles_include_regression_cases() {
+        let state = CppLintState::new();
+        let options = Options::new();
+        let mut linter = FileLinter::new(PathBuf::from("foo/foo.cc"), &state, options);
+
+        let format_includes = |includes: &[&str]| -> Vec<String> {
+            let mut lines = vec!["// Copyright 2026".to_string()];
+            let mut include_block = String::new();
+            for item in includes {
+                if item.starts_with('"') || item.starts_with('<') {
+                    include_block.push_str(&format!("#include {item}\n"));
+                } else {
+                    include_block.push_str(item);
+                    include_block.push('\n');
+                }
+            }
+            lines.push(include_block);
+            lines.push(String::new());
+            lines
+        };
+
+        linter.process_language_rules_data(format_includes(&["\"foo/foo.h\""]));
+        assert_eq!(state.error_count(), 0);
+
+        linter.process_language_rules_data(format_includes(&[
+            "\"foo/foo.h\"",
+            "\"foo/foo-inl.h\"",
+            "<stdio.h>",
+            "<string>",
+            "<unordered_map>",
+            "\"bar/bar-inl.h\"",
+            "\"bar/bar.h\"",
+        ]));
+        assert_eq!(state.error_count(), 0);
     }
 }

@@ -1,4 +1,4 @@
-use crate::diagnostics::{Diagnostic, Note, NoteStream, ProcessedFile};
+use crate::diagnostics::{Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -223,6 +223,7 @@ impl FunctionState {
         self.current_name.as_deref()
     }
 
+    #[inline]
     pub fn lines_in_function(&self) -> usize {
         self.lines_in_function
     }
@@ -259,6 +260,7 @@ struct SessionInner {
     settings: SessionSettings,
     error_count: usize,
     errors_by_category: BTreeMap<String, usize>,
+    file_names: FileTable,
     diagnostics: Vec<Diagnostic>,
     notes: Vec<Note>,
     processed_files: Vec<ProcessedFile>,
@@ -267,6 +269,7 @@ struct SessionInner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSnapshot {
     pub error_count: usize,
+    pub file_names: FileTable,
     pub diagnostics: Vec<Diagnostic>,
     pub notes: Vec<Note>,
     pub processed_files: Vec<ProcessedFile>,
@@ -279,6 +282,7 @@ impl LintSession {
                 settings: SessionSettings::default(),
                 error_count: 0,
                 errors_by_category: BTreeMap::new(),
+                file_names: FileTable::new(),
                 diagnostics: Vec::new(),
                 notes: Vec::new(),
                 processed_files: Vec::new(),
@@ -292,14 +296,20 @@ impl LintSession {
         session
     }
 
+    pub fn register_file(&self, filename: &str) -> FileId {
+        self.inner.lock().file_names.intern(filename)
+    }
+
     pub fn apply_settings(&self, settings: SessionSettings) {
         self.inner.lock().settings = settings;
     }
 
+    #[inline]
     pub fn settings(&self) -> SessionSettings {
         self.inner.lock().settings
     }
 
+    #[inline]
     pub fn verbose_level(&self) -> i32 {
         self.settings().verbose_level
     }
@@ -311,6 +321,7 @@ impl LintSession {
         last
     }
 
+    #[inline]
     pub fn quiet(&self) -> bool {
         self.settings().quiet
     }
@@ -322,6 +333,7 @@ impl LintSession {
         last
     }
 
+    #[inline]
     pub fn output_format(&self) -> OutputFormat {
         self.settings().output_format
     }
@@ -333,6 +345,7 @@ impl LintSession {
         last
     }
 
+    #[inline]
     pub fn counting_style(&self) -> CountingStyle {
         self.settings().counting_style
     }
@@ -344,6 +357,7 @@ impl LintSession {
         last
     }
 
+    #[inline]
     pub fn num_threads(&self) -> usize {
         self.settings().num_threads
     }
@@ -355,6 +369,7 @@ impl LintSession {
         last
     }
 
+    #[inline]
     pub fn error_count(&self) -> usize {
         self.inner.lock().error_count
     }
@@ -370,8 +385,7 @@ impl LintSession {
 
     pub fn record_diagnostic(
         &self,
-        file_index: usize,
-        filename: &str,
+        file_id: FileId,
         linenum: usize,
         category: crate::categories::Category,
         confidence: i32,
@@ -384,8 +398,7 @@ impl LintSession {
             .entry(category.to_string())
             .or_insert(0) += 1;
         inner.diagnostics.push(Diagnostic {
-            file_index,
-            filename: Arc::from(filename),
+            file_id,
             linenum: linenum + 1,
             category,
             confidence,
@@ -395,8 +408,7 @@ impl LintSession {
 
     pub fn record_diagnostic_display_line(
         &self,
-        file_index: usize,
-        filename: &str,
+        file_id: FileId,
         display_linenum: usize,
         category: crate::categories::Category,
         confidence: i32,
@@ -409,8 +421,7 @@ impl LintSession {
             .entry(category.to_string())
             .or_insert(0) += 1;
         inner.diagnostics.push(Diagnostic {
-            file_index,
-            filename: Arc::from(filename),
+            file_id,
             linenum: display_linenum,
             category,
             confidence,
@@ -418,50 +429,51 @@ impl LintSession {
         });
     }
 
-    pub fn record_info(&self, file_index: usize, order: usize, message: impl AsRef<str>) {
+    pub fn record_info(&self, file_id: FileId, order: usize, message: impl AsRef<str>) {
         self.record_note(
-            file_index,
+            file_id,
             order,
             NoteStream::Stdout,
             Arc::from(message.as_ref()),
         );
     }
 
-    pub fn record_raw_error(&self, file_index: usize, order: usize, message: impl AsRef<str>) {
+    pub fn record_raw_error(&self, file_id: FileId, order: usize, message: impl AsRef<str>) {
         self.record_note(
-            file_index,
+            file_id,
             order,
             NoteStream::Stderr,
             Arc::from(message.as_ref()),
         );
     }
 
-    fn record_note(&self, file_index: usize, order: usize, stream: NoteStream, text: Arc<str>) {
+    fn record_note(&self, file_id: FileId, order: usize, stream: NoteStream, text: Arc<str>) {
         self.inner.lock().notes.push(Note {
-            file_index,
+            file_id,
             order,
             stream,
             text,
         });
     }
 
-    pub fn record_processed_file(&self, file_index: usize, filename: &str, had_error: bool) {
-        self.inner.lock().processed_files.push(ProcessedFile {
-            file_index,
-            filename: Arc::from(filename),
-            had_error,
-        });
+    pub fn record_processed_file(&self, file_id: FileId, had_error: bool) {
+        let mut inner = self.inner.lock();
+        inner
+            .processed_files
+            .push(ProcessedFile { file_id, had_error });
     }
 
     pub fn reset_error_counts(&self) {
         let mut inner = self.inner.lock();
         inner.error_count = 0;
         inner.errors_by_category.clear();
+        inner.file_names = FileTable::new();
         inner.diagnostics.clear();
         inner.notes.clear();
         inner.processed_files.clear();
     }
 
+    #[inline]
     pub fn has_error(&self, category: crate::categories::Category) -> bool {
         self.inner
             .lock()
@@ -472,8 +484,8 @@ impl LintSession {
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         let mut diagnostics = self.inner.lock().diagnostics.clone();
         diagnostics.sort_by(|lhs, rhs| {
-            lhs.file_index
-                .cmp(&rhs.file_index)
+            lhs.file_id
+                .cmp(&rhs.file_id)
                 .then_with(|| lhs.linenum.cmp(&rhs.linenum))
                 .then_with(|| lhs.category.cmp(&rhs.category))
                 .then_with(|| lhs.message.cmp(&rhs.message))
@@ -484,8 +496,8 @@ impl LintSession {
     pub fn notes(&self) -> Vec<Note> {
         let mut notes = self.inner.lock().notes.clone();
         notes.sort_by(|lhs, rhs| {
-            lhs.file_index
-                .cmp(&rhs.file_index)
+            lhs.file_id
+                .cmp(&rhs.file_id)
                 .then_with(|| lhs.order.cmp(&rhs.order))
                 .then_with(|| lhs.text.cmp(&rhs.text))
         });
@@ -494,11 +506,7 @@ impl LintSession {
 
     pub fn processed_files(&self) -> Vec<ProcessedFile> {
         let mut processed_files = self.inner.lock().processed_files.clone();
-        processed_files.sort_by(|lhs, rhs| {
-            lhs.file_index
-                .cmp(&rhs.file_index)
-                .then_with(|| lhs.filename.cmp(&rhs.filename))
-        });
+        processed_files.sort_by_key(|file| file.file_id);
         processed_files
     }
 
@@ -506,6 +514,7 @@ impl LintSession {
         let inner = self.inner.into_inner();
         SessionSnapshot {
             error_count: inner.error_count,
+            file_names: inner.file_names,
             diagnostics: inner.diagnostics,
             notes: inner.notes,
             processed_files: inner.processed_files,
@@ -586,6 +595,136 @@ mod tests {
     }
 
     #[test]
+    fn test_check_next_include_order_other_then_cpp() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::OtherHeader),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            Some("Found C++ system header after other header".to_string())
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_cpp_then_c() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CSystem),
+            Some("Found C system header after C++ system header".to_string())
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_other_sys_then_c() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::OtherSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CSystem),
+            Some("Found C system header after other system header".to_string())
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_other_sys_then_cpp() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::OtherSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            Some("Found C++ system header after other system header".to_string())
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_likely_then_cpp() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::LikelyMyHeader),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            None
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_possible_then_cpp() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::PossibleMyHeader),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            None
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_cpp_then_likely() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::LikelyMyHeader),
+            None
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_cpp_then_possible() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::PossibleMyHeader),
+            None
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_cpp_then_other_sys() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::CppSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::OtherSystem),
+            None
+        );
+    }
+
+    #[test]
+    fn test_check_next_include_order_other_sys_then_possible() {
+        let mut include_state = IncludeState::new();
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::OtherSystem),
+            None
+        );
+        assert_eq!(
+            include_state.check_next_include_order(IncludeKind::PossibleMyHeader),
+            None
+        );
+    }
+
+    #[test]
     fn test_function_state_tracks_current_function_lines() {
         let mut function_state = FunctionState::new();
         assert_eq!(function_state.current_name(), None);
@@ -605,16 +744,16 @@ mod tests {
     #[test]
     fn test_record_diagnostic_tracks_messages() {
         let state = CppLintState::new();
+        let file_id = state.register_file("foo.cc");
         state.record_diagnostic(
-            1,
-            "foo.cc",
+            file_id,
             4,
             crate::categories::Category::WhitespaceTab,
             1,
             crate::messages::LintMessage::TabFound,
         );
-        state.record_info(1, 0, "Done processing foo.cc\n");
-        state.record_processed_file(1, "foo.cc", true);
+        state.record_info(file_id, 0, "Done processing foo.cc\n");
+        state.record_processed_file(file_id, true);
 
         assert_eq!(state.error_count(), 1);
         assert!(state.has_error(crate::categories::Category::WhitespaceTab));
@@ -638,15 +777,15 @@ mod tests {
         assert_eq!(state.output_format(), OutputFormat::JUnit);
         assert_eq!(state.num_threads(), 8);
 
+        let file_id = state.register_file("demo.cc");
         state.record_diagnostic(
-            0,
-            "demo.cc",
+            file_id,
             0,
             crate::categories::Category::WhitespaceTab,
             1,
             crate::messages::LintMessage::TabFound,
         );
-        state.record_info(0, 0, "Done processing demo.cc\n");
+        state.record_info(file_id, 0, "Done processing demo.cc\n");
         let snapshot = state.into_snapshot();
 
         assert_eq!(snapshot.error_count, 1);

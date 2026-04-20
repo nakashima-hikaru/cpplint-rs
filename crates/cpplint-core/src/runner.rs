@@ -1,5 +1,5 @@
 use crate::config::{ConfigMessage, ConfigMessageKind, ConfigResolution, DirectoryConfigCache};
-use crate::diagnostics::{Diagnostic, Note, NoteStream, ProcessedFile};
+use crate::diagnostics::{Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile};
 use crate::file_linter::FileLinter;
 use crate::fixer::fix_file_in_place;
 use crate::glob::GlobPattern;
@@ -56,7 +56,8 @@ pub struct LintRunResult {
 
 #[derive(Debug, Default)]
 struct CollectedFiles {
-    files: Vec<(usize, PathBuf)>,
+    file_names: FileTable,
+    files: Vec<(FileId, PathBuf)>,
     notes: Vec<Note>,
 }
 
@@ -70,7 +71,7 @@ struct FileRunReport {
 
 #[derive(Debug, Clone)]
 struct PlannedLintJob {
-    file_index: usize,
+    file_id: FileId,
     file: PathBuf,
     display_name: String,
     options: Arc<Options>,
@@ -119,6 +120,7 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
 
     let started_at = config.options.timing.then(Instant::now);
     let CollectedFiles {
+        file_names,
         files: collected_files,
         notes: collected_notes,
     } = collect_files(files, config)?;
@@ -182,6 +184,7 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         let rendered: RenderedOutput = render_owned(
             config.output_format,
             config.counting_style,
+            file_names,
             diagnostics,
             notes,
             processed_files,
@@ -250,7 +253,8 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         for diag in &report.diagnostics {
             match config.output_format {
                 OutputFormat::Sed | OutputFormat::Gsed => {
-                    let (is_fixable, text) = format_sed_diagnostic(config.output_format, diag);
+                    let (is_fixable, text) =
+                        format_sed_diagnostic(config.output_format, &file_names, diag);
                     if is_fixable {
                         let _ = write!(stdout_lock, "{}", text);
                     } else {
@@ -261,7 +265,7 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
                     let _ = write!(
                         stderr_lock,
                         "{}",
-                        format_diagnostic(config.output_format, diag)
+                        format_diagnostic(config.output_format, &file_names, diag)
                     );
                 }
             }
@@ -320,16 +324,18 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
     let excludes = compile_excludes(&cwd, &config.excludes)?;
     let mut collected = Vec::new();
     let mut notes = Vec::new();
+    let mut file_names = FileTable::new();
 
-    for (file_index, file) in files.iter().enumerate() {
+    for file in files {
         if file == Path::new("-") {
-            collected.push((file_index, PathBuf::from("-")));
+            collected.push(PathBuf::from("-"));
             continue;
         }
 
         if !file.exists() {
+            let file_id = file_names.intern(&file.to_string_lossy());
             notes.push(Note {
-                file_index,
+                file_id,
                 order: 0,
                 stream: NoteStream::Stderr,
                 text: format!("Skipping input '{}': Path not found.\n", file.display()).into(),
@@ -339,36 +345,41 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
 
         let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
         if config.recursive && canonical.is_dir() {
-            collected.extend(expand_directory(file_index, &canonical, &config.options));
+            collected.extend(expand_directory(&canonical, &config.options));
         } else {
-            collected.push((file_index, canonical));
+            collected.push(canonical);
         }
     }
 
-    collected.retain(|(_, file)| !should_exclude(file, &excludes));
-    collected.sort_by_cached_key(|(_, file)| file.to_string_lossy().into_owned());
-    collected.dedup_by(|lhs, rhs| lhs.1 == rhs.1);
-    for (sorted_index, (file_index, _)) in collected.iter_mut().enumerate() {
-        *file_index = sorted_index;
-    }
+    collected.retain(|file| !should_exclude(file, &excludes));
+    collected.sort_by_cached_key(|file| file.to_string_lossy().into_owned());
+    collected.dedup();
+    let files = collected
+        .into_iter()
+        .map(|file| {
+            let file_id = file_names.intern(&file.to_string_lossy());
+            (file_id, file)
+        })
+        .collect();
     Ok(CollectedFiles {
-        files: collected,
+        file_names,
+        files,
         notes,
     })
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-fn plan_files(files: Vec<(usize, PathBuf)>, config: &RunnerConfig) -> PlannedRun {
+fn plan_files(files: Vec<(FileId, PathBuf)>, config: &RunnerConfig) -> PlannedRun {
     let config_cache = DirectoryConfigCache::new(&config.options);
     let entries = if config.num_threads <= 1 {
         files
             .into_iter()
-            .map(|(file_index, file)| plan_single_file(&config_cache, config, file_index, file))
+            .map(|(file_id, file)| plan_single_file(&config_cache, config, file_id, file))
             .collect::<Vec<_>>()
     } else {
         files
             .into_par_iter()
-            .map(|(file_index, file)| plan_single_file(&config_cache, config, file_index, file))
+            .map(|(file_id, file)| plan_single_file(&config_cache, config, file_id, file))
             .collect::<Vec<_>>()
     };
 
@@ -386,7 +397,7 @@ fn plan_files(files: Vec<(usize, PathBuf)>, config: &RunnerConfig) -> PlannedRun
 fn plan_single_file(
     config_cache: &DirectoryConfigCache,
     config: &RunnerConfig,
-    file_index: usize,
+    file_id: FileId,
     file: PathBuf,
 ) -> PlannedEntry {
     let display_name = file.to_string_lossy().to_string();
@@ -396,7 +407,7 @@ fn plan_single_file(
     let options = match config_cache.resolve_for_file(&file, config.quiet) {
         ConfigResolution::Lint { options, messages } => {
             for message in messages.iter() {
-                initial_notes.push(note_from_config_message(file_index, note_order, message));
+                initial_notes.push(note_from_config_message(file_id, note_order, message));
                 note_order += 1;
             }
             options
@@ -406,7 +417,7 @@ fn plan_single_file(
             for message in messages.iter() {
                 report
                     .notes
-                    .push(note_from_config_message(file_index, note_order, message));
+                    .push(note_from_config_message(file_id, note_order, message));
                 note_order += 1;
             }
             return PlannedEntry::Report(report);
@@ -416,7 +427,7 @@ fn plan_single_file(
     if file != Path::new("-") && file.is_file() && !options.is_valid_file(&file) {
         let mut report = FileRunReport::default();
         report.notes.push(Note {
-            file_index,
+            file_id,
             order: note_order,
             stream: NoteStream::Stderr,
             text: format!(
@@ -427,13 +438,12 @@ fn plan_single_file(
             .into(),
         });
         report.processed_files.push(ProcessedFile {
-            file_index,
-            filename: display_name.clone().into(),
+            file_id,
             had_error: false,
         });
         if !config.quiet {
             report.notes.push(Note {
-                file_index,
+                file_id,
                 order: note_order + 1,
                 stream: NoteStream::Stdout,
                 text: format!("Done processing {}\n", display_name).into(),
@@ -443,7 +453,7 @@ fn plan_single_file(
     }
 
     PlannedEntry::LintJob(PlannedLintJob {
-        file_index,
+        file_id,
         file,
         display_name,
         options,
@@ -453,9 +463,9 @@ fn plan_single_file(
     })
 }
 
-fn note_from_config_message(file_index: usize, order: usize, message: &ConfigMessage) -> Note {
+fn note_from_config_message(file_id: FileId, order: usize, message: &ConfigMessage) -> Note {
     Note {
-        file_index,
+        file_id,
         order,
         stream: match message.kind {
             ConfigMessageKind::Info => NoteStream::Stdout,
@@ -485,11 +495,7 @@ fn should_exclude(file: &Path, excludes: &[GlobPattern]) -> bool {
     excludes.iter().any(|pattern| pattern.is_match(&normalized))
 }
 
-fn expand_directory(
-    file_index: usize,
-    directory: &Path,
-    options: &Options,
-) -> Vec<(usize, PathBuf)> {
+fn expand_directory(directory: &Path, options: &Options) -> Vec<PathBuf> {
     let mut walk = WalkBuilder::new(directory);
     walk.hidden(false)
         .git_ignore(false)
@@ -507,7 +513,7 @@ fn expand_directory(
         }
         let path = entry.into_path();
         if options.is_valid_file(&path) {
-            files.push((file_index, path));
+            files.push(path);
         }
     }
     files
@@ -520,7 +526,7 @@ fn process_file(
     fix: bool,
 ) -> FileRunReport {
     let PlannedLintJob {
-        file_index,
+        file_id,
         file,
         display_name,
         options,
@@ -531,15 +537,15 @@ fn process_file(
     let state = CppLintState::with_settings(session_settings);
     for note in initial_notes {
         match note.stream {
-            NoteStream::Stdout => state.record_info(note.file_index, note.order, &note.text),
-            NoteStream::Stderr => state.record_raw_error(note.file_index, note.order, &note.text),
+            NoteStream::Stdout => state.record_info(note.file_id, note.order, &note.text),
+            NoteStream::Stderr => state.record_raw_error(note.file_id, note.order, &note.text),
         }
     }
 
     let has_error = {
         if fix && let Err(error) = fix_file_in_place(&file, options.as_ref()) {
             state.record_raw_error(
-                file_index,
+                file_id,
                 failure_note_order,
                 format!(
                     "Skipping input '{}': Can't apply fixes ({})\n",
@@ -548,7 +554,7 @@ fn process_file(
             );
             return state.into_snapshot().into();
         }
-        let mut linter = FileLinter::with_index(file, &state, options, file_index);
+        let mut linter = FileLinter::with_file_id(file, &state, options, file_id);
         match linter.process_file() {
             Ok(()) => Some(linter.has_error()),
             Err(_) => None,
@@ -557,7 +563,7 @@ fn process_file(
 
     let Some(has_error) = has_error else {
         state.record_raw_error(
-            file_index,
+            file_id,
             failure_note_order,
             format!(
                 "Skipping input '{}': Can't open for reading\n",
@@ -567,10 +573,10 @@ fn process_file(
         return state.into_snapshot().into();
     };
 
-    state.record_processed_file(file_index, &display_name, has_error);
+    state.record_processed_file(file_id, has_error);
     if !session_settings.quiet || has_error {
         state.record_info(
-            file_index,
+            file_id,
             done_note_order,
             format!("Done processing {}\n", display_name),
         );
@@ -581,7 +587,9 @@ fn process_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::NoteStream;
     use crate::state::OutputFormat;
+    use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn unique_temp_dir() -> PathBuf {
@@ -656,9 +664,11 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let file = root.join("demo.txt");
         std::fs::write(&file, "hello\n").unwrap();
+        let mut file_names = FileTable::new();
+        let file_id = file_names.intern(&file.to_string_lossy());
 
         let planned = plan_files(
-            vec![(0, file)],
+            vec![(file_id, file)],
             &RunnerConfig {
                 quiet: false,
                 ..RunnerConfig::default()
@@ -674,6 +684,148 @@ mod tests {
                 .any(|note| note.text.contains("not a valid file name"))
         );
 
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recursive_collection_honors_extension_filters() {
+        let root = unique_temp_dir();
+        let nested = root.join("src");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let cpp_file = nested.join("keep.cpp");
+        let cc_file = nested.join("skip.cc");
+        std::fs::write(&cpp_file, "// Copyright 2026\n").unwrap();
+        std::fs::write(&cc_file, "// Copyright 2026\n").unwrap();
+
+        let mut options = Options::new();
+        options.set_extensions_from_csv("cpp");
+        let config = RunnerConfig {
+            options,
+            recursive: true,
+            ..RunnerConfig::default()
+        };
+
+        let collected = collect_files(&[root.clone()], &config).unwrap();
+        assert_eq!(collected.files.len(), 1);
+        assert!(collected.files[0].1.ends_with("keep.cpp"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recursive_collection_keeps_direct_files_and_filters_nested_extensions() {
+        let root = unique_temp_dir();
+        let nested = root.join("src");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let direct_cpp = root.join("one.cpp");
+        let nested_cpp = nested.join("two.cpp");
+        let nested_cc = nested.join("three.cc");
+        std::fs::write(&direct_cpp, "// Copyright 2026\n").unwrap();
+        std::fs::write(&nested_cpp, "// Copyright 2026\n").unwrap();
+        std::fs::write(&nested_cc, "// Copyright 2026\n").unwrap();
+
+        let mut options = Options::new();
+        options.set_extensions_from_csv("cpp");
+        let config = RunnerConfig {
+            options,
+            recursive: true,
+            ..RunnerConfig::default()
+        };
+
+        let collected = collect_files(&[direct_cpp.clone(), nested.clone()], &config).unwrap();
+        let collected_files: Vec<_> = collected.files.into_iter().map(|(_, file)| file).collect();
+        assert_eq!(collected_files.len(), 2);
+        assert!(collected_files.iter().any(|file| file.ends_with("one.cpp")));
+        assert!(collected_files.iter().any(|file| file.ends_with("two.cpp")));
+        assert!(!collected_files.iter().any(|file| file.ends_with("three.cc")));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn run_lint_buffers_junit_output() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("demo.cc");
+        std::fs::write(&file, "// Copyright 2026\nint x=0;\n").unwrap();
+
+        let config = RunnerConfig {
+            output_format: OutputFormat::JUnit,
+            ..RunnerConfig::default()
+        };
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let result = run_lint(&[file], &config, &mut out, &mut err).unwrap();
+
+        assert!(result.stdout.is_empty());
+        assert!(result.stderr.is_empty());
+        assert!(String::from_utf8(out).unwrap().contains("<testsuite"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn process_file_reports_read_failure_and_fix_failure() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+
+        let missing = root.join("missing.cc");
+        let missing_job = PlannedLintJob {
+            file_id: FileId::from_index(0),
+            file: missing.clone(),
+            display_name: missing.to_string_lossy().to_string(),
+            options: Arc::new(Options::new()),
+            initial_notes: vec![],
+            failure_note_order: 0,
+            done_note_order: 1,
+        };
+        let missing_report =
+            process_file(missing_job, crate::state::SessionSettings::default(), false);
+        assert!(
+            missing_report
+                .notes
+                .iter()
+                .any(|note| matches!(note.stream, NoteStream::Stderr)
+                    && note.text.contains("Can't open for reading"))
+        );
+
+        let file = root.join("readonly.cc");
+        std::fs::write(&file, "int x=0;\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&file).unwrap().permissions();
+            permissions.set_mode(0o444);
+            std::fs::set_permissions(&file, permissions).unwrap();
+        }
+
+        let fix_job = PlannedLintJob {
+            file_id: FileId::from_index(1),
+            file: file.clone(),
+            display_name: file.to_string_lossy().to_string(),
+            options: Arc::new(Options::new()),
+            initial_notes: vec![],
+            failure_note_order: 0,
+            done_note_order: 1,
+        };
+        let fixed_report = process_file(fix_job, crate::state::SessionSettings::default(), true);
+        assert!(
+            fixed_report
+                .notes
+                .iter()
+                .any(|note| matches!(note.stream, NoteStream::Stderr)
+                    && note.text.contains("Can't apply fixes"))
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&file).unwrap().permissions();
+            permissions.set_mode(0o644);
+            std::fs::set_permissions(&file, permissions).unwrap();
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 }

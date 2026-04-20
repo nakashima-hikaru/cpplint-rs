@@ -636,4 +636,57 @@ mod tests {
 
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn read_config_file_reports_errors_and_keeps_valid_entries() {
+        let root = unique_temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = root.join("CPPLINT.cfg");
+        std::fs::write(
+            &cfg,
+            concat!(
+                "invalid_line\n",
+                "filter=-whitespace/tab\n",
+                "exclude_files=[\n",
+                "linelength=120\n",
+                "root=src\n",
+                "extensions=cc,cpp\n",
+                "headers=hpp,hxx\n",
+                "includeorder=standardcfirst\n",
+            ),
+        )
+        .unwrap();
+
+        let config = read_config_file(&cfg);
+        assert!(
+            config
+                .messages
+                .iter()
+                .any(|message| message.text.contains("Invalid configuration option"))
+        );
+        assert!(
+            config
+                .messages
+                .iter()
+                .any(|message| message.text.contains("Invalid exclude_files regex"))
+        );
+        assert_eq!(config.line_length, Some(120));
+        assert_eq!(config.root.as_deref(), Some(Path::new("src")));
+        assert!(config.extensions.as_ref().unwrap().contains("cc"));
+        assert!(config.headers.as_ref().unwrap().contains("hxx"));
+        assert_eq!(config.include_order, Some(IncludeOrder::StandardCFirst));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn resolve_for_file_handles_dash_input() {
+        let resolution = resolve_for_file(&Options::new(), Path::new("-"), false);
+        let ConfigResolution::Lint { options, messages } = resolution else {
+            panic!("dash input should not be excluded");
+        };
+
+        assert!(messages.is_empty());
+        assert_eq!(options.as_ref().config_filename, "CPPLINT.cfg");
+    }
 }

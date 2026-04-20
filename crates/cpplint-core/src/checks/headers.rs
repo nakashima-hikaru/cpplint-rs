@@ -8,7 +8,7 @@ use crate::state::{IncludeKind, IncludeState};
 use aho_corasick::AhoCorasick;
 use fxhash::FxHashSet;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
 
 static INCLUDE_RE: LazyLock<regex::Regex> =
@@ -998,7 +998,8 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             continue;
         }
 
-        let third_src_header = header_extensions.iter().any(|ext| {
+        let include_has_alias = include.contains("./") || include.contains("../");
+        let third_src_header = !include_has_alias && header_extensions.iter().any(|ext| {
             let headername = format!("{}.{}", basefilename_relative, ext);
             headername.contains(include) || include.contains(&headername)
         });
@@ -1071,23 +1072,21 @@ fn classify_include(
     }
 
     let target_file = drop_common_suffixes(path_from_repo);
-    let target_dir = target_file.parent().unwrap_or_else(|| Path::new(""));
     let target_base = target_file
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("");
     let include_file = drop_common_suffixes(include);
-    let include_dir = include_file.parent().unwrap_or_else(|| Path::new(""));
     let include_base = include_file
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("");
-    let target_dir_pub = normalize_path(&target_dir.join("../public"));
-    if target_base == include_base
-        && (normalize_path(include_dir) == normalize_path(target_dir)
-            || normalize_path(include_dir) == target_dir_pub)
-    {
+    if files_belong_to_same_module(path_from_repo, include).0 {
         return IncludeKind::LikelyMyHeader;
+    }
+
+    if has_alias_component(include) {
+        return IncludeKind::OtherHeader;
     }
 
     if first_component(target_base) == first_component(include_base) {
@@ -1095,6 +1094,84 @@ fn classify_include(
     }
 
     IncludeKind::OtherHeader
+}
+
+fn is_non_header_extension(ext: &str) -> bool {
+    matches!(ext, "c" | "cc" | "cpp" | "cxx" | "c++" | "cu")
+}
+
+fn is_header_extension(ext: &str) -> bool {
+    matches!(ext, "h" | "hh" | "hpp" | "hxx" | "h++" | "cuh")
+}
+
+fn strip_test_suffix(stem: &str) -> &str {
+    for suffix in ["_unittest", "_regtest", "_test"] {
+        if let Some(stripped) = stem.strip_suffix(suffix) {
+            return stripped;
+        }
+    }
+    stem
+}
+
+fn normalize_module_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .replace("/public/", "/")
+        .replace("/internal/", "/")
+}
+
+fn path_without_extension(path: &Path) -> String {
+    let mut value = path.to_string_lossy().replace('\\', "/");
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        let ext_with_dot = format!(".{ext}");
+        if value.ends_with(&ext_with_dot) {
+            value.truncate(value.len().saturating_sub(ext_with_dot.len()));
+        }
+    }
+    value
+}
+
+fn files_belong_to_same_module(filename_cc: &Path, filename_h: &Path) -> (bool, String) {
+    let cc_ext = filename_cc
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    if !is_non_header_extension(cc_ext) {
+        return (false, String::new());
+    }
+    let h_ext = filename_h
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
+    if !is_header_extension(h_ext) {
+        return (false, String::new());
+    }
+
+    let cc_no_ext = path_without_extension(filename_cc);
+    let cc_stem = Path::new(&cc_no_ext)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let cc_module_stem = strip_test_suffix(cc_stem);
+    let cc_prefix_len = cc_no_ext.len().saturating_sub(cc_stem.len());
+    let mut cc_module = format!("{}{}", &cc_no_ext[..cc_prefix_len], cc_module_stem);
+    cc_module = normalize_module_path(Path::new(&cc_module));
+
+    let mut h_module = path_without_extension(filename_h);
+    if let Some(stripped) = h_module.strip_suffix("-inl") {
+        h_module = stripped.to_string();
+    }
+    h_module = normalize_module_path(Path::new(&h_module));
+
+    let belongs = cc_module.ends_with(&h_module);
+    if !belongs {
+        return (false, String::new());
+    }
+    let common = cc_module
+        .strip_suffix(&h_module)
+        .unwrap_or_default()
+        .to_string();
+    (true, common)
 }
 
 fn preprocessor_directive(trimmed: &str) -> Option<&str> {
@@ -1116,16 +1193,30 @@ fn is_special_include_name(include: &str) -> bool {
 
 fn drop_common_suffixes(path: &Path) -> PathBuf {
     let value = path.to_string_lossy().replace('\\', "/");
-    for suffix in [
-        "-inl.h", ".h", ".hh", ".hpp", ".hxx", ".h++", ".c", ".cc", ".cpp", ".cxx",
+    let mut base = value.as_str();
+    for ext in [
+        ".h", ".hh", ".hpp", ".hxx", ".h++", ".c", ".cc", ".cpp", ".cxx", ".c++",
     ] {
-        if let Some(stripped) = value.strip_suffix(suffix) {
-            return PathBuf::from(stripped);
+        if let Some(stripped) = base.strip_suffix(ext) {
+            base = stripped;
+            break;
         }
     }
-    PathBuf::from(value)
+    for suffix in ["-inl", "_inl", "_unittest", "_regtest", "_test"] {
+        if let Some(stripped) = base.strip_suffix(suffix) {
+            base = stripped;
+            break;
+        }
+    }
+    PathBuf::from(base)
 }
 
+fn has_alias_component(path: &Path) -> bool {
+    path.components()
+        .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+}
+
+#[cfg(test)]
 fn normalize_path(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -1395,9 +1486,10 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
         }
 
         let found = include_state.include_lists().iter().any(|section_list| {
-            section_list
-                .iter()
-                .any(|(include, _)| header_name.contains(include) || include.contains(&header_name))
+            section_list.iter().any(|(include, _)| {
+                !has_alias_component(Path::new(include))
+                    && (header_name.contains(include) || include.contains(&header_name))
+            })
         });
         if found {
             return;
@@ -1441,4 +1533,295 @@ fn generate_guard(path: &Path) -> String {
         guard.push('_');
     }
     guard
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn helper_functions_cover_include_classification_and_normalization() {
+        assert_eq!(preprocessor_directive("#ifdef FOO"), Some("if"));
+        assert_eq!(preprocessor_directive("#elif defined(FOO)"), Some("elif"));
+        assert_eq!(preprocessor_directive("not a directive"), None);
+
+        assert!(is_special_include_name("lua.h"));
+        assert!(is_special_include_name("Foo.h"));
+        assert!(!is_special_include_name("foo.cc"));
+
+        assert_eq!(
+            drop_common_suffixes(Path::new("src/foo-inl.h")),
+            PathBuf::from("src/foo")
+        );
+        assert_eq!(
+            normalize_path(Path::new("src/./include/../foo")),
+            PathBuf::from("src/foo")
+        );
+        assert_eq!(first_component("foo-bar.baz"), "foo");
+        assert_eq!(generate_guard(Path::new("foo/bar-baz.h")), "FOO_BAR_BAZ_H_");
+
+        assert_eq!(
+            classify_include(
+                Path::new("src/foo/bar.cc"),
+                Path::new("<vector>"),
+                true,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::CSystem
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("src/foo/bar.cc"),
+                Path::new("src/foo/bar.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::LikelyMyHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("src/foo/bar.cc"),
+                Path::new("src/foo/bar_utils.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::PossibleMyHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("src/foo/bar.cc"),
+                Path::new("third_party/other.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::OtherHeader
+        );
+    }
+
+    #[test]
+    fn iwyu_match_helpers_cover_word_function_and_template_paths() {
+        let word = IwyuMatch {
+            line: "std::vector value;",
+            start: 5,
+            end: 11,
+        };
+        assert!(word.is_word_match());
+
+        let function = IwyuMatch {
+            line: "std::make_pair(1, 2)",
+            start: 5,
+            end: 14,
+        };
+        assert!(function.is_function_match());
+
+        let templ = IwyuMatch {
+            line: "std::vector<int> values;",
+            start: 5,
+            end: 11,
+        };
+        assert!(templ.is_std_template_match());
+        assert!(templ.is_template_match());
+
+        let func_or_template = IwyuMatch {
+            line: "std::vector<int>(1)",
+            start: 5,
+            end: 11,
+        };
+        assert!(func_or_template.is_function_or_template_match());
+    }
+
+    #[test]
+    fn test_files_belong_to_same_module() {
+        let f = |cc: &str, h: &str| files_belong_to_same_module(Path::new(cc), Path::new(h));
+
+        assert_eq!(f("a.cc", "a.h"), (true, "".to_string()));
+        assert_eq!(f("base/google.cc", "base/google.h"), (true, "".to_string()));
+        assert_eq!(
+            f("base/google_test.c", "base/google.h"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("base/google_test.cc", "base/google.hpp"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("base/google_test.cxx", "base/google.hxx"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("base/google_test.c++", "base/google.h++"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("base/google_test.cu", "base/google.cuh"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("base/google_unittest.cc", "base/google-inl.h"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("base/internal/google_unittest.cc", "base/public/google.h"),
+            (true, "".to_string())
+        );
+        assert_eq!(
+            f("xxx/yyy/base/internal/google_unittest.cc", "base/public/google.h"),
+            (true, "xxx/yyy/".to_string())
+        );
+        assert_eq!(
+            f("xxx/yyy/base/google_unittest.cc", "base/public/google.h"),
+            (true, "xxx/yyy/".to_string())
+        );
+        assert_eq!(
+            f("/home/build/google3/base/google.cc", "base/google.h"),
+            (true, "/home/build/google3/".to_string())
+        );
+
+        assert_eq!(
+            f("/home/build/google3/base/google.cc", "basu/google.h"),
+            (false, "".to_string())
+        );
+        assert_eq!(f("a.cc", "b.h"), (false, "".to_string()));
+    }
+
+    #[test]
+    fn test_classify_include() {
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("stdio.h"),
+                true,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::CSystem
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("string"),
+                true,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::CppSystem
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("foo/foo.h"),
+                true,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::CSystem
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("foo/foo.h"),
+                true,
+                IncludeOrder::StandardCFirst,
+            ),
+            IncludeKind::OtherSystem
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("string"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::OtherHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("boost/any.hpp"),
+                true,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::OtherHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/foo.cc"),
+                Path::new("foo/foo-inl.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::LikelyMyHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/internal/foo.cc"),
+                Path::new("foo/public/foo.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::LikelyMyHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/internal/foo.cc"),
+                Path::new("foo/other/public/foo.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::PossibleMyHeader
+        );
+        assert_eq!(
+            classify_include(
+                Path::new("foo/internal/foo.cc"),
+                Path::new("foo/other/public/foop.h"),
+                false,
+                IncludeOrder::Default,
+            ),
+            IncludeKind::OtherHeader
+        );
+    }
+
+    #[test]
+    fn test_try_drop_common_suffixes() {
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo-inl.h")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo-inl.hxx")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo-inl.h++")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo-inl.hpp")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/bar/foo_inl.h")),
+            PathBuf::from("foo/bar/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo.cc")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo.cxx")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo.c")),
+            PathBuf::from("foo/foo")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("foo/foo_unusualinternal.h")),
+            PathBuf::from("foo/foo_unusualinternal")
+        );
+        assert_eq!(
+            drop_common_suffixes(Path::new("_test.cc")),
+            PathBuf::from("")
+        );
+        assert_eq!(drop_common_suffixes(Path::new("test.cc")), PathBuf::from("test"));
+        assert_eq!(drop_common_suffixes(Path::new("test.c++")), PathBuf::from("test"));
+    }
 }

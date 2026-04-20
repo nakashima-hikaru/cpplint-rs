@@ -5,6 +5,7 @@ use std::fmt;
 pub enum OperatorSymbol {
     Eq,
     Ne,
+    OrOr,
     Lt,
     Gt,
     LShift,
@@ -22,6 +23,7 @@ impl std::str::FromStr for OperatorSymbol {
         match value {
             "=" => Ok(Self::Eq),
             "!=" => Ok(Self::Ne),
+            "||" => Ok(Self::OrOr),
             "<" => Ok(Self::Lt),
             ">" => Ok(Self::Gt),
             "<<" => Ok(Self::LShift),
@@ -44,6 +46,7 @@ impl OperatorSymbol {
         match self {
             Self::Eq => "=",
             Self::Ne => "!=",
+            Self::OrOr => "||",
             Self::Lt => "<",
             Self::Gt => ">",
             Self::LShift => "<<",
@@ -308,6 +311,10 @@ pub enum LintMessage {
         size: Box<str>,
     },
     SprintfRecommended,
+    PotentialFormatStringBug {
+        function: Box<str>,
+        arg: Box<str>,
+    },
     VlogShouldUseNumericVerbosityLevel,
     VlaFound(Box<str>),
     PrintfFormat(PrintfFormatIssue),
@@ -345,6 +352,7 @@ pub enum LintMessage {
     IfElseBodiesWithMultipleStatementsRequireBraces,
     ElseClauseShouldAlignWithIf,
     NamespaceMissingComment(Box<str>),
+    DisallowMacroShouldBeLastInClass(Box<str>),
     RedundantVirtual,
     RedundantOverride,
     AltToken(Box<str>, Box<str>),
@@ -499,6 +507,7 @@ impl LintMessage {
                 Some("snprintf size argument should be the size of the buffer.")
             }
             Self::SprintfRecommended => Some("Consider using snprintf instead of sprintf."),
+            Self::PotentialFormatStringBug { .. } => None,
             Self::VlogShouldUseNumericVerbosityLevel => Some(
                 "VLOG() should be used with numeric verbosity level.  Use LOG() if you want symbolic severity levels.",
             ),
@@ -646,6 +655,14 @@ impl fmt::Display for LintMessage {
                 "If you can, use sizeof({}) instead of {} as the 2nd arg to snprintf.",
                 buffer, size
             ),
+            Self::PotentialFormatStringBug { function, arg } => write!(
+                f,
+                "Potential format string bug. Do {}(\"%s\", {}) instead.",
+                function, arg
+            ),
+            Self::DisallowMacroShouldBeLastInClass(macro_name) => {
+                write!(f, "{} should be the last thing in the class", macro_name)
+            }
             Self::VlaFound(name) => {
                 write!(
                     f,

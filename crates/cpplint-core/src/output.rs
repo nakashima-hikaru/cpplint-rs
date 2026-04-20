@@ -1,4 +1,4 @@
-use crate::diagnostics::{Diagnostic, Note, NoteStream, ProcessedFile};
+use crate::diagnostics::{Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile};
 use crate::state::{CountingStyle, OutputFormat};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -9,11 +9,16 @@ pub struct RenderedOutput {
     pub stderr: String,
 }
 
-pub fn format_diagnostic(output_format: OutputFormat, diagnostic: &Diagnostic) -> String {
+pub fn format_diagnostic(
+    output_format: OutputFormat,
+    file_names: &FileTable,
+    diagnostic: &Diagnostic,
+) -> String {
+    let filename = file_name_for(file_names, diagnostic.file_id);
     match output_format {
         OutputFormat::Vs7 => format!(
             "{}({}): error cpplint: [{}] {} [{}]\n",
-            diagnostic.filename,
+            filename,
             diagnostic.linenum,
             diagnostic.category,
             diagnostic.message,
@@ -21,7 +26,7 @@ pub fn format_diagnostic(output_format: OutputFormat, diagnostic: &Diagnostic) -
         ),
         OutputFormat::Eclipse => format!(
             "{}:{}: warning: {}  [{}] [{}]\n",
-            diagnostic.filename,
+            filename,
             diagnostic.linenum,
             diagnostic.message,
             diagnostic.category,
@@ -30,7 +35,7 @@ pub fn format_diagnostic(output_format: OutputFormat, diagnostic: &Diagnostic) -
         OutputFormat::Emacs | OutputFormat::JUnit | OutputFormat::Sed | OutputFormat::Gsed => {
             format!(
                 "{}:{}:  {}  [{}] [{}]\n",
-                diagnostic.filename,
+                filename,
                 diagnostic.linenum,
                 diagnostic.message,
                 diagnostic.category,
@@ -46,6 +51,7 @@ pub fn format_note(note: &Note) -> String {
 
 pub fn format_sed_diagnostic(
     output_format: OutputFormat,
+    file_names: &FileTable,
     diagnostic: &Diagnostic,
 ) -> (bool, String) {
     let command = match output_format {
@@ -53,6 +59,7 @@ pub fn format_sed_diagnostic(
         OutputFormat::Gsed => "gsed",
         _ => return (false, String::new()),
     };
+    let filename = file_name_for(file_names, diagnostic.file_id);
 
     if let Some(script) = sed_fixup(&diagnostic.message) {
         (
@@ -62,7 +69,7 @@ pub fn format_sed_diagnostic(
                 command,
                 diagnostic.linenum,
                 script,
-                diagnostic.filename,
+                filename,
                 diagnostic.message,
                 diagnostic.category,
                 diagnostic.confidence
@@ -73,7 +80,7 @@ pub fn format_sed_diagnostic(
             false,
             format!(
                 "# {}:{}:  \"{}\"  [{}] [{}]\n",
-                diagnostic.filename,
+                filename,
                 diagnostic.linenum,
                 diagnostic.message,
                 diagnostic.category,
@@ -139,6 +146,7 @@ impl DiagnosticCounter {
 pub fn render(
     output_format: OutputFormat,
     counting_style: CountingStyle,
+    file_names: &FileTable,
     diagnostics: &[Diagnostic],
     notes: &[Note],
     processed_files: &[ProcessedFile],
@@ -147,6 +155,7 @@ pub fn render(
     render_owned(
         output_format,
         counting_style,
+        file_names.clone(),
         diagnostics.to_vec(),
         notes.to_vec(),
         processed_files.to_vec(),
@@ -157,6 +166,7 @@ pub fn render(
 pub(crate) fn render_owned(
     output_format: OutputFormat,
     counting_style: CountingStyle,
+    file_names: FileTable,
     mut diagnostics: Vec<Diagnostic>,
     mut notes: Vec<Note>,
     mut processed_files: Vec<ProcessedFile>,
@@ -167,20 +177,25 @@ pub(crate) fn render_owned(
     sort_processed_files(&mut processed_files);
 
     match output_format {
-        OutputFormat::JUnit => render_junit(&diagnostics, &notes, &processed_files),
+        OutputFormat::JUnit => render_junit(&file_names, &diagnostics, &notes, &processed_files),
         OutputFormat::Sed | OutputFormat::Gsed => {
-            render_sed_like(output_format, &diagnostics, &notes)
+            render_sed_like(output_format, &file_names, &diagnostics, &notes)
         }
-        OutputFormat::Emacs | OutputFormat::Vs7 | OutputFormat::Eclipse => {
-            render_human(output_format, counting_style, &diagnostics, &notes, timing)
-        }
+        OutputFormat::Emacs | OutputFormat::Vs7 | OutputFormat::Eclipse => render_human(
+            output_format,
+            counting_style,
+            &file_names,
+            &diagnostics,
+            &notes,
+            timing,
+        ),
     }
 }
 
 fn sort_diagnostics(diagnostics: &mut [Diagnostic]) {
     diagnostics.sort_by(|lhs, rhs| {
-        lhs.file_index
-            .cmp(&rhs.file_index)
+        lhs.file_id
+            .cmp(&rhs.file_id)
             .then_with(|| lhs.linenum.cmp(&rhs.linenum))
             .then_with(|| lhs.category.cmp(&rhs.category))
             .then_with(|| lhs.message.cmp(&rhs.message))
@@ -189,24 +204,21 @@ fn sort_diagnostics(diagnostics: &mut [Diagnostic]) {
 
 fn sort_notes(notes: &mut [Note]) {
     notes.sort_by(|lhs, rhs| {
-        lhs.file_index
-            .cmp(&rhs.file_index)
+        lhs.file_id
+            .cmp(&rhs.file_id)
             .then_with(|| lhs.order.cmp(&rhs.order))
             .then_with(|| lhs.text.cmp(&rhs.text))
     });
 }
 
 fn sort_processed_files(processed_files: &mut [ProcessedFile]) {
-    processed_files.sort_by(|lhs, rhs| {
-        lhs.file_index
-            .cmp(&rhs.file_index)
-            .then_with(|| lhs.filename.cmp(&rhs.filename))
-    });
+    processed_files.sort_by_key(|file| file.file_id);
 }
 
 fn render_human(
     output_format: OutputFormat,
     counting_style: CountingStyle,
+    file_names: &FileTable,
     diagnostics: &[Diagnostic],
     notes: &[Note],
     timing: Option<Duration>,
@@ -223,7 +235,7 @@ fn render_human(
     for diagnostic in diagnostics {
         rendered
             .stderr
-            .push_str(&format_diagnostic(output_format, diagnostic));
+            .push_str(&format_diagnostic(output_format, file_names, diagnostic));
     }
 
     if !diagnostics.is_empty() {
@@ -243,6 +255,7 @@ fn render_human(
 
 fn render_sed_like(
     output_format: OutputFormat,
+    file_names: &FileTable,
     diagnostics: &[Diagnostic],
     notes: &[Note],
 ) -> RenderedOutput {
@@ -255,7 +268,7 @@ fn render_sed_like(
     }
 
     for diagnostic in diagnostics {
-        let (is_fixable, text) = format_sed_diagnostic(output_format, diagnostic);
+        let (is_fixable, text) = format_sed_diagnostic(output_format, file_names, diagnostic);
         if is_fixable {
             rendered.stdout.push_str(&text);
         } else {
@@ -267,6 +280,7 @@ fn render_sed_like(
 }
 
 fn render_junit(
+    file_names: &FileTable,
     diagnostics: &[Diagnostic],
     notes: &[Note],
     processed_files: &[ProcessedFile],
@@ -279,10 +293,10 @@ fn render_junit(
         }
     }
 
-    let mut grouped: BTreeMap<&str, Vec<&Diagnostic>> = BTreeMap::new();
+    let mut grouped: BTreeMap<FileId, Vec<&Diagnostic>> = BTreeMap::new();
     for diagnostic in diagnostics {
         grouped
-            .entry(&diagnostic.filename)
+            .entry(diagnostic.file_id)
             .or_default()
             .push(diagnostic);
     }
@@ -304,20 +318,18 @@ fn render_junit(
     if processed_files.is_empty() {
         let synthesized_cases: Vec<ProcessedFile> = grouped
             .keys()
-            .enumerate()
-            .map(|(file_index, filename)| ProcessedFile {
-                file_index,
-                filename: (*filename).to_string().into(),
+            .map(|file_id| ProcessedFile {
+                file_id: *file_id,
                 had_error: true,
             })
             .collect();
 
         for case in &synthesized_cases {
-            render_junit_case(&mut rendered.stdout, &grouped, case);
+            render_junit_case(&mut rendered.stdout, file_names, &grouped, case);
         }
     } else {
         for case in processed_files {
-            render_junit_case(&mut rendered.stdout, &grouped, case);
+            render_junit_case(&mut rendered.stdout, file_names, &grouped, case);
         }
     }
 
@@ -327,23 +339,26 @@ fn render_junit(
 
 fn render_junit_case(
     stdout: &mut String,
-    grouped: &BTreeMap<&str, Vec<&Diagnostic>>,
+    file_names: &FileTable,
+    grouped: &BTreeMap<FileId, Vec<&Diagnostic>>,
     case: &ProcessedFile,
 ) {
+    let case_filename = file_name_for(file_names, case.file_id);
     stdout.push_str(&format!(
         r#"  <testcase classname="cpplint" name="{}">
 "#,
-        xml_escape(&case.filename)
+        xml_escape(case_filename)
     ));
-    if let Some(entries) = grouped.get(case.filename.as_ref()) {
+    if let Some(entries) = grouped.get(&case.file_id) {
         for diagnostic in entries {
+            let diagnostic_filename = file_name_for(file_names, diagnostic.file_id);
             let summary = format!(
                 "[{}] [{}] {}:{}",
-                diagnostic.category, diagnostic.confidence, diagnostic.filename, diagnostic.linenum
+                diagnostic.category, diagnostic.confidence, diagnostic_filename, diagnostic.linenum
             );
             let body = format!(
                 "{}:{}: {}",
-                diagnostic.filename, diagnostic.linenum, diagnostic.message
+                diagnostic_filename, diagnostic.linenum, diagnostic.message
             );
             stdout.push_str(&format!(
                 r#"    <failure type="{}" message="{}">{}</failure>
@@ -399,14 +414,17 @@ fn xml_escape(value: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn file_name_for(file_names: &FileTable, file_id: FileId) -> &str {
+    file_names.get(file_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn sample_diagnostic() -> Diagnostic {
         Diagnostic {
-            file_index: 0,
-            filename: "sample.cc".into(),
+            file_id: FileId::from_index(0),
             linenum: 7,
             category: crate::categories::Category::WhitespaceTab,
             confidence: 1,
@@ -414,14 +432,33 @@ mod tests {
         }
     }
 
+    fn sample_cast_diagnostic() -> Diagnostic {
+        Diagnostic {
+            file_id: FileId::from_index(0),
+            linenum: 3,
+            category: crate::categories::Category::ReadabilityCasting,
+            confidence: 1,
+            message: crate::messages::LintMessage::CStyleCast("int".into(), "float".into()),
+        }
+    }
+
+    fn sample_files(names: &[&str]) -> FileTable {
+        let mut file_names = FileTable::new();
+        for name in names {
+            file_names.intern(name);
+        }
+        file_names
+    }
+
     #[test]
     fn renders_emacs_output_and_counts() {
         let rendered = render(
             OutputFormat::Emacs,
             CountingStyle::Detailed,
+            &sample_files(&["sample.cc"]),
             &[sample_diagnostic()],
             &[Note {
-                file_index: 0,
+                file_id: FileId::from_index(0),
                 order: 0,
                 stream: NoteStream::Stdout,
                 text: "Done processing sample.cc\n".into(),
@@ -448,11 +485,11 @@ mod tests {
         let rendered = render(
             OutputFormat::JUnit,
             CountingStyle::Total,
+            &sample_files(&["sample.cc"]),
             &[sample_diagnostic()],
             &[],
             &[ProcessedFile {
-                file_index: 0,
-                filename: "sample.cc".into(),
+                file_id: FileId::from_index(0),
                 had_error: true,
             }],
             None,
@@ -464,22 +501,64 @@ mod tests {
     }
 
     #[test]
+    fn renders_junit_output_without_processed_files() {
+        let rendered = render(
+            OutputFormat::JUnit,
+            CountingStyle::Total,
+            &sample_files(&["a.cc", "b.cc"]),
+            &[sample_diagnostic()],
+            &[],
+            &[],
+            None,
+        );
+
+        assert!(rendered.stdout.contains(r#"tests="1""#));
+        assert!(rendered.stdout.contains("sample.cc") || rendered.stdout.contains("a.cc"));
+        assert!(rendered.stdout.contains("<testcase"));
+    }
+
+    #[test]
+    fn format_sed_diagnostic_emits_fixup_script_for_known_message() {
+        let (is_fixable, rendered) = format_sed_diagnostic(
+            OutputFormat::Sed,
+            &sample_files(&["sample.cc"]),
+            &sample_diagnostic(),
+        );
+
+        assert!(is_fixable);
+        assert!(rendered.contains("sed -i"));
+        assert!(rendered.contains(r#"s/\t/  /g"#));
+    }
+
+    #[test]
+    fn format_sed_diagnostic_comments_unknown_fixes() {
+        let (is_fixable, rendered) = format_sed_diagnostic(
+            OutputFormat::Gsed,
+            &sample_files(&["sample.cc"]),
+            &sample_cast_diagnostic(),
+        );
+
+        assert!(!is_fixable);
+        assert!(rendered.starts_with("# sample.cc:3:"));
+        assert!(rendered.contains("C-style cast"));
+    }
+
+    #[test]
     fn render_owned_sorts_unsorted_inputs() {
         let rendered = render_owned(
             OutputFormat::Emacs,
             CountingStyle::Total,
+            sample_files(&["a.cc", "b.cc"]),
             vec![
                 Diagnostic {
-                    file_index: 1,
-                    filename: "b.cc".into(),
+                    file_id: FileId::from_index(1),
                     linenum: 4,
                     category: crate::categories::Category::WhitespaceTab,
                     confidence: 1,
                     message: crate::messages::LintMessage::TabFound,
                 },
                 Diagnostic {
-                    file_index: 0,
-                    filename: "a.cc".into(),
+                    file_id: FileId::from_index(0),
                     linenum: 2,
                     category: crate::categories::Category::WhitespaceTab,
                     confidence: 1,
@@ -488,13 +567,13 @@ mod tests {
             ],
             vec![
                 Note {
-                    file_index: 1,
+                    file_id: FileId::from_index(1),
                     order: 0,
                     stream: NoteStream::Stdout,
                     text: "Done processing b.cc\n".into(),
                 },
                 Note {
-                    file_index: 0,
+                    file_id: FileId::from_index(0),
                     order: 0,
                     stream: NoteStream::Stdout,
                     text: "Done processing a.cc\n".into(),
