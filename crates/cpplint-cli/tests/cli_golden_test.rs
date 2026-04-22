@@ -195,9 +195,7 @@ fn recursive_and_exclude_match_expected_files() {
         .unwrap()
         .as_nanos();
     let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let temp = root
-        .join("target")
-        .join(format!("cpplint-rs-cli-recursive-{}-{}", unique, counter));
+    let temp = temp_dir().join(format!("cpplint-rs-cli-recursive-{}-{}", unique, counter));
     let nested = temp.join("sub");
     std::fs::create_dir_all(&nested).unwrap();
     std::fs::write(temp.join("keep.cc"), "int keep=0;\n").unwrap();
