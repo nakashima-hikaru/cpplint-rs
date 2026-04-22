@@ -216,7 +216,13 @@ fn recursive_and_exclude_match_expected_files() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("keep.cc"));
-    assert_eq!(stderr.matches("[whitespace/operators]").count(), 1);
+    // Use assert with context to debug potential CI flakiness due to concurrent runs/outputs
+    assert_eq!(
+        stderr.matches("[whitespace/operators]").count(),
+        1,
+        "Expected exactly 1 whitespace error in keep.cc, but got something else. stderr: {}",
+        stderr
+    );
 
     std::fs::remove_dir_all(temp).unwrap();
 }
