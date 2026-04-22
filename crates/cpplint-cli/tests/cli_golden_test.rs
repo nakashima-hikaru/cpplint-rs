@@ -37,7 +37,9 @@ fn temp_dir() -> PathBuf {
         .unwrap()
         .as_nanos();
     let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("cpplint-rs-cli-{}-{}", unique, counter))
+    let mut temp = std::env::temp_dir();
+    temp.push(format!("cpplint-rs-cli-{}-{}", unique, counter));
+    temp
 }
 
 // #[test]
