@@ -1113,7 +1113,10 @@ fn is_interior_block_comment_line(raw_line: &str) -> bool {
 
 fn has_control_struct_word(fncall: &str) -> bool {
     let bytes = fncall.as_bytes();
-    for i in memchr::memchr3_iter(b'i', b'e', b'f', bytes).chain(memchr::memchr3_iter(b'w', b's', b'r', bytes)).chain(memchr::memchr3_iter(b'n', b'd', b'c', bytes)) {
+    for i in memchr::memchr3_iter(b'i', b'e', b'f', bytes)
+        .chain(memchr::memchr3_iter(b'w', b's', b'r', bytes))
+        .chain(memchr::memchr3_iter(b'n', b'd', b'c', bytes))
+    {
         let rest = &fncall[i..];
         let (len, matched) = if rest.starts_with("if") {
             (2, true)
