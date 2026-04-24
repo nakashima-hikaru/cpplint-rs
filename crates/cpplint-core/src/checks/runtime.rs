@@ -171,10 +171,6 @@ const THREADSAFE_FN_NEEDLES: [&str; 12] = [
 static THREADSAFE_FN_AC: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new(THREADSAFE_FN_NEEDLES).unwrap());
 
-static C_INTEGER_TYPES_NEEDLES: [&str; 3] = ["port", "short", "long"];
-static C_INTEGER_TYPES_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(C_INTEGER_TYPES_NEEDLES).unwrap());
-
 const STORAGE_CLASS_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_truncate(
     MatchedKeywords::REGISTER.bits()
         | MatchedKeywords::STATIC.bits()
@@ -1305,10 +1301,21 @@ fn check_unary_operator_ampersand(linter: &mut FileLinter, line: &str, linenum: 
     }
 }
 
+fn has_c_integer_type_match(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    for i in memchr::memchr3_iter(b'p', b's', b'l', bytes) {
+        let rest = &line[i..];
+        if rest.starts_with("port") || rest.starts_with("short") || rest.starts_with("long") {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, linenum: usize) {
     // Check elided line first as it's generally more accurate and often shorter.
-    if !C_INTEGER_TYPES_AC.is_match(line) {
+    if !has_c_integer_type_match(line) {
         return;
     }
 
@@ -1327,7 +1334,7 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
         line
     };
 
-    if !C_INTEGER_TYPES_AC.is_match(line) {
+    if !has_c_integer_type_match(line) {
         return;
     }
     if string_utils::contains_word(line, "short port") {
@@ -1345,19 +1352,20 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
     let mut short_idx = None;
     let mut long_idx = None;
 
-    for mat in C_INTEGER_TYPES_AC.find_iter(line) {
-        let needle = C_INTEGER_TYPES_NEEDLES[mat.pattern()];
-        let start = mat.start();
-        if needle == "short" {
-            if short_idx.is_none() && find_word_at(line, start, "short").is_some() {
-                short_idx = Some(start);
+    let bytes = line.as_bytes();
+    for i in memchr::memchr2_iter(b's', b'l', bytes) {
+        let rest = &line[i..];
+        if rest.starts_with("short") {
+            if short_idx.is_none() && find_word_at(line, i, "short").is_some() {
+                short_idx = Some(i);
             }
-        } else if needle == "long"
-            && long_idx.is_none()
-            && find_word_at(line, start, "long").is_some()
-            && !string_utils::contains_word(line, "long double")
-        {
-            long_idx = Some(start);
+        } else if rest.starts_with("long") {
+            if long_idx.is_none()
+                && find_word_at(line, i, "long").is_some()
+                && !string_utils::contains_word(line, "long double")
+            {
+                long_idx = Some(i);
+            }
         }
     }
 

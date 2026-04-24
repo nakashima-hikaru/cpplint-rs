@@ -19,8 +19,6 @@ static FUNCTION_NAME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"([A-Za-z_~][\w:]*(?:::[A-Za-z_~][\w:]*)*)\s*\([^;{}]*\)\s*$"#).unwrap()
 });
 
-static IF_ELSE_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(["if", "else"]).unwrap());
 static MULTILINE_IF_OPEN_BRACE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*(?:\[\[(?:un)?likely\]\]\s*)?\{"#).unwrap());
 static MULTILINE_IF_MULTI_COMMAND_RE: LazyLock<Regex> =
@@ -1034,29 +1032,34 @@ fn check_multiline_if_else_bodies(
     }
 
     let mut if_else_match = None;
-    for mat in IF_ELSE_AC.find_iter(elided_line) {
-        if string_utils::is_word_match(elided_line, mat.start(), mat.end()) {
-            let keyword = match mat.pattern().as_usize() {
-                0 => "if",
-                _ => "else",
-            };
+    let bytes = elided_line.as_bytes();
+    for i in memchr::memchr2_iter(b'i', b'e', bytes) {
+        let rest = &elided_line[i..];
+        let (keyword, len) = if rest.starts_with("if") {
+            ("if", 2)
+        } else if rest.starts_with("else") {
+            ("else", 4)
+        } else {
+            continue;
+        };
 
+        if string_utils::is_word_match(elided_line, i, i + len) {
             if keyword == "else" {
-                if_else_match = Some((mat.start(), mat.end(), false));
+                if_else_match = Some((i, i + len, false));
                 break;
             } else {
                 // Check for "if ... ("
-                let rest = &elided_line[mat.end()..];
+                let rest = &elided_line[i + len..];
                 let trimmed_rest = rest.trim_start();
                 if trimmed_rest.starts_with('(') {
-                    let open_paren_pos = mat.end() + rest.len() - trimmed_rest.len();
-                    if_else_match = Some((mat.start(), open_paren_pos + 1, true));
+                    let open_paren_pos = i + len + rest.len() - trimmed_rest.len();
+                    if_else_match = Some((i, open_paren_pos + 1, true));
                     break;
                 } else if let Some(rest_after_constexpr) = trimmed_rest.strip_prefix("constexpr") {
                     let rest_after_constexpr = rest_after_constexpr.trim_start();
                     if rest_after_constexpr.starts_with('(') {
                         let open_paren_pos = elided_line.len() - rest_after_constexpr.len();
-                        if_else_match = Some((mat.start(), open_paren_pos + 1, true));
+                        if_else_match = Some((i, open_paren_pos + 1, true));
                         break;
                     }
                 }

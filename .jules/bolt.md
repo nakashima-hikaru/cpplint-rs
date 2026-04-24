@@ -1,3 +1,7 @@
 ## 2024-05-20 - Thread-Local Caching for RegEx Optimization
 **Learning:** Found a significant bottleneck when reading global caches with an `RwLock` across threads in `regex_utils.rs` and `config.rs`. `RwLock` causes contention when frequently reading in parallel using `rayon`. Moving instance variables (like caching config files or parsing configs) inside `thread_local!` results in memory leaks and unexpected caching behaviors. So thread_local! should only be used for static pure functions like global REGEX_CACHE and CONFIG_FILE_CACHE.
 **Action:** Replace `LazyLock<RwLock<T>>` with `thread_local! { static CACHE: RefCell<T> = ... }` for purely global caches heavily accessed inside multi-threaded contexts, especially for hotpath pattern matching and file resolution. This yields a massive speedup (quantlib benchmark time went down from ~590µs to ~315µs).
+
+## 2024-05-21 - String matching overhead using AhoCorasick
+**Learning:** Found an overhead related to `AhoCorasick` initialization and execution when matching small sets of short strings (e.g., "if" and "else" or "struct" and "class") on single source code lines. While `AhoCorasick` is good for large dictionaries on large texts, it adds considerable cost on hot paths for tiny, static sets of words.
+**Action:** Replace `AhoCorasick` with `memchr` (using `memchr2_iter` or `memchr3_iter`) combined with `starts_with` comparisons. This provides a roughly 8% speedup in macro benchmarks by effectively using SIMD to locate starting characters and directly matching prefixes.
