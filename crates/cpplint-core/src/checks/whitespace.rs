@@ -3,6 +3,7 @@ use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
 use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::string_utils;
+use aho_corasick::AhoCorasick;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -61,6 +62,12 @@ fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
     None
 }
 
+static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::new([
+        "if", "elif", "for", "while", "switch", "return", "new", "delete", "catch", "sizeof",
+    ])
+    .unwrap()
+});
 /// Manual replacement for REF_MATCHERS.
 /// Detects ` (...)(...` or ` (...)\[...` patterns that indicate function/array reference calls.
 /// Original patterns:
@@ -324,6 +331,8 @@ static FIXED_WIDTH_BRACED_INT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\s*\{"#)
         .unwrap()
 });
+static CLASS_OR_STRUCT_AC: LazyLock<AhoCorasick> =
+    LazyLock::new(|| AhoCorasick::new(["class", "struct"]).unwrap());
 static SKIP_LINE_LENGTH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"^\s*#(ifndef|endif)\b"#,
@@ -343,21 +352,9 @@ fn should_skip_line_length(raw_line: &str) -> bool {
 }
 
 fn contains_class_or_struct_word(line: &str) -> bool {
-    let bytes = line.as_bytes();
-    for i in memchr::memchr2_iter(b'c', b's', bytes) {
-        let rest = &line[i..];
-        let (len, matched) = if rest.starts_with("class") {
-            (5, true)
-        } else if rest.starts_with("struct") {
-            (6, true)
-        } else {
-            (0, false)
-        };
-        if matched && string_utils::is_word_match(line, i, i + len) {
-            return true;
-        }
-    }
-    false
+    CLASS_OR_STRUCT_AC
+        .find_iter(line)
+        .any(|mat| string_utils::is_word_match(line, mat.start(), mat.end()))
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -1111,44 +1108,6 @@ fn is_interior_block_comment_line(raw_line: &str) -> bool {
         && !trimmed.starts_with('*')
 }
 
-fn has_control_struct_word(fncall: &str) -> bool {
-    let bytes = fncall.as_bytes();
-    for i in memchr::memchr3_iter(b'i', b'e', b'f', bytes)
-        .chain(memchr::memchr3_iter(b'w', b's', b'r', bytes))
-        .chain(memchr::memchr3_iter(b'n', b'd', b'c', bytes))
-    {
-        let rest = &fncall[i..];
-        let (len, matched) = if rest.starts_with("if") {
-            (2, true)
-        } else if rest.starts_with("elif") {
-            (4, true)
-        } else if rest.starts_with("for") {
-            (3, true)
-        } else if rest.starts_with("while") {
-            (5, true)
-        } else if rest.starts_with("switch") {
-            (6, true)
-        } else if rest.starts_with("return") {
-            (6, true)
-        } else if rest.starts_with("new") {
-            (3, true)
-        } else if rest.starts_with("delete") {
-            (6, true)
-        } else if rest.starts_with("catch") {
-            (5, true)
-        } else if rest.starts_with("sizeof") {
-            (6, true)
-        } else {
-            (0, false)
-        };
-
-        if matched && string_utils::is_word_match(fncall, i, i + len) {
-            return true;
-        }
-    }
-    false
-}
-
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_spacing_for_function_call_base(
     linter: &mut FileLinter,
@@ -1158,7 +1117,11 @@ fn check_spacing_for_function_call_base(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if keywords.has_any_control_struct() && has_control_struct_word(fncall) {
+    if keywords.has_any_control_struct()
+        && CONTROL_STRUCT_AC
+            .find_iter(fncall)
+            .any(|mat| string_utils::is_word_match(fncall, mat.start(), mat.end()))
+    {
         return;
     }
 
