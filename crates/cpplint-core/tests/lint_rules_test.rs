@@ -1,3 +1,4 @@
+use cpplint_core::categories::Category;
 use cpplint_core::file_linter::FileLinter;
 use cpplint_core::options::Options;
 use cpplint_core::state::CppLintState;
@@ -80,6 +81,49 @@ fn run_lint_with_repository(
 
     linter.process_file_data(lines);
     state
+}
+
+fn run_lint_with_raw_file(filename: &str, bytes: &[u8], filters: &[&str]) -> CppLintState {
+    let temp_root = std::env::temp_dir().join(format!(
+        "cpplint-rs-raw-bytes-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before UNIX_EPOCH")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp_root).unwrap();
+
+    let file_path = temp_root.join(filename);
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(&file_path, bytes).unwrap();
+
+    struct TempRawFile(PathBuf);
+    impl Drop for TempRawFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let _guard = TempRawFile(temp_root);
+    let state = CppLintState::new();
+    let mut options = Options::new();
+    for filter in filters {
+        options.add_filter(filter);
+    }
+    let mut linter = FileLinter::new(file_path, &state, options);
+    linter.process_file().unwrap();
+    state
+}
+
+fn count_category_errors(state: &CppLintState, category: Category) -> usize {
+    state
+        .diagnostics()
+        .into_iter()
+        .filter(|diag| diag.category == category)
+        .count()
 }
 
 #[test]
@@ -2239,9 +2283,11 @@ fn test_invalid_increment_and_deprecated_operator_cases() {
         "// Copyright 2026".to_string(),
         "*count++;".to_string(),
         "*count--;".to_string(),
+        "*items[i]++;".to_string(),
+        "*node->next--;".to_string(),
         "".to_string(),
     ]);
-    assert_eq!(invalid_increment_fail.error_count(), 2);
+    assert_eq!(invalid_increment_fail.error_count(), 4);
     assert!(
         invalid_increment_fail
             .has_error(cpplint_core::categories::Category::RuntimeInvalidIncrement)
@@ -3952,4 +3998,584 @@ fn test_spacing_for_fncall() {
         "".to_string(),
     ]);
     assert!(state.has_error(cpplint_core::categories::Category::WhitespaceParens));
+}
+
+#[test]
+fn test_copyright_search_scans_entire_file() {
+    let anywhere_in_file = run_lint(vec![
+        "// filler 1".to_string(),
+        "// filler 2".to_string(),
+        "// filler 3".to_string(),
+        "// filler 4".to_string(),
+        "// filler 5".to_string(),
+        "// filler 6".to_string(),
+        "// filler 7".to_string(),
+        "// filler 8".to_string(),
+        "// copyright 2026".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!anywhere_in_file.has_error(Category::LegalCopyright));
+
+    let after_many_lines = run_lint(vec![
+        "// filler 1".to_string(),
+        "// filler 2".to_string(),
+        "// filler 3".to_string(),
+        "// filler 4".to_string(),
+        "// filler 5".to_string(),
+        "// filler 6".to_string(),
+        "// filler 7".to_string(),
+        "// filler 8".to_string(),
+        "// filler 9".to_string(),
+        "// filler 10".to_string(),
+        "// Copyright 2026".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!after_many_lines.has_error(Category::LegalCopyright));
+}
+
+#[test]
+fn test_readability_utf8_corner_cases() {
+    let invalid_state = run_lint_with_raw_file(
+        "utf8/invalid.cc",
+        b"// valid ascii\n\xff\nconst char* text = \"ok\";\n\xfe\n",
+        &["-legal/copyright", "-whitespace/ending_newline"],
+    );
+    assert!(invalid_state.has_error(Category::ReadabilityUtf8));
+    assert_eq!(
+        count_category_errors(&invalid_state, Category::ReadabilityUtf8),
+        2
+    );
+
+    let valid_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "const char* text = u8\"cpplint-日本語\";".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!valid_state.has_error(Category::ReadabilityUtf8));
+}
+
+#[test]
+fn test_readability_strings_corner_cases() {
+    let fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f() {".to_string(),
+        "  std::string name = std::string(\"cpplint\");".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(fail_state.has_error(Category::ReadabilityStrings));
+
+    let pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f() {".to_string(),
+        "  std::string name = factory.MakeString();".to_string(),
+        "  std::string alias = prefix + suffix;".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!pass_state.has_error(Category::ReadabilityStrings));
+}
+
+#[test]
+fn test_header_guard_comment_style_corner_cases() {
+    let block_comment_state = run_lint_with_filename(
+        "foo/bar/baz.h",
+        vec![
+            "#ifndef FOO_BAR_BAZ_H_".to_string(),
+            "#define FOO_BAR_BAZ_H_".to_string(),
+            "#endif  /* FOO_BAR_BAZ_H_ */".to_string(),
+        ],
+    );
+    assert!(!block_comment_state.has_error(Category::BuildHeaderGuard));
+
+    let wrong_comment_state = run_lint_with_filename(
+        "foo/bar/baz.h",
+        vec![
+            "#ifndef FOO_BAR_BAZ_H_".to_string(),
+            "#define FOO_BAR_BAZ_H_".to_string(),
+            "#endif  // BAZ_H_".to_string(),
+        ],
+    );
+    assert!(wrong_comment_state.has_error(Category::BuildHeaderGuard));
+}
+
+#[test]
+fn test_include_subdir_corner_cases() {
+    let fail_state = run_lint_with_filename(
+        "pkg/foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#include \"bar.h\"".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(fail_state.has_error(Category::BuildIncludeSubdir));
+
+    let my_header_state = run_lint_with_filename(
+        "pkg/foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#include \"foo.h\"".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(!my_header_state.has_error(Category::BuildIncludeSubdir));
+
+    let pass_state = run_lint_with_filename(
+        "pkg/foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#include \"pkg/bar.h\"".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(!pass_state.has_error(Category::BuildIncludeSubdir));
+}
+
+#[test]
+fn test_cpp_version_header_corner_cases() {
+    let fail_state = run_lint_with_filename(
+        "pkg/foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#include <cfenv>".to_string(),
+            "#include <ratio>".to_string(),
+            "#include <filesystem>".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(fail_state.has_error(Category::BuildCpp11));
+    assert!(fail_state.has_error(Category::BuildCpp17));
+
+    let pass_state = run_lint_with_filename(
+        "pkg/foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#include <vector>".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(!pass_state.has_error(Category::BuildCpp11));
+    assert!(!pass_state.has_error(Category::BuildCpp17));
+}
+
+#[test]
+fn test_namespace_header_extension_corner_cases() {
+    let header_using_state = run_lint_with_filename(
+        "foo/bar/baz.hpp",
+        vec![
+            "// Copyright 2026".to_string(),
+            "using namespace foo;".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(header_using_state.has_error(Category::BuildNamespacesHeaders));
+
+    let literals_state = run_lint_with_filename(
+        "foo/bar/baz.hxx",
+        vec![
+            "// Copyright 2026".to_string(),
+            "using namespace std::literals;".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(literals_state.has_error(Category::BuildNamespacesLiterals));
+
+    let unnamed_namespace_state = run_lint_with_filename(
+        "foo/bar/baz.hxx",
+        vec![
+            "// Copyright 2026".to_string(),
+            "namespace {".to_string(),
+            "int value = 0;".to_string(),
+            "}".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(unnamed_namespace_state.has_error(Category::BuildNamespacesHeaders));
+}
+
+#[test]
+fn test_storage_class_corner_cases() {
+    let fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "int* static ptr;".to_string(),
+        "".to_string(),
+    ]);
+    assert!(fail_state.has_error(Category::BuildStorageClass));
+
+    let pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "static int* ptr;".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!pass_state.has_error(Category::BuildStorageClass));
+}
+
+#[test]
+fn test_endif_comment_corner_cases() {
+    let fail_state = run_lint_with_filename(
+        "foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#endif LABEL".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(fail_state.has_error(Category::BuildEndifComment));
+
+    let pass_state = run_lint_with_filename(
+        "foo.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#endif  // LABEL".to_string(),
+            "#endif  /* LABEL */".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert!(!pass_state.has_error(Category::BuildEndifComment));
+}
+
+#[test]
+fn test_member_string_reference_corner_cases() {
+    let fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "class A {".to_string(),
+        " public:".to_string(),
+        "  const string& short_name;".to_string(),
+        "  const std::string& long_name;".to_string(),
+        "};".to_string(),
+        "".to_string(),
+    ]);
+    assert!(fail_state.has_error(Category::RuntimeMemberStringReferences));
+
+    let pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "class A {".to_string(),
+        " public:".to_string(),
+        "  const string* name_ptr;".to_string(),
+        "};".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!pass_state.has_error(Category::RuntimeMemberStringReferences));
+}
+
+#[test]
+fn test_threadsafe_function_corner_cases() {
+    let fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f(time_t now) {".to_string(),
+        "  auto tm = localtime(&now);".to_string(),
+        "  auto text = ctime(&now);".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(fail_state.has_error(Category::RuntimeThreadsafeFn));
+
+    let pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f(time_t now, tm* out) {".to_string(),
+        "  auto* result = localtime_r(&now, out);".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!pass_state.has_error(Category::RuntimeThreadsafeFn));
+}
+
+#[test]
+fn test_vlog_and_make_pair_corner_cases() {
+    let vlog_fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f() {".to_string(),
+        "  VLOG(INFO) << \"bad\";".to_string(),
+        "  VLOG(ERROR) << \"also bad\";".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(vlog_fail_state.has_error(Category::RuntimeVlog));
+
+    let vlog_pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f() {".to_string(),
+        "  VLOG(1) << \"ok\";".to_string(),
+        "  VLOG(verbose_level) << \"ok\";".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!vlog_pass_state.has_error(Category::RuntimeVlog));
+
+    let make_pair_fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f() {".to_string(),
+        "  auto pair = std::make_pair <int, int>(1, 2);".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(make_pair_fail_state.has_error(Category::BuildExplicitMakePair));
+
+    let make_pair_pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "void f() {".to_string(),
+        "  auto pair = std::make_pair(1, 2);".to_string(),
+        "  auto fn = make_pair_factory<int>;".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!make_pair_pass_state.has_error(Category::BuildExplicitMakePair));
+}
+
+#[test]
+fn test_runtime_string_corner_cases() {
+    let fail_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "const std::string kGreeting = \"hello\";".to_string(),
+        "std::string mutable_name = \"world\";".to_string(),
+        "".to_string(),
+    ]);
+    assert!(fail_state.has_error(Category::RuntimeString));
+
+    let pass_state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "std::string kGreeting(GetGreeting());".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!pass_state.has_error(Category::RuntimeString));
+}
+
+#[test]
+fn test_nolint_block_scopes_categories() {
+    let state = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "// NOLINTBEGIN(runtime/int)".to_string(),
+        "long a = (int64_t) 65;".to_string(),
+        "// NOLINTEND".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!state.has_error(Category::RuntimeInt));
+    assert!(state.has_error(Category::ReadabilityCasting));
+}
+
+#[test]
+fn test_include_order_and_alpha_branching_corner_cases() {
+    let duplicate_across_branches = run_lint_with_filename(
+        "pkg/test.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#if defined(OS_A)".to_string(),
+            "#include <string>".to_string(),
+            "#else".to_string(),
+            "#include <string>".to_string(),
+            "#endif".to_string(),
+            "".to_string(),
+        ],
+    );
+    assert_eq!(duplicate_across_branches.error_count(), 0);
+
+    let alpha_reset_across_branches = run_lint_with_filter(
+        "pkg/test.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#if defined(OS_A)".to_string(),
+            "#include \"foo/z.h\"".to_string(),
+            "#else".to_string(),
+            "#include \"foo/a.h\"".to_string(),
+            "#endif".to_string(),
+            "".to_string(),
+        ],
+        "+build/include_alpha",
+    );
+    assert_eq!(alpha_reset_across_branches.error_count(), 0);
+
+    let alpha_canonicalized_names = run_lint_with_filter(
+        "pkg/test.cc",
+        vec![
+            "// Copyright 2026".to_string(),
+            "#include \"foo/a-b.h\"".to_string(),
+            "#include \"foo/a_b.h\"".to_string(),
+            "".to_string(),
+        ],
+        "+build/include_alpha",
+    );
+    assert_eq!(alpha_canonicalized_names.error_count(), 0);
+}
+
+#[test]
+fn test_forward_decl_and_deprecated_min_max_corner_cases() {
+    let forward_decl_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "class outer::Inner;".to_string(),
+        "class outer :: nested :: Inner;".to_string(),
+        "".to_string(),
+    ]);
+    assert_eq!(
+        count_category_errors(&forward_decl_fail, Category::BuildForwardDecl),
+        2
+    );
+
+    let deprecated_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "int best = (a > b) ? a : b;".to_string(),
+        "int limit = foo >= bar ? foo : bar;".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!deprecated_pass.has_error(Category::BuildDeprecated));
+}
+
+#[test]
+fn test_runtime_casting_and_memset_corner_cases() {
+    let casting_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "Foo* ptr = &static_cast<Foo&>(bar);".to_string(),
+        "char* raw = &(char*)text;".to_string(),
+        "".to_string(),
+    ]);
+    assert!(casting_fail.has_error(Category::RuntimeCasting));
+
+    let casting_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "Foo* ptr = static_cast<Foo*>(bar);".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!casting_pass.has_error(Category::RuntimeCasting));
+
+    let memset_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "memset(buf, 0, sizeof(buf));".to_string(),
+        "memset(buf, '\\0', size);".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!memset_pass.has_error(Category::RuntimeMemset));
+
+    let memset_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "memset(buf, sizeof(buf), 0);".to_string(),
+        "".to_string(),
+    ]);
+    assert!(memset_fail.has_error(Category::RuntimeMemset));
+}
+
+#[test]
+fn test_runtime_init_and_arrays_multiline_corner_cases() {
+    let init_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "Foo::Foo()".to_string(),
+        "    : value_(other_),".to_string(),
+        "      size_(size) {}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!init_pass.has_error(Category::RuntimeInit));
+
+    let init_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "Foo::Foo()".to_string(),
+        "    : value_(other_),".to_string(),
+        "      size_(size_) {}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(init_fail.has_error(Category::RuntimeInit));
+
+    let arrays_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "int copy[sizeof(buffer) / sizeof(buffer[0])];".to_string(),
+        "int rounded[arraysize(values) + 1];".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!arrays_pass.has_error(Category::RuntimeArrays));
+
+    let arrays_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "int dynamic[length ? length : 1];".to_string(),
+        "".to_string(),
+    ]);
+    assert!(arrays_fail.has_error(Category::RuntimeArrays));
+}
+
+#[test]
+fn test_printf_format_escape_corner_cases() {
+    let build_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "#include <cstdio>".to_string(),
+        "printf(\"\\\\%d\", value);".to_string(),
+        "fprintf(file, \"[%d]\", value);".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!build_pass.has_error(Category::BuildPrintfFormat));
+
+    let runtime_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "#include <cstdio>".to_string(),
+        "printf(\"%d\", value);".to_string(),
+        "printf(\"[%d]\", value);".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!runtime_pass.has_error(Category::RuntimePrintfFormat));
+
+    let runtime_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "#include <cstdio>".to_string(),
+        "printf(\"%1$d\", value);".to_string(),
+        "printf(\"%q\", value);".to_string(),
+        "".to_string(),
+    ]);
+    assert!(runtime_fail.has_error(Category::RuntimePrintfFormat));
+}
+
+#[test]
+fn test_whitespace_forcolon_line_length_and_macro_comma_corner_cases() {
+    let forcolon_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "for (const auto& value : values) {".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!forcolon_pass.has_error(Category::WhitespaceForcolon));
+
+    let forcolon_fail = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "for (const auto& value: values) {".to_string(),
+        "}".to_string(),
+        "for (const auto& value :values) {".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert_eq!(
+        count_category_errors(&forcolon_fail, Category::WhitespaceForcolon),
+        2
+    );
+
+    let macro_comma_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "#define MAYBE_COMMA(...) __VA_OPT__(,) __VA_ARGS__".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!macro_comma_pass.has_error(Category::WhitespaceComma));
+
+    let long_include = format!("#include \"foo/{}header.h\"", "nested/".repeat(14));
+    let line_length_pass = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        long_include,
+        "".to_string(),
+    ]);
+    assert!(!line_length_pass.has_error(Category::WhitespaceLineLength));
+}
+
+#[test]
+fn test_empty_body_comment_and_else_corner_cases() {
+    let comment_only_body = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "if (ok) {".to_string(),
+        "  // documented as intentionally empty".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!comment_only_body.has_error(Category::WhitespaceEmptyIfBody));
+
+    let else_clause_suppresses_empty_if = run_lint(vec![
+        "// Copyright 2026".to_string(),
+        "if (ok) {".to_string(),
+        "} else {".to_string(),
+        "  Work();".to_string(),
+        "}".to_string(),
+        "".to_string(),
+    ]);
+    assert!(!else_clause_suppresses_empty_if.has_error(Category::WhitespaceEmptyIfBody));
 }

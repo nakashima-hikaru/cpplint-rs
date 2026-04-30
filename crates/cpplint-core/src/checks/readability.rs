@@ -28,6 +28,12 @@ static MULTILINE_IF_MULTI_COMMAND_RE: LazyLock<Regex> =
 
 static MULTILINE_IF_LAMBDA_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^[^{};]*\[[^\[\]]*\][^{}]*\{[^{}]*\}\s*\)*[;,]\s*$"#).unwrap());
+static REDUNDANT_STRING_CTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^\s*(?:const\s+)?(?:(?:::\s*)?(?:std::)?string)\s+[A-Za-z_][\w:]*\s*=\s*(?:(?:::\s*)?(?:std::)?string)\s*\([^;]*\)\s*;\s*$"#,
+    )
+    .unwrap()
+});
 static NAMESPACE_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*namespace\b\s*([:\w]+)?(.*)$"#).unwrap());
 fn is_check_const(s: &str) -> bool {
@@ -107,6 +113,9 @@ pub fn check(
     }
     if line_features.contains(LineFeatures::RAW_HAS_QUOTE) {
         check_multiline_strings(linter, clean_lines, linenum);
+    }
+    if elided_line.contains("string") {
+        check_redundant_string_ctor(linter, clean_lines.raw_lines[linenum], linenum);
     }
 
     let has_control = keywords.intersects(
@@ -751,6 +760,17 @@ fn check_multiline_comments(
             Category::ReadabilityMultilineComment,
             5,
             crate::messages::LintMessage::UnterminatedMultilineComment,
+        );
+    }
+}
+
+fn check_redundant_string_ctor(linter: &mut FileLinter, raw_line: &str, linenum: usize) {
+    if REDUNDANT_STRING_CTOR_RE.is_match(raw_line) {
+        linter.error(
+            linenum,
+            Category::ReadabilityStrings,
+            4,
+            crate::messages::LintMessage::RedundantStringCtor,
         );
     }
 }
@@ -1489,5 +1509,23 @@ mod tests {
         check(&mut linter, &facts, &clean_lines, 1);
 
         assert!(state.has_error(Category::BuildNamespacesHeaders));
+    }
+
+    #[test]
+    fn redundant_std_string_constructor_is_reported() {
+        let state = CppLintState::new();
+        let mut linter = FileLinter::new(PathBuf::from("foo.cc"), &state, Options::new());
+
+        check_redundant_string_ctor(
+            &mut linter,
+            "std::string name = std::string(\"cpplint\");",
+            1,
+        );
+        assert!(state.has_error(Category::ReadabilityStrings));
+
+        let state = CppLintState::new();
+        let mut linter = FileLinter::new(PathBuf::from("foo.cc"), &state, Options::new());
+        check_redundant_string_ctor(&mut linter, "std::string name = factory.MakeString();", 1);
+        assert!(!state.has_error(Category::ReadabilityStrings));
     }
 }

@@ -34,3 +34,4 @@ pub mod source;
 pub mod state;
 pub mod string_utils;
 pub mod suppressions;
+pub(crate) mod syntax;

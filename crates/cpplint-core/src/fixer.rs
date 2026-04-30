@@ -10,14 +10,19 @@ use crate::line_utils;
 use crate::options::{IncludeOrder, Options};
 use crate::state::CppLintState;
 use crate::state::IncludeKind;
+use crate::syntax::{ParsedLine, base_name};
 use bumpalo::Bump;
-use fxhash::FxHashSet;
+use fxhash::{FxHashMap, FxHashSet, FxHasher};
 use regex::Regex;
-use std::cell::UnsafeCell;
+use std::cell::{RefCell, UnsafeCell};
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
 thread_local! {
     static FIXER_ARENA: UnsafeCell<Bump> = UnsafeCell::new(Bump::new());
+    static OPERATOR_SPACE_REGEX_CACHE: RefCell<FxHashMap<String, Regex>> =
+        RefCell::new(FxHashMap::default());
 }
 use std::sync::LazyLock;
 
@@ -31,10 +36,6 @@ static TODO_FIX_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"//\s*TODO\(([^)]+)\):?\s*(.*)$"#).unwrap());
 static ENDIF_TEXT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^(\s*#\s*endif)\s+([^/\s].*)$"#).unwrap());
-static CHECK_MACRO_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\b(DCHECK|CHECK|EXPECT_TRUE|ASSERT_TRUE|EXPECT_FALSE|ASSERT_FALSE)\s*\("#)
-        .unwrap()
-});
 static ALT_TOKEN_FIXES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
         (r"\band_eq\b", "&="),
@@ -74,6 +75,22 @@ static STORAGE_CLASS_FIX_RE: LazyLock<Regex> = LazyLock::new(|| {
         r#"^(?P<indent>\s*)(?P<prefix>.+?)\b(?P<storage>thread_local|static|extern|typedef|register|auto|mutable)\b(?P<suffix>\s+.+)$"#,
     )
     .unwrap()
+});
+static GLOBAL_CONST_STRING_FIX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^(?P<indent>\s*)(?P<prefix>(?:static\s+)?(?:const\s+)?)((?:::\s*)?(?:std::)?string)(?P<suffix_const>\s+const)?\s+(?P<name>[a-zA-Z0-9_:]+)\b(?P<rest>\s*=.*)$"#,
+    )
+    .unwrap()
+});
+static GLOBAL_CONST_STRING_DIRECT_INIT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"^(?P<indent>\s*)(?P<prefix>(?:static\s+)?(?:const\s+)?)((?:::\s*)?(?:std::)?string)(?P<suffix_const>\s+const)?\s+(?P<name>[a-zA-Z0-9_:]+)\s*(?P<open>[\(\{])(?P<init>.*)(?P<close>[\)\}])(?P<suffix>\s*;.*)$"#,
+    )
+    .unwrap()
+});
+static POINTER_INCREMENT_FIX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^(?P<indent>\s*)\*(?P<name>[A-Za-z_]\w*)(?P<op>\+\+|--)(?P<suffix>\s*;.*)$"#)
+        .unwrap()
 });
 
 // ⚡ Bolt: Extracted dynamically compiled regular expressions into lazy static variables.
@@ -589,242 +606,307 @@ fn apply_line_fixes(
     lines: &mut Vec<String>,
 ) -> bool {
     use crate::messages::LintMessage;
-    let mut ordered = diagnostics.to_vec();
+    let mut ordered: Vec<_> = diagnostics.iter().collect();
     ordered.sort_by(|lhs, rhs| {
         rhs.linenum
             .cmp(&lhs.linenum)
             .then_with(|| lhs.category.cmp(&rhs.category))
     });
 
-    let mut changed = false;
-    for diagnostic in ordered {
-        match &diagnostic.message {
-            LintMessage::TabFound => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    let fixed = line.replace('\t', "  ");
-                    if *line != fixed {
-                        *line = fixed;
-                        changed = true;
-                    }
-                }
-            }
-            LintMessage::TrailingWhitespace => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    let fixed = line.trim_end().to_string();
-                    if *line != fixed {
-                        *line = fixed;
-                        changed = true;
-                    }
-                }
-            }
-            LintMessage::NewlineShouldBeAtEndOfFile
-                if lines.last().is_some_and(|line| !line.is_empty()) =>
-            {
-                lines.push(String::new());
-                changed = true;
-            }
-            m @ (LintMessage::AtLeastTwoSpacesBetweenCodeAndComments
-            | LintMessage::ShouldHaveSpaceBetweenSlashesAndComment) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_comment_spacing(line, m);
-                }
-            }
-            m @ (LintMessage::MultipleBlankLines
-            | LintMessage::BlankLineAtStartOfBlock
-            | LintMessage::BlankLineAtEndOfBlock
-            | LintMessage::NoBlankLineAfterSection) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                changed |= fix_blank_line(lines, idx, m);
-            }
-            LintMessage::MissingUsernameInTodo | LintMessage::TodoShouldBeFollowedBySpace => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_todo_spacing(line);
-                }
-            }
-            LintMessage::MissingSpaceAfterComma => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= update_code_and_comment(line, |code| {
-                        COMMA_SPACE_RE.replace_all(code, ", $1").into_owned()
-                    });
-                }
-            }
-            m @ (LintMessage::ExtraSpaceBeforeSemicolon
-            | LintMessage::MissingSpaceBeforeSemicolon
-            | LintMessage::ExtraSpaceAfterSemicolon) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_semicolon_spacing(line, m);
-                }
-            }
-            LintMessage::ExtraSpaceForOperator(crate::messages::OperatorSymbol::Colon) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_range_for_colon(line);
-                }
-            }
-            m
-            @ (LintMessage::MissingSpaceBeforeOpenBrace | LintMessage::MissingSpaceBeforeElse) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_brace_spacing(line, m);
-                }
-            }
-            LintMessage::BracesMissing(kind)
-                if kind.as_ref() == "if" || kind.as_ref() == "while" || kind.as_ref() == "for" =>
-            {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_empty_control_body(line, &[kind.as_ref()]);
-                }
-            }
-            LintMessage::EmptyIfBody
-            | LintMessage::EmptyLoopBody
-            | LintMessage::EmptyConditionalBody => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if idx < lines.len() {
-                    changed |= fix_empty_if_body(lines, idx);
-                }
-            }
-            m @ (LintMessage::ExtraSpaceAfterParen
-            | LintMessage::ExtraSpaceAfterParenInFuncCall
-            | LintMessage::MismatchingSpacesInsideParen
-            | LintMessage::MissingSpaceBeforeOpenParen
-            | LintMessage::ExtraSpaceBeforeCloseParen
-            | LintMessage::ClosingParenShouldBeMovedToPreviousLine) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if idx < lines.len() {
-                    changed |= fix_paren_spacing(lines, idx, m);
-                }
-            }
-            LintMessage::NamespaceIndented => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_namespace_indentation(line);
-                }
-            }
-            LintMessage::ShouldBeIndented(msg) if msg.contains("+1 space inside") => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if idx < lines.len() {
-                    changed |= fix_access_specifier_indentation(path, options, lines, idx);
-                }
-            }
-            LintMessage::ClosingBraceAlignment(_) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if idx < lines.len() {
-                    changed |= fix_class_closing_brace_alignment(path, options, lines, idx);
-                }
-            }
-            m @ (LintMessage::MissingSpacesAround(_) | LintMessage::ExtraSpaceForOperator(_)) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_operator_spacing(line, m);
-                }
-            }
-            LintMessage::AltToken(_, _) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_alt_tokens(line);
-                }
-            }
-            LintMessage::CheckMacroSuggestion { .. } => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_check_macro(line);
-                }
-            }
-            LintMessage::UnnecessarySemicolonAfterBrace => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
-                    if *line != fixed {
-                        *line = fixed;
-                        changed = true;
-                    }
-                }
-            }
-            m @ (LintMessage::RedundantVirtual | LintMessage::RedundantOverride) => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_inheritance_redundancy(line, m);
-                }
-            }
-            _m @ (LintMessage::EndifCommentMissing(_) | LintMessage::EndifLineShouldBe(_))
-                if diagnostic.category.as_str() == "build/endif_comment" =>
-            {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_endif_comment(line);
-                }
-            }
-            LintMessage::PrintfFormatDeprecatedQ => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    let fixed = line.replace("%q", "%ll");
-                    if *line != fixed {
-                        *line = fixed;
-                        changed = true;
-                    }
-                }
-            }
-            LintMessage::BuildExplicitMakePair => {
-                let idx = diagnostic.linenum.saturating_sub(1);
-                if let Some(line) = lines.get_mut(idx) {
-                    changed |= fix_make_pair(line);
-                }
-            }
-            _ => {
-                // Fall back to category-based matching for remaining legacy fixes or Raw messages
-                match diagnostic.category.as_str() {
-                    "build/explicit_make_pair" => {
-                        let idx = diagnostic.linenum.saturating_sub(1);
-                        if let Some(line) = lines.get_mut(idx) {
-                            changed |= fix_make_pair(line);
+    FIXER_ARENA.with(|arena_cell| {
+        // SAFETY: The arena is thread-local and used synchronously within apply_line_fixes.
+        let arena = unsafe { &mut *arena_cell.get() };
+        let mut facts_cache = FactsCache::new(arena);
+        let mut changed = false;
+        for diagnostic in ordered {
+            match &diagnostic.message {
+                LintMessage::TabFound => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        let fixed = line.replace('\t', "  ");
+                        if *line != fixed {
+                            *line = fixed;
+                            changed = true;
                         }
                     }
-                    "build/storage_class" => {
-                        let idx = diagnostic.linenum.saturating_sub(1);
-                        if let Some(line) = lines.get_mut(idx) {
-                            changed |= fix_storage_class(line);
+                }
+                LintMessage::TrailingWhitespace => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        let fixed = line.trim_end().to_string();
+                        if *line != fixed {
+                            *line = fixed;
+                            changed = true;
                         }
                     }
-                    "runtime/memset" => {
-                        let idx = diagnostic.linenum.saturating_sub(1);
-                        if let Some(line) = lines.get_mut(idx) {
-                            changed |= fix_memset(line);
+                }
+                LintMessage::NewlineShouldBeAtEndOfFile
+                    if lines.last().is_some_and(|line| !line.is_empty()) =>
+                {
+                    lines.push(String::new());
+                    changed = true;
+                }
+                m @ (LintMessage::AtLeastTwoSpacesBetweenCodeAndComments
+                | LintMessage::ShouldHaveSpaceBetweenSlashesAndComment) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_comment_spacing(line, m);
+                    }
+                }
+                m @ (LintMessage::MultipleBlankLines
+                | LintMessage::BlankLineAtStartOfBlock
+                | LintMessage::BlankLineAtEndOfBlock
+                | LintMessage::NoBlankLineAfterSection) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    changed |= fix_blank_line(lines, idx, m);
+                }
+                LintMessage::MissingUsernameInTodo | LintMessage::TodoShouldBeFollowedBySpace => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_todo_spacing(line);
+                    }
+                }
+                LintMessage::MissingSpaceAfterComma => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= update_code_and_comment(line, |code| {
+                            COMMA_SPACE_RE.replace_all(code, ", $1").into_owned()
+                        });
+                    }
+                }
+                m @ (LintMessage::ExtraSpaceBeforeSemicolon
+                | LintMessage::MissingSpaceBeforeSemicolon
+                | LintMessage::ExtraSpaceAfterSemicolon) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_semicolon_spacing(line, m);
+                    }
+                }
+                LintMessage::ExtraSpaceForOperator(crate::messages::OperatorSymbol::Colon) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_range_for_colon(line);
+                    }
+                }
+                m @ (LintMessage::MissingSpaceBeforeOpenBrace
+                | LintMessage::MissingSpaceBeforeElse) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_brace_spacing(line, m);
+                    }
+                }
+                LintMessage::BracesMissing(kind)
+                    if kind.as_ref() == "if"
+                        || kind.as_ref() == "while"
+                        || kind.as_ref() == "for" =>
+                {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_empty_control_body(line, &[kind.as_ref()]);
+                    }
+                }
+                LintMessage::EmptyIfBody
+                | LintMessage::EmptyLoopBody
+                | LintMessage::EmptyConditionalBody => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if idx < lines.len() {
+                        changed |= fix_empty_if_body(lines, idx);
+                    }
+                }
+                m @ (LintMessage::ExtraSpaceAfterParen
+                | LintMessage::ExtraSpaceAfterParenInFuncCall
+                | LintMessage::MismatchingSpacesInsideParen
+                | LintMessage::MissingSpaceBeforeOpenParen
+                | LintMessage::ExtraSpaceBeforeCloseParen
+                | LintMessage::ClosingParenShouldBeMovedToPreviousLine) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if idx < lines.len() {
+                        changed |= fix_paren_spacing(lines, idx, m);
+                    }
+                }
+                LintMessage::NamespaceIndented => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_namespace_indentation(line);
+                    }
+                }
+                LintMessage::ShouldBeIndented(msg) if msg.contains("+1 space inside") => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if idx < lines.len() {
+                        let (clean_lines, facts) = facts_cache.get(path, options, lines);
+                        changed |= fix_access_specifier_indentation_with_facts(
+                            lines,
+                            idx,
+                            clean_lines,
+                            facts,
+                        );
+                    }
+                }
+                LintMessage::ClosingBraceAlignment(_) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if idx < lines.len() {
+                        let (clean_lines, facts) = facts_cache.get(path, options, lines);
+                        changed |= fix_class_closing_brace_alignment_with_facts(
+                            lines,
+                            idx,
+                            clean_lines,
+                            facts,
+                        );
+                    }
+                }
+                m @ (LintMessage::MissingSpacesAround(_)
+                | LintMessage::ExtraSpaceForOperator(_)) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_operator_spacing(line, m);
+                    }
+                }
+                LintMessage::AltToken(_, _) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_alt_tokens(line);
+                    }
+                }
+                LintMessage::CheckMacroSuggestion { .. } => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_check_macro(line);
+                    }
+                }
+                LintMessage::ConstructorShouldBeExplicit(_) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_constructor_should_be_explicit(line);
+                    }
+                }
+                LintMessage::DeprecatedCastingStyle(type_str) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_deprecated_cast_style(line, type_str);
+                    }
+                }
+                LintMessage::CStyleCast(cast_type, type_str) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_c_style_cast(line, cast_type, type_str);
+                    }
+                }
+                LintMessage::ChangingPointerInsteadOfValue => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_invalid_increment(line);
+                    }
+                }
+                LintMessage::RedundantStringCtor => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_redundant_string_ctor(line);
+                    }
+                }
+                LintMessage::UnnecessarySemicolonAfterBrace => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        let fixed = BRACE_SEMICOLON_RE.replace(line, "}").into_owned();
+                        if *line != fixed {
+                            *line = fixed;
+                            changed = true;
                         }
                     }
-                    "runtime/vlog" => {
-                        let idx = diagnostic.linenum.saturating_sub(1);
-                        if let Some(line) = lines.get_mut(idx) {
-                            let fixed = line
-                                .replace("VLOG(INFO)", "LOG(INFO)")
-                                .replace("VLOG(ERROR)", "LOG(ERROR)")
-                                .replace("VLOG(WARNING)", "LOG(WARNING)")
-                                .replace("VLOG(DFATAL)", "LOG(DFATAL)")
-                                .replace("VLOG(FATAL)", "LOG(FATAL)");
-                            if *line != fixed {
-                                *line = fixed;
-                                changed = true;
+                }
+                m @ (LintMessage::RedundantVirtual | LintMessage::RedundantOverride) => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if idx < lines.len() {
+                        changed |= fix_inheritance_redundancy(lines, idx, m);
+                    }
+                }
+                _m @ (LintMessage::EndifCommentMissing(_) | LintMessage::EndifLineShouldBe(_))
+                    if diagnostic.category.as_str() == "build/endif_comment" =>
+                {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_endif_comment(line);
+                    }
+                }
+                LintMessage::PrintfFormatDeprecatedQ => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_printf_format(line, &diagnostic.message);
+                    }
+                }
+                LintMessage::BuildExplicitMakePair => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_make_pair(line);
+                    }
+                }
+                LintMessage::VlogShouldUseNumericVerbosityLevel => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_vlog_macro(line);
+                    }
+                }
+                LintMessage::GlobalStringConstantSuggestion {
+                    prefix,
+                    suffix_const,
+                    name,
+                } => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_global_const_string(line, prefix, suffix_const, name);
+                    }
+                }
+                LintMessage::SnprintfSizeofSuggestion { buffer, size } => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_snprintf_sizeof(line, buffer, size);
+                    }
+                }
+                LintMessage::PotentialFormatStringBug { function, arg } => {
+                    let idx = diagnostic.linenum.saturating_sub(1);
+                    if let Some(line) = lines.get_mut(idx) {
+                        changed |= fix_potential_format_string_bug(line, function, arg);
+                    }
+                }
+                _ => {
+                    // Fall back to category-based matching for remaining legacy fixes or Raw messages
+                    match diagnostic.category.as_str() {
+                        "build/explicit_make_pair" => {
+                            let idx = diagnostic.linenum.saturating_sub(1);
+                            if let Some(line) = lines.get_mut(idx) {
+                                changed |= fix_make_pair(line);
                             }
                         }
-                    }
-                    "runtime/printf_format" | "build/printf_format" => {
-                        let idx = diagnostic.linenum.saturating_sub(1);
-                        if let Some(line) = lines.get_mut(idx) {
-                            changed |= fix_printf_format(line, &diagnostic.message);
+                        "build/storage_class" => {
+                            let idx = diagnostic.linenum.saturating_sub(1);
+                            if let Some(line) = lines.get_mut(idx) {
+                                changed |= fix_storage_class(line);
+                            }
                         }
+                        "runtime/memset" => {
+                            let idx = diagnostic.linenum.saturating_sub(1);
+                            if let Some(line) = lines.get_mut(idx) {
+                                changed |= fix_memset(line);
+                            }
+                        }
+                        "runtime/vlog" => {
+                            let idx = diagnostic.linenum.saturating_sub(1);
+                            if let Some(line) = lines.get_mut(idx) {
+                                changed |= fix_vlog_macro(line);
+                            }
+                        }
+                        "runtime/printf_format" | "build/printf_format" => {
+                            let idx = diagnostic.linenum.saturating_sub(1);
+                            if let Some(line) = lines.get_mut(idx) {
+                                changed |= fix_printf_format(line, &diagnostic.message);
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
-    }
-    changed
+        changed
+    })
 }
 
 fn fix_blank_line(
@@ -1227,9 +1309,23 @@ fn fix_paren_spacing(
 
 fn fix_operator_spacing(line: &mut String, message: &crate::messages::LintMessage) -> bool {
     use crate::messages::LintMessage;
-    if line.contains('"') || line.contains("/*") {
-        return false;
+    if let Some(parsed) = ParsedLine::parse(line) {
+        let fixed = match message {
+            LintMessage::MissingSpacesAround(op) => parsed
+                .rewrite_code_segments(|code| add_spaces_around_operator(code, op.as_fix_str())),
+            LintMessage::ExtraSpaceForOperator(op) => parsed.rewrite_code_segments(|code| {
+                remove_spaces_after_unary_operator(code, op.as_fix_str())
+            }),
+            _ => None,
+        };
+        if let Some(fixed) = fixed
+            && *line != fixed
+        {
+            *line = fixed;
+            return true;
+        }
     }
+
     let fixed = match message {
         LintMessage::MissingSpacesAround(op) => update_code(line, |code| {
             add_spaces_around_operator(code, op.as_fix_str())
@@ -1247,6 +1343,19 @@ fn fix_operator_spacing(line: &mut String, message: &crate::messages::LintMessag
 }
 
 fn fix_alt_tokens(line: &mut String) -> bool {
+    if let Some(parsed) = ParsedLine::parse(line)
+        && let Some(fixed) = parsed.rewrite_code_segments(|code| {
+            let mut fixed = code.to_string();
+            for (regex, replacement) in ALT_TOKEN_FIXES.iter() {
+                fixed = regex.replace_all(&fixed, *replacement).into_owned();
+            }
+            fixed
+        })
+    {
+        *line = fixed;
+        return true;
+    }
+
     let mut fixed = line.clone();
     for (regex, replacement) in ALT_TOKEN_FIXES.iter() {
         fixed = regex.replace_all(&fixed, *replacement).into_owned();
@@ -1259,47 +1368,44 @@ fn fix_alt_tokens(line: &mut String) -> bool {
 }
 
 fn fix_check_macro(line: &mut String) -> bool {
-    let Some(captures) = CHECK_MACRO_RE.captures(line) else {
+    let Some(parsed) = ParsedLine::parse(line) else {
         return false;
     };
-    let check_macro = match captures.get(1).map(|m| m.as_str()).unwrap_or("") {
-        "DCHECK" => crate::messages::CheckMacroName::Dcheck,
-        "CHECK" => crate::messages::CheckMacroName::Check,
-        "EXPECT_TRUE" => crate::messages::CheckMacroName::ExpectTrue,
-        "ASSERT_TRUE" => crate::messages::CheckMacroName::AssertTrue,
-        "EXPECT_FALSE" => crate::messages::CheckMacroName::ExpectFalse,
-        "ASSERT_FALSE" => crate::messages::CheckMacroName::AssertFalse,
-        _ => return false,
-    };
-    let Some(open_paren) = line
-        .find(&format!("{}(", check_macro.as_str()))
-        .map(|idx| idx + check_macro.as_str().len())
-    else {
+    let Some(call) = parsed.find_call_expression(&[
+        "DCHECK",
+        "CHECK",
+        "EXPECT_TRUE",
+        "ASSERT_TRUE",
+        "EXPECT_FALSE",
+        "ASSERT_FALSE",
+    ]) else {
         return false;
     };
-    let Some(close) = find_matching_paren(line, open_paren) else {
-        return false;
-    };
-    let expression = &line[open_paren + 1..close];
-    if expression.contains("&&") || expression.contains("||") {
+    if call.arguments.len() != 1 {
         return false;
     }
-    let Some((lhs, op, rhs)) = split_comparison_expression(expression) else {
+    let check_macro =
+        match check_macro_name_from_str(parsed.node_text(call.function).unwrap_or("").trim()) {
+            Some(name) => name,
+            None => return false,
+        };
+    let Some((lhs, op, rhs)) = parsed.binary_expression_parts(call.arguments[0]) else {
         return false;
     };
-    if !is_check_const(lhs.trim()) && !is_check_const(rhs.trim()) {
+    let Some(op) = comparison_operator_from_str(op) else {
+        return false;
+    };
+    let lhs_text = parsed.node_text(lhs).unwrap_or("").trim();
+    let rhs_text = parsed.node_text(rhs).unwrap_or("").trim();
+    if !is_check_const(lhs_text) && !is_check_const(rhs_text) {
         return false;
     }
     let Some(replacement) = replacement_check_macro(check_macro, op) else {
         return false;
     };
-    let rebuilt = format!(
-        "{}{}({}, {}){}",
-        &line[..captures.get(0).map(|m| m.start()).unwrap_or(0)],
-        replacement.as_str(),
-        lhs.trim(),
-        rhs.trim(),
-        &line[close + 1..]
+    let rebuilt = parsed.replace_node(
+        call.node,
+        &format!("{}({}, {})", replacement.as_str(), lhs_text, rhs_text),
     );
     if *line != rebuilt {
         *line = rebuilt;
@@ -1308,18 +1414,177 @@ fn fix_check_macro(line: &mut String) -> bool {
     false
 }
 
-fn fix_inheritance_redundancy(line: &mut String, message: &crate::messages::LintMessage) -> bool {
-    use crate::messages::LintMessage;
-    let fixed = match message {
-        LintMessage::RedundantVirtual => INHERITANCE_VIRTUAL_RE.replace(line, "").into_owned(),
-        LintMessage::RedundantOverride => INHERITANCE_OVERRIDE_RE.replace(line, "").into_owned(),
-        _ => return false,
-    };
+fn fix_constructor_should_be_explicit(line: &mut String) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("explicit ") {
+        return false;
+    }
+    let indent_len = line.len() - trimmed.len();
+    let fixed = format!("{}explicit {}", &line[..indent_len], trimmed);
     if *line != fixed {
         *line = fixed;
         return true;
     }
     false
+}
+
+fn fix_redundant_string_ctor(line: &mut String) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let Some(eq_pos) = line.find('=') else {
+        return false;
+    };
+    if !line[..eq_pos].contains("string") {
+        return false;
+    }
+    let Some(call) = parsed.find_call_expression(&["string"]) else {
+        return false;
+    };
+    if call.node.start_byte() <= eq_pos || call.arguments.len() != 1 {
+        return false;
+    }
+    let argument = parsed.node_text(call.arguments[0]).unwrap_or("").trim();
+    if argument.is_empty() {
+        return false;
+    }
+    let rebuilt = parsed.replace_node(call.node, argument);
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
+    }
+    false
+}
+
+fn fix_deprecated_cast_style(line: &mut String, type_str: &str) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let normalized_type = normalize_cast_type(type_str);
+    let Some(call) = parsed.find_call_expression_matching(|function_text, arguments| {
+        normalize_cast_type(function_text) == normalized_type && arguments.len() == 1
+    }) else {
+        return false;
+    };
+    let argument = parsed.node_text(call.arguments[0]).unwrap_or("").trim();
+    if argument.is_empty() {
+        return false;
+    }
+    let rebuilt = parsed.replace_node(
+        call.node,
+        &format!("static_cast<{}>({})", type_str.trim(), argument),
+    );
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
+    }
+    false
+}
+
+fn fix_c_style_cast(line: &mut String, cast_type: &str, type_str: &str) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let normalized_type = normalize_cast_type(type_str);
+    let Some(cast) = parsed.find_cast_expression_matching(|candidate_type, _value_node| {
+        normalize_cast_type(candidate_type) == normalized_type
+    }) else {
+        return false;
+    };
+    let value = parsed.node_text(cast.value_node).unwrap_or("").trim();
+    if value.is_empty() {
+        return false;
+    }
+    let rebuilt = parsed.replace_node(
+        cast.node,
+        &format!("{}<{}>({})", cast_type.trim(), type_str.trim(), value),
+    );
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
+    }
+    false
+}
+
+fn fix_invalid_increment(line: &mut String) -> bool {
+    if let Some(parsed) = ParsedLine::parse(line)
+        && let Some(invalid) = parsed.find_invalid_increment_expression()
+    {
+        let operand = parsed.node_text(invalid.operand).unwrap_or("").trim();
+        if !operand.is_empty() {
+            let rebuilt =
+                parsed.replace_node(invalid.node, &format!("(*{operand}){}", invalid.operator));
+            if *line != rebuilt {
+                *line = rebuilt;
+                return true;
+            }
+        }
+    }
+
+    let fixed = update_code(line, |code| {
+        let Some(captures) = POINTER_INCREMENT_FIX_RE.captures(code) else {
+            return code.to_string();
+        };
+        let indent = captures.name("indent").map(|m| m.as_str()).unwrap_or("");
+        let name = captures.name("name").map(|m| m.as_str()).unwrap_or("");
+        let op = captures.name("op").map(|m| m.as_str()).unwrap_or("");
+        let suffix = captures.name("suffix").map(|m| m.as_str()).unwrap_or("");
+        format!("{indent}(*{name}){op}{suffix}")
+    });
+    if *line != fixed {
+        *line = fixed;
+        return true;
+    }
+    false
+}
+
+fn fix_inheritance_redundancy(
+    lines: &mut [String],
+    idx: usize,
+    message: &crate::messages::LintMessage,
+) -> bool {
+    use crate::messages::LintMessage;
+    let Some(line) = lines.get(idx) else {
+        return false;
+    };
+    let fixed = match message {
+        LintMessage::RedundantVirtual => rewrite_inheritance_line(line, &INHERITANCE_VIRTUAL_RE),
+        LintMessage::RedundantOverride => rewrite_inheritance_line(line, &INHERITANCE_OVERRIDE_RE),
+        _ => return false,
+    };
+    if fixed.as_ref().is_some_and(|fixed| fixed != line) {
+        lines[idx] = fixed.unwrap();
+        return true;
+    }
+
+    if matches!(message, LintMessage::RedundantVirtual)
+        && line.split("//").next().is_some_and(|code| {
+            matches!(
+                code.trim(),
+                "override;" | "final;" | "override final;" | "final override;"
+            )
+        })
+        && let Some(prev_idx) = previous_non_blank_line(lines, idx)
+        && let Some(prev_fixed) =
+            rewrite_inheritance_line(&lines[prev_idx], &INHERITANCE_VIRTUAL_RE)
+        && prev_fixed != lines[prev_idx]
+    {
+        lines[prev_idx] = prev_fixed;
+        return true;
+    }
+
+    false
+}
+
+fn rewrite_inheritance_line(line: &str, pattern: &Regex) -> Option<String> {
+    if let Some(parsed) = ParsedLine::parse(line) {
+        let fixed = parsed
+            .rewrite_code_segments(|code| pattern.replace(code, "").into_owned())
+            .unwrap_or_else(|| line.to_string());
+        return (fixed != line).then_some(fixed);
+    }
+    let fixed = pattern.replace(line, "").into_owned();
+    (fixed != line).then_some(fixed)
 }
 
 fn fix_endif_comment(line: &mut String) -> bool {
@@ -1337,59 +1602,45 @@ fn fix_endif_comment(line: &mut String) -> bool {
 }
 
 fn fix_make_pair(line: &mut String) -> bool {
-    let mut changed = false;
-    let mut current_pos = 0;
-
-    const NEEDLE: &str = "make_pair";
-
-    while let Some(start_offset) = line[current_pos..].find(NEEDLE) {
-        let match_start = current_pos + start_offset;
-        let match_end = match_start + NEEDLE.len();
-
-        // Check word boundary \b
-        let is_word_boundary_start = match match_start
-            .checked_sub(1)
-            .and_then(|i| line.as_bytes().get(i))
-        {
-            Some(&b) => !b.is_ascii_alphanumeric() && b != b'_',
-            None => true,
-        };
-        let is_word_boundary_end = match line.as_bytes().get(match_end) {
-            Some(&b) => !b.is_ascii_alphanumeric() && b != b'_',
-            None => true,
-        };
-
-        if !is_word_boundary_start || !is_word_boundary_end {
-            current_pos = match_end;
-            continue;
-        }
-
-        let mut bracket_start = match_end;
-        while line
-            .as_bytes()
-            .get(bracket_start)
-            .is_some_and(|&b| b.is_ascii_whitespace())
-        {
-            bracket_start += 1;
-        }
-
-        if line.as_bytes().get(bracket_start) != Some(&b'<') {
-            current_pos = bracket_start.max(match_end + 1);
-            continue;
-        }
-
-        if let Some(end) = find_matching_angle_bracket(line, bracket_start) {
-            line.replace_range(bracket_start..end + 1, "");
-            changed = true;
-            current_pos = bracket_start;
-        } else {
-            current_pos = bracket_start + 1;
-        }
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let Some(call) = parsed.find_call_expression(&["make_pair"]) else {
+        return false;
+    };
+    let function_text = parsed.node_text(call.function).unwrap_or("").trim();
+    let Some(rewritten_function) = strip_template_arguments(function_text) else {
+        return false;
+    };
+    let rebuilt = parsed.replace_node(call.function, &rewritten_function);
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
     }
-    changed
+    false
 }
 
 fn fix_memset(line: &mut String) -> bool {
+    if let Some(parsed) = ParsedLine::parse(line)
+        && let Some(call) = parsed.find_call_expression(&["memset"])
+        && call.arguments.len() == 3
+    {
+        let function_text = parsed.node_text(call.function).unwrap_or("").trim();
+        let target = parsed.node_text(call.arguments[0]).unwrap_or("").trim();
+        let size = parsed.node_text(call.arguments[1]).unwrap_or("").trim();
+        let zero = parsed.node_text(call.arguments[2]).unwrap_or("").trim();
+        if zero == "0" {
+            let rebuilt = parsed.replace_node(
+                call.node,
+                &format!("{}({}, 0, {})", function_text, target, size),
+            );
+            if *line != rebuilt {
+                *line = rebuilt;
+                return true;
+            }
+        }
+    }
+
     let fixed = MEMSET_FIX_RE
         .replace(line, "memset($1, 0, $2)")
         .into_owned();
@@ -1402,6 +1653,45 @@ fn fix_memset(line: &mut String) -> bool {
 
 fn fix_printf_format(line: &mut String, message: &crate::messages::LintMessage) -> bool {
     use crate::messages::LintMessage;
+    if let Some(parsed) = ParsedLine::parse(line) {
+        let fixed = match message {
+            LintMessage::PrintfFormatDeprecatedQ => parsed
+                .find_call_expression(&[
+                    "printf",
+                    "fprintf",
+                    "sprintf",
+                    "snprintf",
+                    "vprintf",
+                    "vfprintf",
+                    "vsprintf",
+                    "vsnprintf",
+                    "asprintf",
+                    "vasprintf",
+                ])
+                .and_then(|call| {
+                    parsed.rewrite_string_literals_in(call.node.byte_range(), |literal| {
+                        Some(PRINTF_Q_RE.replace_all(literal, "%${1}ll").into_owned())
+                    })
+                }),
+            LintMessage::PrintfFormatUndefinedEscape => parsed.rewrite_string_literals(|literal| {
+                Some(
+                    literal
+                        .replace(r"\%", "%")
+                        .replace(r"\[", "[")
+                        .replace(r"\(", "(")
+                        .replace(r"\{", "{"),
+                )
+            }),
+            _ => None,
+        };
+        if let Some(fixed) = fixed
+            && *line != fixed
+        {
+            *line = fixed;
+            return true;
+        }
+    }
+
     let fixed = match message {
         LintMessage::PrintfFormatDeprecatedQ => {
             PRINTF_Q_RE.replace_all(line, "%${1}ll").into_owned()
@@ -1449,6 +1739,58 @@ fn build_facts<'a>(
     (clean_lines, facts)
 }
 
+struct FactsCache<'a> {
+    arena: *mut Bump,
+    cached_fingerprint: Option<u64>,
+    cached: Option<(CleansedLines<'a>, FileFacts<'a>)>,
+    _marker: PhantomData<&'a mut Bump>,
+}
+
+impl<'a> FactsCache<'a> {
+    fn new(arena: &'a mut Bump) -> Self {
+        arena.reset();
+        Self {
+            arena,
+            cached_fingerprint: None,
+            cached: None,
+            _marker: PhantomData,
+        }
+    }
+
+    fn get(
+        &mut self,
+        path: &Path,
+        options: &Options,
+        lines: &[String],
+    ) -> (&CleansedLines<'a>, &FileFacts<'a>) {
+        let fingerprint = fingerprint_lines(lines);
+        if self.cached_fingerprint != Some(fingerprint) {
+            self.cached = None;
+            // SAFETY: arena points to the thread-local bump arena borrowed for the whole
+            // apply_line_fixes call; the cache drops old references before reset/rebuild.
+            let arena = unsafe { &mut *self.arena };
+            arena.reset();
+            self.cached = Some(build_facts(arena, path, options, lines));
+            self.cached_fingerprint = Some(fingerprint);
+        }
+        let (clean_lines, facts) = self
+            .cached
+            .as_ref()
+            .expect("facts cache should be initialized");
+        (clean_lines, facts)
+    }
+}
+
+fn fingerprint_lines(lines: &[String]) -> u64 {
+    let mut hasher = FxHasher::default();
+    lines.len().hash(&mut hasher);
+    for line in lines {
+        line.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+#[cfg(test)]
 fn fix_access_specifier_indentation(
     path: &Path,
     options: &Options,
@@ -1456,38 +1798,46 @@ fn fix_access_specifier_indentation(
     idx: usize,
 ) -> bool {
     FIXER_ARENA.with(|arena_cell| {
-        // SAFETY: The arena is thread-local and accessed only within the `fix_access_specifier_indentation` method.
-        // This method is called synchronously without re-entrancy or awaiting,
-        // ensuring that the borrow of the `UnsafeCell` is exclusive and safe.
+        // SAFETY: The arena is thread-local and accessed synchronously in this helper.
         let arena = unsafe { &mut *arena_cell.get() };
         arena.reset();
         let (clean_lines, facts) = build_facts(arena, path, options, lines);
-        let Some(class_range) = facts.enclosing_class_range(idx) else {
-            return false;
-        };
-        let class_indent =
-            line_utils::get_indent_level(clean_lines.lines_without_raw_strings[class_range.start]);
-        let Some(captures) = ACCESS_SPECIFIER_FIX_RE.captures(&lines[idx]) else {
-            return false;
-        };
-        let access = captures.name("access").map(|m| m.as_str()).unwrap_or("");
-        let slots = captures.name("slots").map(|m| m.as_str()).unwrap_or("");
-        let suffix = captures.name("suffix").map(|m| m.as_str()).unwrap_or("");
-        let fixed = format!(
-            "{}{}{}:{}",
-            " ".repeat(class_indent + 1),
-            access,
-            slots,
-            suffix
-        );
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
-        }
-        false
+        fix_access_specifier_indentation_with_facts(lines, idx, &clean_lines, &facts)
     })
 }
 
+fn fix_access_specifier_indentation_with_facts(
+    lines: &mut [String],
+    idx: usize,
+    clean_lines: &CleansedLines<'_>,
+    facts: &FileFacts<'_>,
+) -> bool {
+    let Some(class_range) = facts.enclosing_class_range(idx) else {
+        return false;
+    };
+    let class_indent =
+        line_utils::get_indent_level(clean_lines.lines_without_raw_strings[class_range.start]);
+    let Some(captures) = ACCESS_SPECIFIER_FIX_RE.captures(&lines[idx]) else {
+        return false;
+    };
+    let access = captures.name("access").map(|m| m.as_str()).unwrap_or("");
+    let slots = captures.name("slots").map(|m| m.as_str()).unwrap_or("");
+    let suffix = captures.name("suffix").map(|m| m.as_str()).unwrap_or("");
+    let fixed = format!(
+        "{}{}{}:{}",
+        " ".repeat(class_indent + 1),
+        access,
+        slots,
+        suffix
+    );
+    if lines[idx] != fixed {
+        lines[idx] = fixed;
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
 fn fix_class_closing_brace_alignment(
     path: &Path,
     options: &Options,
@@ -1495,58 +1845,268 @@ fn fix_class_closing_brace_alignment(
     idx: usize,
 ) -> bool {
     FIXER_ARENA.with(|arena_cell| {
-        // SAFETY: Similar to `fix_access_specifier_indentation`, the arena is thread-local
-        // and accessed synchronously within `fix_class_closing_brace_alignment`.
-        // This ensures exclusive and safe access to the `UnsafeCell`.
+        // SAFETY: The arena is thread-local and accessed synchronously in this helper.
         let arena = unsafe { &mut *arena_cell.get() };
         arena.reset();
         let (clean_lines, facts) = build_facts(arena, path, options, lines);
-        let Some(class_range) = facts.enclosing_class_range(idx) else {
-            return false;
-        };
-        let class_indent =
-            line_utils::get_indent_level(clean_lines.lines_without_raw_strings[class_range.start]);
-        let trimmed = lines[idx].trim_start();
-        if !trimmed.starts_with('}') {
-            return false;
-        }
-        let suffix = &trimmed[1..];
-        let fixed = format!("{}}}{}", " ".repeat(class_indent), suffix);
-        if lines[idx] != fixed {
-            lines[idx] = fixed;
-            return true;
-        }
-        false
+        fix_class_closing_brace_alignment_with_facts(lines, idx, &clean_lines, &facts)
     })
 }
 
+fn fix_class_closing_brace_alignment_with_facts(
+    lines: &mut [String],
+    idx: usize,
+    clean_lines: &CleansedLines<'_>,
+    facts: &FileFacts<'_>,
+) -> bool {
+    let Some(class_range) = facts.enclosing_class_range(idx) else {
+        return false;
+    };
+    let class_indent =
+        line_utils::get_indent_level(clean_lines.lines_without_raw_strings[class_range.start]);
+    let trimmed = lines[idx].trim_start();
+    if !trimmed.starts_with('}') {
+        return false;
+    }
+    let suffix = &trimmed[1..];
+    let fixed = format!("{}}}{}", " ".repeat(class_indent), suffix);
+    if lines[idx] != fixed {
+        lines[idx] = fixed;
+        return true;
+    }
+    false
+}
+
 fn fix_storage_class(line: &mut String) -> bool {
-    let fixed = update_code(line, |code| {
-        let Some(captures) = STORAGE_CLASS_FIX_RE.captures(code) else {
-            return code.to_string();
-        };
-        let prefix = captures
-            .name("prefix")
-            .map(|m| m.as_str())
-            .unwrap_or("")
-            .trim();
-        if prefix.is_empty() {
-            return code.to_string();
-        }
-        let indent = captures.name("indent").map(|m| m.as_str()).unwrap_or("");
-        let storage = captures.name("storage").map(|m| m.as_str()).unwrap_or("");
-        let suffix = captures
-            .name("suffix")
-            .map(|m| m.as_str())
-            .unwrap_or("")
-            .trim();
-        format!("{}{} {} {}", indent, storage, prefix, suffix)
-    });
+    if let Some(parsed) = ParsedLine::parse(line)
+        && let Some(fixed) = parsed.rewrite_code_segments(rewrite_storage_class_segment)
+    {
+        *line = fixed;
+        return true;
+    }
+
+    let fixed = update_code(line, rewrite_storage_class_segment);
     if *line != fixed {
         *line = fixed;
         return true;
     }
     false
+}
+
+fn fix_vlog_macro(line: &mut String) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let Some(call) = parsed.find_call_expression(&["VLOG"]) else {
+        return false;
+    };
+    if call.arguments.len() != 1 {
+        return false;
+    }
+    let level = parsed.node_text(call.arguments[0]).unwrap_or("").trim();
+    if !matches!(level, "INFO" | "ERROR" | "WARNING" | "DFATAL" | "FATAL") {
+        return false;
+    }
+    let rebuilt = parsed.replace_node(call.function, "LOG");
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
+    }
+    false
+}
+
+fn fix_global_const_string(
+    line: &mut String,
+    prefix: &str,
+    suffix_const: &str,
+    name: &str,
+) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let code_end = parsed.first_comment_start().unwrap_or(line.len());
+    if let Some(captures) = GLOBAL_CONST_STRING_FIX_RE.captures(line) {
+        let indent = captures.name("indent").map(|m| m.as_str()).unwrap_or("");
+        let captured_name = captures.name("name").map(|m| m.as_str()).unwrap_or("");
+        if captured_name != name {
+            return false;
+        }
+        let Some(eq_pos) = line[..code_end].find('=') else {
+            return false;
+        };
+        let rhs_end = line[..code_end].rfind(';').unwrap_or(code_end);
+        if eq_pos >= rhs_end || !parsed.rhs_contains_only_string_literals(eq_pos + 1, rhs_end) {
+            return false;
+        }
+        let rest = captures.name("rest").map(|m| m.as_str()).unwrap_or("");
+        let fixed = format!("{indent}{prefix}char{suffix_const} {name}[]{rest}");
+        if *line != fixed {
+            *line = fixed;
+            return true;
+        }
+        return false;
+    }
+
+    let Some(captures) = GLOBAL_CONST_STRING_DIRECT_INIT_RE.captures(line) else {
+        return false;
+    };
+    let indent = captures.name("indent").map(|m| m.as_str()).unwrap_or("");
+    let captured_name = captures.name("name").map(|m| m.as_str()).unwrap_or("");
+    if captured_name != name {
+        return false;
+    }
+    let open = captures.name("open").map(|m| m.as_str()).unwrap_or("");
+    let close = captures.name("close").map(|m| m.as_str()).unwrap_or("");
+    if !matches!((open, close), ("(", ")") | ("{", "}")) {
+        return false;
+    }
+    let init = captures.name("init").map(|m| m.as_str()).unwrap_or("");
+    let init_range = captures.name("init").map(|m| m.range()).unwrap_or(0..0);
+    if init_range.is_empty()
+        || !parsed.rhs_contains_only_string_literals(init_range.start, init_range.end)
+    {
+        return false;
+    }
+    let suffix = captures.name("suffix").map(|m| m.as_str()).unwrap_or("");
+    let fixed = format!("{indent}{prefix}char{suffix_const} {name}[] = {init}{suffix}");
+    if *line != fixed {
+        *line = fixed;
+        return true;
+    }
+    false
+}
+
+fn fix_snprintf_sizeof(line: &mut String, buffer: &str, size: &str) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let normalized_buffer = buffer.trim();
+    let normalized_size = size.trim();
+    let Some(call) = parsed.find_call_expression_matching(|function_text, arguments| {
+        base_name(function_text) == "snprintf"
+            && arguments.len() >= 2
+            && parsed
+                .node_text(arguments[0])
+                .is_some_and(|text| text.trim() == normalized_buffer)
+            && parsed
+                .node_text(arguments[1])
+                .is_some_and(|text| text.trim() == normalized_size)
+    }) else {
+        return false;
+    };
+    let rebuilt = parsed.replace_node(call.arguments[1], &format!("sizeof({normalized_buffer})"));
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
+    }
+    false
+}
+
+fn fix_potential_format_string_bug(line: &mut String, function: &str, arg: &str) -> bool {
+    let Some(parsed) = ParsedLine::parse(line) else {
+        return false;
+    };
+    let normalized_function = function.trim();
+    let normalized_arg = arg.trim();
+    let Some(call) = parsed.find_call_expression_matching(|function_text, arguments| {
+        base_name(function_text) == normalized_function
+            && arguments.len() == 1
+            && parsed
+                .node_text(arguments[0])
+                .is_some_and(|text| text.trim() == normalized_arg)
+    }) else {
+        return false;
+    };
+    let function_text = parsed.node_text(call.function).unwrap_or("").trim();
+    let arg_text = parsed.node_text(call.arguments[0]).unwrap_or("").trim();
+    if function_text.is_empty() || arg_text.is_empty() {
+        return false;
+    }
+    let rebuilt = parsed.replace_node(call.node, &format!("{function_text}(\"%s\", {arg_text})"));
+    if *line != rebuilt {
+        *line = rebuilt;
+        return true;
+    }
+    false
+}
+
+fn rewrite_storage_class_segment(code: &str) -> String {
+    let Some(captures) = STORAGE_CLASS_FIX_RE.captures(code) else {
+        return code.to_string();
+    };
+    let prefix = captures
+        .name("prefix")
+        .map(|m| m.as_str())
+        .unwrap_or("")
+        .trim();
+    if prefix.is_empty() {
+        return code.to_string();
+    }
+    let indent = captures.name("indent").map(|m| m.as_str()).unwrap_or("");
+    let storage = captures.name("storage").map(|m| m.as_str()).unwrap_or("");
+    let suffix = captures
+        .name("suffix")
+        .map(|m| m.as_str())
+        .unwrap_or("")
+        .trim();
+    format!("{}{} {} {}", indent, storage, prefix, suffix)
+}
+
+fn strip_template_arguments(function_text: &str) -> Option<String> {
+    let start = function_text.find('<')?;
+    let mut depth = 0usize;
+    let mut end = None;
+    for (idx, ch) in function_text.char_indices().skip(start) {
+        match ch {
+            '<' => depth += 1,
+            '>' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    end = Some(idx);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let end = end?;
+    let mut rebuilt = String::with_capacity(function_text.len());
+    rebuilt.push_str(function_text[..start].trim_end());
+    rebuilt.push_str(&function_text[end + 1..]);
+    Some(rebuilt)
+}
+
+fn check_macro_name_from_str(value: &str) -> Option<crate::messages::CheckMacroName> {
+    Some(match value.rsplit("::").next().unwrap_or(value).trim() {
+        "DCHECK" => crate::messages::CheckMacroName::Dcheck,
+        "CHECK" => crate::messages::CheckMacroName::Check,
+        "EXPECT_TRUE" => crate::messages::CheckMacroName::ExpectTrue,
+        "ASSERT_TRUE" => crate::messages::CheckMacroName::AssertTrue,
+        "EXPECT_FALSE" => crate::messages::CheckMacroName::ExpectFalse,
+        "ASSERT_FALSE" => crate::messages::CheckMacroName::AssertFalse,
+        _ => return None,
+    })
+}
+
+fn comparison_operator_from_str(value: &str) -> Option<crate::messages::ComparisonOperator> {
+    Some(match value {
+        "==" => crate::messages::ComparisonOperator::Eq,
+        "!=" => crate::messages::ComparisonOperator::Ne,
+        ">=" => crate::messages::ComparisonOperator::Ge,
+        ">" => crate::messages::ComparisonOperator::Gt,
+        "<=" => crate::messages::ComparisonOperator::Le,
+        "<" => crate::messages::ComparisonOperator::Lt,
+        _ => return None,
+    })
+}
+
+fn normalize_cast_type(value: &str) -> String {
+    let trimmed = value.trim();
+    let trimmed = trimmed
+        .strip_prefix('(')
+        .and_then(|inner| inner.strip_suffix(')'))
+        .unwrap_or(trimmed);
+    trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn update_code(line: &str, transform: impl FnOnce(&str) -> String) -> String {
@@ -1569,14 +2129,18 @@ fn update_code_and_comment(line: &mut String, transform: impl FnOnce(&str) -> St
 }
 
 fn add_spaces_around_operator(code: &str, op: &str) -> String {
-    let pattern = Regex::new(&format!(
-        r#"(?P<lhs>\S)\s*{}\s*(?P<rhs>\S)"#,
-        regex::escape(op)
-    ))
-    .unwrap();
-    pattern
-        .replace_all(code, format!("$lhs {} $rhs", op))
-        .into_owned()
+    OPERATOR_SPACE_REGEX_CACHE.with_borrow_mut(|cache| {
+        let pattern = cache.entry(op.to_string()).or_insert_with(|| {
+            Regex::new(&format!(
+                r#"(?P<lhs>\S)\s*{}\s*(?P<rhs>\S)"#,
+                regex::escape(op)
+            ))
+            .unwrap()
+        });
+        pattern
+            .replace_all(code, format!("$lhs {} $rhs", op))
+            .into_owned()
+    })
 }
 
 fn remove_spaces_after_unary_operator(code: &str, op: &str) -> String {
@@ -1672,6 +2236,7 @@ fn find_matching_paren(line: &str, open: usize) -> Option<usize> {
     None
 }
 
+#[cfg(test)]
 fn find_matching_angle_bracket(line: &str, open: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (idx, ch) in line.char_indices().skip(open) {
@@ -1689,6 +2254,7 @@ fn find_matching_angle_bracket(line: &str, open: usize) -> Option<usize> {
     None
 }
 
+#[cfg(test)]
 fn split_comparison_expression(
     expression: &str,
 ) -> Option<(&str, crate::messages::ComparisonOperator, &str)> {
@@ -2051,6 +2617,9 @@ mod tests {
                 "class Demo {\n",
                 " public:\n",
                 "  virtual void Run() override;\n",
+                "  virtual void Split()\n",
+                "      override;  // virtual comment stays\n",
+                "  Demo(int value);\n",
                 "};\n",
                 "\n",
                 "namespace foo {\n",
@@ -2071,6 +2640,11 @@ mod tests {
                 "  memset(buf, size, 0);\n",
                 "  VLOG(INFO) << value;\n",
                 "  CHECK(kind == 'x');\n",
+                "  std::string text = std::string(\"cpplint\");\n",
+                "  long cast_a = int(value);\n",
+                "  auto cast_b = (int)value;\n",
+                "  snprintf(buf, 32, \"%s\", value);\n",
+                "  printf(text);\n",
                 "  printf(\"%q\", value);\n",
                 "  printf(\"\\%\", value);\n",
                 "}\n",
@@ -2085,13 +2659,79 @@ mod tests {
         let contents = std::fs::read_to_string(&file).unwrap();
         assert!(contents.contains("void Run() override;"));
         assert!(!contents.contains("virtual void Run() override;"));
+        assert!(contents.contains("void Split()"));
+        assert!(contents.contains("virtual comment stays"));
+        assert!(!contents.contains("virtual void Split()"));
+        assert!(contents.contains("explicit Demo(int value);"));
         assert!(contents.contains("auto pair = make_pair(1, 2);"));
         assert!(contents.contains("memset(buf, 0, size);"));
         assert!(contents.contains("LOG(INFO) << value;"));
         assert!(contents.contains("CHECK_EQ(kind, 'x');"));
+        assert!(contents.contains("std::string text = \"cpplint\";"));
+        assert!(contents.contains("long cast_a = static_cast<int>(value);"));
+        assert!(contents.contains("auto cast_b = static_cast<int>(value);"));
+        assert!(contents.contains("snprintf(buf, sizeof(buf), \"%s\", value);"));
+        assert!(contents.contains("printf(\"%s\", text);"));
         assert!(contents.contains("printf(\"%ll\", value);"));
         assert!(contents.contains("printf(\"%\", value);"));
         assert!(contents.contains("}  // namespace foo"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fix_file_uses_tree_sitter_to_limit_runtime_and_macro_rewrites() {
+        let root = temp_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("sample.cc");
+        std::fs::write(
+            &file,
+            concat!(
+                "// Copyright 2026\n",
+                "#include <cstdio>\n",
+                "#include <string>\n",
+                "#include <utility>\n",
+                "\n",
+                "static const std::string kName = \"hello\";\n",
+                "static const std::string kJoined = \"hel\" \"lo\";\n",
+                "static const std::string kCtor(\"world\");\n",
+                "static const std::string kFactory = BuildLabel(\"hello\");\n",
+                "\n",
+                "void f(bool lhs, bool rhs, char kind) {\n",
+                "  std::string text = std::string(\"value\");\n",
+                "  *count++;\n",
+                "  bool alt = lhs and rhs; const char* token = \"and\";\n",
+                "  auto pair = std::make_pair<int, int>(1, 2);  // std::make_pair<int, int>(3, 4)\n",
+                "  CHECK(kind == 'x') << \"CHECK(kind == 'x')\";\n",
+                "  VLOG(INFO) << \"VLOG(INFO)\";\n",
+                "  StringPrintf(text);\n",
+                "  const char* format = \"%q \\\\%\"; printf(\"%q \\\\%\", kind);\n",
+                "}\n",
+            ),
+        )
+        .unwrap();
+
+        let options = Options::new();
+        assert!(fix_file_in_place(&file, &options).unwrap());
+
+        let contents = std::fs::read_to_string(&file).unwrap();
+        assert!(contents.contains("static const char kName[] = \"hello\";"));
+        assert!(contents.contains("static const char kJoined[] = \"hel\" \"lo\";"));
+        assert!(contents.contains("static const char kCtor[] = \"world\";"));
+        assert!(contents.contains("static const std::string kFactory = BuildLabel(\"hello\");"));
+        assert!(contents.contains("std::string text = \"value\";"));
+        assert!(contents.contains("(*count)++;"));
+        assert!(contents.contains("bool alt = lhs && rhs; const char* token = \"and\";"));
+        assert!(
+            contents
+                .contains("auto pair = std::make_pair(1, 2);  // std::make_pair<int, int>(3, 4)")
+        );
+        assert!(contents.contains("CHECK_EQ(kind, 'x') << \"CHECK(kind == 'x')\";"));
+        assert!(contents.contains("LOG(INFO) << \"VLOG(INFO)\";"));
+        assert!(contents.contains("StringPrintf(\"%s\", text);"));
+        assert!(
+            contents.contains("const char* format = \"%q \\\\%\"; printf(\"%ll \\\\%\", kind);")
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -2234,16 +2874,93 @@ mod tests {
         assert!(fix_alt_tokens(&mut line));
         assert_eq!(line, "x = 1 && y || z");
 
+        let mut line = String::from("bool ok = left!=right; const char* cmp = \"!=\";");
+        assert!(fix_operator_spacing(
+            &mut line,
+            &crate::messages::LintMessage::MissingSpacesAround(crate::messages::OperatorSymbol::Ne)
+        ));
+        assert_eq!(line, "bool ok = left != right; const char* cmp = \"!=\";");
+
         let mut line = String::from("CHECK(value == \"kFoo\")");
         assert!(fix_check_macro(&mut line));
         assert!(line.contains("CHECK_EQ"));
 
-        let mut line = String::from("virtual void Run() override;");
-        assert!(fix_inheritance_redundancy(
+        let mut line = String::from("std::string name = std::string(\"cpplint\");");
+        assert!(fix_redundant_string_ctor(&mut line));
+        assert_eq!(line, "std::string name = \"cpplint\";");
+
+        let mut line = String::from("std::string name = std::string(prefix, suffix);");
+        assert!(!fix_redundant_string_ctor(&mut line));
+
+        let mut line = String::from("  Foo(int value);");
+        assert!(fix_constructor_should_be_explicit(&mut line));
+        assert_eq!(line, "  explicit Foo(int value);");
+
+        let mut line = String::from("long cast_a = int(value);");
+        assert!(fix_deprecated_cast_style(&mut line, "int"));
+        assert_eq!(line, "long cast_a = static_cast<int>(value);");
+
+        let mut line = String::from("auto cast_b = (int)value;");
+        assert!(fix_c_style_cast(&mut line, "static_cast", "int"));
+        assert_eq!(line, "auto cast_b = static_cast<int>(value);");
+
+        let mut line = String::from("char* text = (char*)\"hi\";");
+        assert!(fix_c_style_cast(&mut line, "const_cast", "char*"));
+        assert_eq!(line, "char* text = const_cast<char*>(\"hi\");");
+
+        let mut line = String::from("*count++;");
+        assert!(fix_invalid_increment(&mut line));
+        assert_eq!(line, "(*count)++;");
+
+        let mut line = String::from("*items[i]--;");
+        assert!(fix_invalid_increment(&mut line));
+        assert_eq!(line, "(*items[i])--;");
+
+        let mut line = String::from("snprintf(buf, 32, \"%s\", value);");
+        assert!(fix_snprintf_sizeof(&mut line, "buf", "32"));
+        assert_eq!(line, "snprintf(buf, sizeof(buf), \"%s\", value);");
+
+        let mut line = String::from("printf(text);");
+        assert!(fix_potential_format_string_bug(&mut line, "printf", "text"));
+        assert_eq!(line, "printf(\"%s\", text);");
+
+        let mut line = String::from("StringPrintf(text);");
+        assert!(fix_potential_format_string_bug(
             &mut line,
+            "StringPrintf",
+            "text"
+        ));
+        assert_eq!(line, "StringPrintf(\"%s\", text);");
+
+        let mut lines = vec![String::from("virtual void Run() override;")];
+        assert!(fix_inheritance_redundancy(
+            &mut lines,
+            0,
             &crate::messages::LintMessage::RedundantVirtual
         ));
-        assert_eq!(line, "void Run() override;");
+        assert_eq!(lines[0], "void Run() override;");
+
+        let mut lines = vec![String::from(
+            "virtual void Run() override; // virtual comment stays",
+        )];
+        assert!(fix_inheritance_redundancy(
+            &mut lines,
+            0,
+            &crate::messages::LintMessage::RedundantVirtual
+        ));
+        assert_eq!(lines[0], "void Run() override; // virtual comment stays");
+
+        let mut lines = vec![
+            String::from("virtual void Run()"),
+            String::from("override;"),
+        ];
+        assert!(fix_inheritance_redundancy(
+            &mut lines,
+            1,
+            &crate::messages::LintMessage::RedundantVirtual
+        ));
+        assert_eq!(lines[0], "void Run()");
+        assert_eq!(lines[1], "override;");
 
         let mut line = String::from("#endif foo");
         assert!(fix_endif_comment(&mut line));
@@ -2264,6 +2981,13 @@ mod tests {
         ));
         assert_eq!(line, "printf(\"%ll\", value);");
 
+        let mut line = String::from("const char* format = \"%q\"; printf(\"%q\", value);");
+        assert!(fix_printf_format(
+            &mut line,
+            &crate::messages::LintMessage::PrintfFormatDeprecatedQ
+        ));
+        assert_eq!(line, "const char* format = \"%q\"; printf(\"%ll\", value);");
+
         let mut line = String::from("  namespace demo");
         assert!(fix_namespace_indentation(&mut line));
         assert_eq!(line, "namespace demo");
@@ -2271,6 +2995,34 @@ mod tests {
         let mut line = String::from("int static number;");
         assert!(fix_storage_class(&mut line));
         assert_eq!(line, "static int number;");
+
+        let mut line = String::from("static const std::string kName = \"hello\";");
+        assert!(fix_global_const_string(
+            &mut line,
+            "static const ",
+            "",
+            "kName"
+        ));
+        assert_eq!(line, "static const char kName[] = \"hello\";");
+
+        let mut line = String::from("static const std::string kFactory = BuildLabel(\"hello\");");
+        assert!(!fix_global_const_string(
+            &mut line,
+            "static const ",
+            "",
+            "kFactory"
+        ));
+
+        let mut line = String::from("static const std::string kCtor(\"hello\");");
+        assert!(fix_global_const_string(
+            &mut line,
+            "static const ",
+            "",
+            "kCtor"
+        ));
+        assert_eq!(line, "static const char kCtor[] = \"hello\";");
+
+        assert_eq!(normalize_cast_type("( char* )"), "char*");
     }
 
     #[test]

@@ -347,6 +347,7 @@ pub enum LintMessage {
     ElseShouldBeOnSameLineAsClosingBrace,
     ElseBraceShouldAppearOnBothSides,
     MultilineStringWarning,
+    RedundantStringCtor,
     ComplexMultilineCommentWarning,
     ControlledStatementsInBrackets(Box<str>),
     IfElseBodiesWithMultipleStatementsRequireBraces,
@@ -538,6 +539,9 @@ impl LintMessage {
             }
             Self::MultilineStringWarning => Some(
                 "Multi-line string (\"...\") found.  This lint script doesn't do well with such strings, and may give bogus warnings.  Use C++11 raw strings or concatenation instead.",
+            ),
+            Self::RedundantStringCtor => Some(
+                "Redundant std::string temporary found. Initialize the variable directly instead.",
             ),
             Self::ComplexMultilineCommentWarning => Some(
                 "Complex multi-line /*...*/-style comment found. Lint may give bogus warnings.  Consider replacing these with //-style comments, with #if 0...#endif, or with more clearly structured multi-line comments.",

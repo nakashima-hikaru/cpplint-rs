@@ -4,6 +4,7 @@ use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::line_utils::close_expression_in_lines;
 use crate::string_utils;
+use crate::syntax::ParsedLine;
 use aho_corasick::AhoCorasick;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
@@ -785,10 +786,12 @@ fn is_placement_new_of_type(line: &str, matched_type: &str) -> bool {
 }
 
 fn check_invalid_increment(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
-    if !elided_line.contains('*') {
+    if !elided_line.contains('*') || (!elided_line.contains("++") && !elided_line.contains("--")) {
         return;
     }
-    if POINTER_INCREMENT_RE.is_match(elided_line) {
+    let parsed_match = ParsedLine::parse(elided_line)
+        .is_some_and(|parsed| parsed.find_invalid_increment_expression().is_some());
+    if parsed_match || POINTER_INCREMENT_RE.is_match(elided_line) {
         linter.error(
             linenum,
             Category::RuntimeInvalidIncrement,
