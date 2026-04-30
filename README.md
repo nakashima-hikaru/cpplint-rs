@@ -1,12 +1,43 @@
 # cpplint-rs
 
-A high-performance Rust reimplementation of [cpplint 2.0](https://github.com/cpplint/cpplint/tree/2.0.0)
+A fast Rust reimplementation of [cpplint 2.0](https://github.com/cpplint/cpplint/tree/2.0.0).
 
-`cpplint-rs` aims to provide **100% functional parity** with the original Google linter while offering significantly faster execution, better accuracy in complex C++ scenarios, and modern CLI features.
+`cpplint-rs` aims for functional parity with the original Google linter while running much faster, handling tricky C++ code more accurately, and providing a more modern CLI.
 
-## 🚀 Performance
+## 🚀 Quick start
 
-`cpplint-rs` is designed for speed. By leveraging Rust's zero-cost abstractions, multi-threaded execution with `rayon`, and highly efficient pattern matching via Aho-Corasick and SIMD-accelerated scanning, it significantly outperforms the original linter. It further optimizes execution by utilizing bitflags for constant-time state tracking, arena-based memory allocation to minimize heap overhead, and directory-level configuration caching to accelerate massive recursive scans.
+Install the CLI from this repository:
+
+```sh
+cargo install --path crates/cpplint-cli
+```
+
+Run it on a project:
+
+```sh
+cpplint --recursive path/to/project
+```
+
+Apply supported autofixes:
+
+```sh
+cpplint --fix --recursive path/to/project
+```
+
+For the full list of implemented rules and current autofix coverage, see [docs/rules.md](docs/rules.md).
+
+## ✨ Why cpplint-rs
+
+- **Fast**: Designed to be dramatically faster than the original Python implementation.
+- **Autofix support**: Fix many style, formatting, readability, and runtime issues with `--fix`.
+- **Better C++ handling**: Deals more reliably with complex macros, attributes, and modern C++ syntax.
+- **Drop-in compatibility**: Works with existing `CPPLINT.cfg` files and familiar command-line flags.
+- **Recursive scanning**: Lint entire projects with `--recursive`.
+- **Multiple output formats**: Supports `emacs`, `vs7`, `eclipse`, `junit`, and `sed`.
+
+## 📈 Performance
+
+`cpplint-rs` is built for speed. It uses Rust, `rayon` for parallel execution, Aho-Corasick for fast pattern matching, and SIMD-friendly scanning to outperform the original linter by a wide margin. It also reduces overhead with compact state tracking, arena-based allocation, and directory-level configuration caching for large recursive scans.
 
 ### QuantLib Benchmark
 
@@ -64,21 +95,6 @@ _Measured on the GoogleTest codebase._
 | `cpplint-cpp` |    411.1 ± 38.5 |    393.0 |    519.8 |   3.65 ± 0.36 |
 | `cpplint-rs`  |     112.6 ± 3.8 |    107.7 |    122.9 |          1.00 |
 
-## 🛠️ Autofix Support
-
-`cpplint-rs` goes beyond just reporting issues; it can automatically fix many of them. By using the `--fix` flag, you can resolve various style and formatting violations instantly.
-
-For a detailed list of implemented rules and their autofix status, please refer to [docs/rules.md](docs/rules.md).
-
-## ✨ Highlights
-
-- **Autofix Capability**: Automatically resolve violations for many style and whitespace rules with the `--fix` flag.
-- **Higher Accuracy**: Handling of complex C++ macros and attributes where the original regex-based linter often fails.
-- **Drop-in Match**: Compatible with existing `CPPLINT.cfg` files and command-line arguments.
-- **Recursive by Default**: Easily scan entire projects with `--recursive`.
-- **Multiple Formats**: Supports `emacs`, `vs7`, `eclipse`, `junit`, and `sed` output formats.
-- **Reliable**: Passed extensive validation against GoogleTest and QuantLib codebases.
-
 ## 🤝 Acknowledgments
 
-This project was inspired by [cpplint-cpp](https://github.com/matyalatte/cpplint-cpp), which demonstrated the potential for a high-performance compiled alternative to the original Python script.
+This project was inspired by [cpplint-cpp](https://github.com/matyalatte/cpplint-cpp), which showed that a high-performance compiled alternative to the original Python script was both practical and valuable.
