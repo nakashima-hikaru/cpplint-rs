@@ -1,6 +1,10 @@
 BSD 3-Clause License
 
-Copyright (c) 2026, hnakashima
+Copyright (c) 2026, nakashimahikaru
+
+This repository also contains material derived from third-party BSD-3-Clause
+projects. See THIRD_PARTY_NOTICES for the relevant upstream copyright and
+license notices.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
