@@ -1060,10 +1060,16 @@ fn check_multiline_if_else_bodies(
             None => break,
         };
 
-        if bytes[match_idx] == b'e' && elided_line[match_idx..].starts_with("else") && string_utils::is_word_match(elided_line, match_idx, match_idx + 4) {
+        if bytes[match_idx] == b'e'
+            && elided_line[match_idx..].starts_with("else")
+            && string_utils::is_word_match(elided_line, match_idx, match_idx + 4)
+        {
             if_else_match = Some((match_idx, match_idx + 4, false));
             break;
-        } else if bytes[match_idx] == b'i' && elided_line[match_idx..].starts_with("if") && string_utils::is_word_match(elided_line, match_idx, match_idx + 2) {
+        } else if bytes[match_idx] == b'i'
+            && elided_line[match_idx..].starts_with("if")
+            && string_utils::is_word_match(elided_line, match_idx, match_idx + 2)
+        {
             let rest = &elided_line[match_idx + 2..];
             let trimmed_rest = rest.trim_start();
             if trimmed_rest.starts_with('(') {
