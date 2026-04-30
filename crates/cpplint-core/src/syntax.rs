@@ -401,7 +401,7 @@ fn apply_replacements(
     if replacements.is_empty() {
         return None;
     }
-    replacements.sort_by(|lhs, rhs| rhs.0.start.cmp(&lhs.0.start));
+    replacements.sort_by_key(|rhs| std::cmp::Reverse(rhs.0.start));
     let mut fixed = original.to_string();
     for (range, replacement) in replacements {
         fixed.replace_range(range, &replacement);
