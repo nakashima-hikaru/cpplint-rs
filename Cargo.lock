@@ -237,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "cpplint-cli"
-version = "0.0.0-alpha.1"
+version = "0.0.0-alpha.2"
 dependencies = [
  "clap",
  "cpplint-core",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "cpplint-core"
-version = "0.0.0-alpha.1"
+version = "0.0.0-alpha.2"
 dependencies = [
  "aho-corasick",
  "bitflags",

@@ -3,12 +3,12 @@ members = ["crates/cpplint-core", "crates/cpplint-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.0-alpha.1"
+version = "0.0.0-alpha.2"
 edition = "2024"
 authors = ["nakashimahikaru <nakashimahikaru@gmail.com>"]
 license = "BSD-3-Clause"
 repository = "https://github.com/nakashima-hikaru/cpplint-rs"
-rust-version = "1.94"
+rust-version = "1.95"
 publish = false
 
 [workspace.dependencies]
