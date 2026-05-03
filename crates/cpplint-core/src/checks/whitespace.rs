@@ -352,10 +352,9 @@ fn contains_class_or_struct_word(line: &str) -> bool {
             if string_utils::is_word_match(line, pos, pos + 5) {
                 return true;
             }
-        } else if tail.starts_with("struct")
-            && string_utils::is_word_match(line, pos, pos + 6) {
-                return true;
-            }
+        } else if tail.starts_with("struct") && string_utils::is_word_match(line, pos, pos + 6) {
+            return true;
+        }
     }
     false
 }
