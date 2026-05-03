@@ -1,5 +1,6 @@
 use crate::cleanse::CleansedLines;
 use crate::line_utils;
+use memchr::memchr3_iter;
 use regex::Regex;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x32;
@@ -394,8 +395,16 @@ impl<'a> FileFacts<'a> {
     }
 }
 
-static CLASS_KEYWORDS_AC: LazyLock<aho_corasick::AhoCorasick> =
-    LazyLock::new(|| aho_corasick::AhoCorasick::new(["class", "struct", "union"]).unwrap());
+fn class_keywords_is_match(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    for pos in memchr3_iter(b'c', b's', b'u', bytes) {
+        let tail = &line[pos..];
+        if tail.starts_with("class") || tail.starts_with("struct") || tail.starts_with("union") {
+            return true;
+        }
+    }
+    false
+}
 
 fn build_class_facts<'a>(
     lines: &[&'a str],
@@ -407,7 +416,7 @@ fn build_class_facts<'a>(
 
     for (linenum, line) in lines.iter().enumerate() {
         let line = *line;
-        if !CLASS_KEYWORDS_AC.is_match(line) && pending.is_none() {
+        if !class_keywords_is_match(line) && pending.is_none() {
             continue;
         }
         let trimmed = line.trim();
