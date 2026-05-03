@@ -3,7 +3,7 @@ use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords};
 use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::string_utils;
-use aho_corasick::AhoCorasick;
+use memchr::memchr2_iter;
 use regex::{Regex, RegexSet};
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -62,12 +62,6 @@ fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
     None
 }
 
-static CONTROL_STRUCT_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
-    AhoCorasick::new([
-        "if", "elif", "for", "while", "switch", "return", "new", "delete", "catch", "sizeof",
-    ])
-    .unwrap()
-});
 /// Manual replacement for REF_MATCHERS.
 /// Detects ` (...)(...` or ` (...)\[...` patterns that indicate function/array reference calls.
 /// Original patterns:
@@ -331,8 +325,6 @@ static FIXED_WIDTH_BRACED_INT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?:int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\s*\{"#)
         .unwrap()
 });
-static CLASS_OR_STRUCT_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(["class", "struct"]).unwrap());
 static SKIP_LINE_LENGTH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"^\s*#(ifndef|endif)\b"#,
@@ -351,10 +343,20 @@ fn should_skip_line_length(raw_line: &str) -> bool {
     raw_line.starts_with("#include") || SKIP_LINE_LENGTH_SET.is_match(raw_line)
 }
 
+// Optimized string search using memchr + starts_with instead of AhoCorasick
+// for a small predefined set on a hot path.
 fn contains_class_or_struct_word(line: &str) -> bool {
-    CLASS_OR_STRUCT_AC
-        .find_iter(line)
-        .any(|mat| string_utils::is_word_match(line, mat.start(), mat.end()))
+    for pos in memchr2_iter(b'c', b's', line.as_bytes()) {
+        let tail = &line[pos..];
+        if tail.starts_with("class") {
+            if string_utils::is_word_match(line, pos, pos + 5) {
+                return true;
+            }
+        } else if tail.starts_with("struct") && string_utils::is_word_match(line, pos, pos + 6) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -1117,12 +1119,21 @@ fn check_spacing_for_function_call_base(
     linenum: usize,
     keywords: &MatchedKeywords,
 ) {
-    if keywords.has_any_control_struct()
-        && CONTROL_STRUCT_AC
-            .find_iter(fncall)
-            .any(|mat| string_utils::is_word_match(fncall, mat.start(), mat.end()))
-    {
-        return;
+    if keywords.has_any_control_struct() {
+        const CONTROL_STRUCTS: [&str; 10] = [
+            "if", "elif", "for", "while", "switch", "return", "new", "delete", "catch", "sizeof",
+        ];
+        for keyword in &CONTROL_STRUCTS {
+            let mut search_start = 0;
+            while let Some(offset) = fncall[search_start..].find(keyword) {
+                let start = search_start + offset;
+                let end = start + keyword.len();
+                if string_utils::is_word_match(fncall, start, end) {
+                    return;
+                }
+                search_start = start + 1;
+            }
+        }
     }
 
     if has_ref_call(fncall) {
