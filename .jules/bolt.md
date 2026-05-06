@@ -5,3 +5,6 @@
 ## 2024-06-25 - Prefer `memchr` over `AhoCorasick` for small predefined patterns
 **Learning:** Found that `AhoCorasick` introduces iterator overhead that is relatively slow when searching for small sets of static keywords (like "if" and "else") in hot-path string analysis functions. `memchr2` combined with quick string prefix matching (`starts_with`) significantly outperforms `AhoCorasick` for this type of operation.
 **Action:** When optimizing string search for small, predefined patterns on hot paths in Rust, prefer `memchr` combined with a quick byte peek and `starts_with` checks over `AhoCorasick` to minimize iterator overhead.
+## 2026-05-06 - Prevent infinite loops in memchr while loop iteration
+**Learning:** When using `memchr::memchr` to loop through matches, the returned offset is relative to the provided slice. In a `while let` loop, when modifying `search_start` based on the result, you must break if a match condition is found, otherwise, you might hit an infinite loop if `search_start` is not updated or updated incorrectly within nested structures.
+**Action:** When iterating over a slice using `memchr`, properly calculate `abs_pos` and update `search_start` explicitly at the end of the loop iteration to the next start index, and properly label the outer `while` loop if breaking from an inner `for` loop.

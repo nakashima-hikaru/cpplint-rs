@@ -24,8 +24,7 @@ const BASIC_CAST_NEEDLES: [&str; 12] = [
     "(int64_t)",
     "(uint64_t)",
 ];
-static BASIC_CAST_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(BASIC_CAST_NEEDLES).unwrap());
+
 static DEPRECATED_CAST_STYLE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"((?:\bnew\s+(?:const\s+)?|\S<\s*(?:const\s+)?)?\b)(int|float|double|bool|char|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t)(\([^)].*)"#,
@@ -85,8 +84,6 @@ static TOKEN_SPLIT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"\s+|\+|\-|\*|/|<<|>>|\]"#).unwrap());
 
 const STRCPY_CAT_NEEDLES: [&str; 2] = ["strcpy(", "strcat("];
-static STRCPY_CAT_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(STRCPY_CAT_NEEDLES).unwrap());
 
 static POINTER_INCREMENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*\*\w+(\+\+|--);"#).unwrap());
@@ -344,20 +341,29 @@ fn check_casts(
         }
 
         if !expecting_function {
-            for mat in BASIC_CAST_AC.find_iter(elided_line) {
-                let type_str = &elided_line[mat.start() + 1..mat.end() - 1];
-                if check_c_style_cast_internal(
-                    linter,
-                    clean_lines,
-                    elided_line,
-                    linenum,
-                    "static_cast",
-                    type_str,
-                    mat.start() + 1,
-                    mat.end(),
-                ) {
-                    break;
+            let bytes = elided_line.as_bytes();
+            let mut search_start = 0;
+            'search: while let Some(offset) = memchr::memchr(b'(', &bytes[search_start..]) {
+                let abs_pos = search_start + offset;
+                let tail = &elided_line[abs_pos..];
+                for needle in BASIC_CAST_NEEDLES {
+                    if tail.starts_with(needle) {
+                        let type_str = &needle[1..needle.len() - 1];
+                        if check_c_style_cast_internal(
+                            linter,
+                            clean_lines,
+                            elided_line,
+                            linenum,
+                            "static_cast",
+                            type_str,
+                            abs_pos + 1,
+                            abs_pos + needle.len(),
+                        ) {
+                            break 'search;
+                        }
+                    }
                 }
+                search_start = abs_pos + 1;
             }
         }
 
@@ -1121,13 +1127,30 @@ fn has_self_initializer(line: &str) -> bool {
 }
 
 fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
-    if !line.contains("printf") && !STRCPY_CAT_AC.is_match(line) {
+    let mut strcpy_cat_found = None;
+    let bytes = line.as_bytes();
+    let mut search_start = 0;
+    while let Some(offset) = memchr::memchr(b's', &bytes[search_start..]) {
+        let abs_pos = search_start + offset;
+        let tail = &line[abs_pos..];
+        for (i, needle) in STRCPY_CAT_NEEDLES.iter().enumerate() {
+            if tail.starts_with(needle) {
+                strcpy_cat_found = Some((i, abs_pos));
+                break;
+            }
+        }
+        if strcpy_cat_found.is_some() {
+            break;
+        }
+        search_start = abs_pos + 1;
+    }
+
+    if !line.contains("printf") && strcpy_cat_found.is_none() {
         return;
     }
 
-    if let Some(mat) = STRCPY_CAT_AC.find(line) {
-        let func = ["strcpy", "strcat"][mat.pattern()];
-        let start = mat.start();
+    if let Some((pattern_idx, start)) = strcpy_cat_found {
+        let func = ["strcpy", "strcat"][pattern_idx];
 
         let before_ok = start == 0 || !string_utils::is_word_char(line.as_bytes()[start - 1]);
         if before_ok {
