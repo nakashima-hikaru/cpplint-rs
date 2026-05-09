@@ -17,9 +17,15 @@ static TODO_COMMENT_RE: LazyLock<Regex> =
 fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
     let bytes = line.as_bytes();
     for specifier in &["public", "private", "protected", "signals"] {
+        let specifier_bytes = specifier.as_bytes();
+        let first_byte = specifier_bytes[0];
         let mut search_start = 0;
-        while let Some(relative_pos) = line[search_start..].find(specifier) {
+        while let Some(relative_pos) = memchr::memchr(first_byte, &bytes[search_start..]) {
             let pos = search_start + relative_pos;
+            if !line[pos..].starts_with(specifier) {
+                search_start = pos + 1;
+                continue;
+            }
             search_start = pos + specifier.len();
 
             // Check word boundary before and after
