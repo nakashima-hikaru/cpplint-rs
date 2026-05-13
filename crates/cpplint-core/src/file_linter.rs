@@ -312,17 +312,31 @@ impl<'a> FileLinter<'a> {
                 line_tail = &line_tail["END".len()..];
             }
 
-            let prev_char = if idx > 0 { raw_line.as_bytes()[idx - 1] as char } else { ' ' };
-            let is_prev_word = prev_char.is_alphanumeric() || prev_char == '_';
+            let is_prev_word = if idx > 0 {
+                let prefix = &raw_line[..idx];
+                let last_char = prefix.chars().last().unwrap_or(' ');
+                last_char.is_alphanumeric() || last_char == '_'
+            } else {
+                false
+            };
 
-            let next_char = if !line_tail.is_empty() { line_tail.as_bytes()[0] as char } else { ' ' };
-            let is_next_word = next_char.is_alphanumeric() || next_char == '_';
+            let is_next_word = if !line_tail.is_empty() {
+                let first_char = line_tail.chars().next().unwrap_or(' ');
+                first_char.is_alphanumeric() || first_char == '_'
+            } else {
+                false
+            };
 
             if !is_prev_word && !is_next_word {
                 let mut categories = "";
-                if line_tail.starts_with('(') {
-                    if let Some(end_idx) = line_tail.find(')') {
-                        categories = &line_tail[..=end_idx];
+                let has_category = line_tail.starts_with('(');
+                if has_category {
+                    let maybe_end_idx = line_tail.find(')');
+                    if let Some(end_idx) = maybe_end_idx {
+                        let is_valid_len = end_idx > 1;
+                        if is_valid_len {
+                            categories = &line_tail[..=end_idx];
+                        }
                     }
                 }
                 found_no_lint_type = Some(no_lint_type);
