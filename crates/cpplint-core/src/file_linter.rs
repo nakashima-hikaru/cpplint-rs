@@ -15,13 +15,11 @@ use crate::string_utils;
 use crate::suppressions::{ErrorSuppressions, SuppressionKey};
 use bumpalo::Bump;
 use bumpalo::collections::Vec as BumpVec;
-use regex::{Regex, RegexSet};
+use regex::RegexSet;
 use std::iter::ExactSizeIterator;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
-static NOLINT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\bNOLINT(NEXTLINE|BEGIN|END)?\b(\([^)]+\))?"#).unwrap());
 static FILE_TYPE_RE_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"\b(?:LINT_C_FILE|vim?:\s*.*(\s*|:)filetype=c(\s*|:|$))"#,
@@ -294,11 +292,51 @@ impl<'a> FileLinter<'a> {
     }
 
     fn parse_nolint_suppressions(&mut self, raw_line: &str, linenum: usize) {
-        let Some(captures) = NOLINT_RE.captures(raw_line) else {
-            return;
+        let mut search_start = 0;
+        let mut found_no_lint_type = None;
+        let mut found_categories = None;
+
+        while let Some(offset) = raw_line[search_start..].find("NOLINT") {
+            let idx = search_start + offset;
+            let mut line_tail = &raw_line[idx + "NOLINT".len()..];
+            let mut no_lint_type = "";
+
+            if line_tail.starts_with("NEXTLINE") {
+                no_lint_type = "NEXTLINE";
+                line_tail = &line_tail["NEXTLINE".len()..];
+            } else if line_tail.starts_with("BEGIN") {
+                no_lint_type = "BEGIN";
+                line_tail = &line_tail["BEGIN".len()..];
+            } else if line_tail.starts_with("END") {
+                no_lint_type = "END";
+                line_tail = &line_tail["END".len()..];
+            }
+
+            let prev_char = if idx > 0 { raw_line.as_bytes()[idx - 1] as char } else { ' ' };
+            let is_prev_word = prev_char.is_alphanumeric() || prev_char == '_';
+
+            let next_char = if !line_tail.is_empty() { line_tail.as_bytes()[0] as char } else { ' ' };
+            let is_next_word = next_char.is_alphanumeric() || next_char == '_';
+
+            if !is_prev_word && !is_next_word {
+                let mut categories = "";
+                if line_tail.starts_with('(') {
+                    if let Some(end_idx) = line_tail.find(')') {
+                        categories = &line_tail[..=end_idx];
+                    }
+                }
+                found_no_lint_type = Some(no_lint_type);
+                found_categories = Some(categories);
+                break;
+            }
+
+            search_start = idx + "NOLINT".len();
+        }
+
+        let (no_lint_type, categories) = match (found_no_lint_type, found_categories) {
+            (Some(t), Some(c)) => (t, c),
+            _ => return,
         };
-        let no_lint_type = captures.get(1).map(|m| m.as_str()).unwrap_or("");
-        let categories = captures.get(2).map(|m| m.as_str()).unwrap_or("");
 
         let process_category =
             |this: &mut FileLinter<'a>, category: SuppressionKey| match no_lint_type {
