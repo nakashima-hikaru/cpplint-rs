@@ -104,15 +104,6 @@ static DECL_ORDER_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
     AhoCorasick::new(patterns).unwrap()
 });
 
-const VLOG_NEEDLES: [&str; 5] = [
-    "VLOG(INFO)",
-    "VLOG(ERROR)",
-    "VLOG(WARNING)",
-    "VLOG(DFATAL)",
-    "VLOG(FATAL)",
-];
-static VLOG_AC: LazyLock<AhoCorasick> = LazyLock::new(|| AhoCorasick::new(VLOG_NEEDLES).unwrap());
-
 static FORWARD_DECL_INNER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*class\s+(\w+\s*::\s*)+\w+\s*;"#).unwrap());
 static ENDIF_TEXT_RE: LazyLock<Regex> =
@@ -152,27 +143,6 @@ static CONSTANT_MATCH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     ])
     .unwrap()
 });
-const THREADSAFE_FN_NEEDLES: [&str; 12] = [
-    "asctime(",
-    "ctime(",
-    "getgrgid(",
-    "getgrnam(",
-    "getlogin(",
-    "getpwnam(",
-    "getpwuid(",
-    "gmtime(",
-    "localtime(",
-    "rand(",
-    "strtok(",
-    "ttyname(",
-];
-static THREADSAFE_FN_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(THREADSAFE_FN_NEEDLES).unwrap());
-
-static C_INTEGER_TYPES_NEEDLES: [&str; 3] = ["port", "short", "long"];
-static C_INTEGER_TYPES_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(C_INTEGER_TYPES_NEEDLES).unwrap());
-
 const STORAGE_CLASS_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_truncate(
     MatchedKeywords::REGISTER.bits()
         | MatchedKeywords::STATIC.bits()
@@ -914,7 +884,30 @@ fn check_memset(linter: &mut FileLinter, line: &str, linenum: usize) {
 }
 
 fn check_threadsafe_functions(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
-    if !THREADSAFE_FN_AC.is_match(elided_line) {
+    let mut found = false;
+    let bytes = elided_line.as_bytes();
+    for i in 0..bytes.len() {
+        if matches!(bytes[i], b'a' | b'c' | b'g' | b'l' | b'r' | b's' | b't') {
+            let tail = &elided_line[i..];
+            if tail.starts_with("asctime(")
+                || tail.starts_with("ctime(")
+                || tail.starts_with("getgrgid(")
+                || tail.starts_with("getgrnam(")
+                || tail.starts_with("getlogin(")
+                || tail.starts_with("getpwnam(")
+                || tail.starts_with("getpwuid(")
+                || tail.starts_with("gmtime(")
+                || tail.starts_with("localtime(")
+                || tail.starts_with("rand(")
+                || tail.starts_with("strtok(")
+                || tail.starts_with("ttyname(")
+            {
+                found = true;
+                break;
+            }
+        }
+    }
+    if !found {
         return;
     }
     let Some(captures) = THREADSAFE_FN_RE.captures(elided_line) else {
@@ -933,7 +926,24 @@ fn check_vlog_arguments(linter: &mut FileLinter, line: &str, linenum: usize) {
     if !line.contains("VLOG") {
         return;
     }
-    if VLOG_AC.is_match(line) {
+    let mut found = false;
+    let bytes = line.as_bytes();
+    let mut current_pos = 0;
+    while let Some(pos) = memchr::memchr(b'V', &bytes[current_pos..]) {
+        let abs_pos = current_pos + pos;
+        let tail = &line[abs_pos..];
+        if tail.starts_with("VLOG(INFO)")
+            || tail.starts_with("VLOG(ERROR)")
+            || tail.starts_with("VLOG(WARNING)")
+            || tail.starts_with("VLOG(DFATAL)")
+            || tail.starts_with("VLOG(FATAL)")
+        {
+            found = true;
+            break;
+        }
+        current_pos = abs_pos + 1;
+    }
+    if found {
         linter.error(
             linenum,
             Category::RuntimeVlog,
@@ -1334,7 +1344,19 @@ fn check_unary_operator_ampersand(linter: &mut FileLinter, line: &str, linenum: 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, linenum: usize) {
     // Check elided line first as it's generally more accurate and often shorter.
-    if !C_INTEGER_TYPES_AC.is_match(line) {
+    let mut has_integer_type = false;
+    let bytes = line.as_bytes();
+    for i in 0..bytes.len() {
+        if matches!(bytes[i], b'p' | b's' | b'l') {
+            let tail = &line[i..];
+            if tail.starts_with("port") || tail.starts_with("short") || tail.starts_with("long") {
+                has_integer_type = true;
+                break;
+            }
+        }
+    }
+
+    if !has_integer_type {
         return;
     }
 
@@ -1353,7 +1375,19 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
         line
     };
 
-    if !C_INTEGER_TYPES_AC.is_match(line) {
+    let mut has_integer_type_again = false;
+    let bytes = line.as_bytes();
+    for i in 0..bytes.len() {
+        if matches!(bytes[i], b'p' | b's' | b'l') {
+            let tail = &line[i..];
+            if tail.starts_with("port") || tail.starts_with("short") || tail.starts_with("long") {
+                has_integer_type_again = true;
+                break;
+            }
+        }
+    }
+
+    if !has_integer_type_again {
         return;
     }
     if string_utils::contains_word(line, "short port") {
@@ -1371,19 +1405,33 @@ fn check_c_integer_types(linter: &mut FileLinter, line: &str, raw_line: &str, li
     let mut short_idx = None;
     let mut long_idx = None;
 
-    for mat in C_INTEGER_TYPES_AC.find_iter(line) {
-        let needle = C_INTEGER_TYPES_NEEDLES[mat.pattern()];
-        let start = mat.start();
-        if needle == "short" {
-            if short_idx.is_none() && find_word_at(line, start, "short").is_some() {
-                short_idx = Some(start);
+    let mut current_pos = 0;
+    while current_pos < bytes.len() {
+        let mut found_len = None;
+        for i in current_pos..bytes.len() {
+            if matches!(bytes[i], b's' | b'l') {
+                let tail = &line[i..];
+                if tail.starts_with("short") {
+                    if short_idx.is_none() && find_word_at(line, i, "short").is_some() {
+                        short_idx = Some(i);
+                    }
+                    found_len = Some(i + 5);
+                    break;
+                } else if tail.starts_with("long") {
+                    if long_idx.is_none()
+                        && find_word_at(line, i, "long").is_some()
+                        && !string_utils::contains_word(line, "long double")
+                    {
+                        long_idx = Some(i);
+                    }
+                    found_len = Some(i + 4);
+                    break;
+                }
             }
-        } else if needle == "long"
-            && long_idx.is_none()
-            && find_word_at(line, start, "long").is_some()
-            && !string_utils::contains_word(line, "long double")
-        {
-            long_idx = Some(start);
+        }
+        match found_len {
+            Some(next_pos) => current_pos = next_pos,
+            None => break,
         }
     }
 
