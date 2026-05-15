@@ -48,18 +48,25 @@ pub fn is_word_match(s: &str, start: usize, end: usize) -> bool {
     before_ok && after_ok
 }
 
+// ⚡ Bolt: memchr-based substring search optimization for hot paths
 #[inline]
 pub fn contains_word(s: &str, word: &str) -> bool {
     if word.is_empty() {
         return false;
     }
+    let first_byte = word.as_bytes()[0];
+    let s_bytes = s.as_bytes();
+    let word_bytes = word.as_bytes();
+    let word_len = word.len();
 
     let mut search_start = 0usize;
-    while let Some(offset) = s[search_start..].find(word) {
+    while let Some(offset) = memchr::memchr(first_byte, &s_bytes[search_start..]) {
         let start = search_start + offset;
-        let end = start + word.len();
-        if is_word_match(s, start, end) {
-            return true;
+        let end = start + word_len;
+        if s_bytes.len() >= end && s_bytes[start..end] == *word_bytes {
+            if is_word_match(s, start, end) {
+                return true;
+            }
         }
         search_start = start + 1;
     }
@@ -84,13 +91,25 @@ pub fn ends_with_word(s: &str, word: &str) -> bool {
     start == 0 || !is_word_char(s.as_bytes()[start - 1])
 }
 
+// ⚡ Bolt: memchr-based substring search optimization for hot paths
 #[inline]
 pub fn contains_word_start(s: &str, word: &str) -> bool {
-    let mut search_start = 0;
-    while let Some(offset) = s[search_start..].find(word) {
+    if word.is_empty() {
+        return false;
+    }
+    let first_byte = word.as_bytes()[0];
+    let s_bytes = s.as_bytes();
+    let word_bytes = word.as_bytes();
+    let word_len = word.len();
+
+    let mut search_start = 0usize;
+    while let Some(offset) = memchr::memchr(first_byte, &s_bytes[search_start..]) {
         let start = search_start + offset;
-        if start == 0 || !is_word_char(s.as_bytes()[start - 1]) {
-            return true;
+        let end = start + word_len;
+        if s_bytes.len() >= end && s_bytes[start..end] == *word_bytes {
+            if start == 0 || !is_word_char(s_bytes[start - 1]) {
+                return true;
+            }
         }
         search_start = start + 1;
     }
