@@ -63,10 +63,11 @@ pub fn contains_word(s: &str, word: &str) -> bool {
     while let Some(offset) = memchr::memchr(first_byte, &s_bytes[search_start..]) {
         let start = search_start + offset;
         let end = start + word_len;
-        if s_bytes.len() >= end && s_bytes[start..end] == *word_bytes {
-            if is_word_match(s, start, end) {
-                return true;
-            }
+        if s_bytes.len() >= end
+            && s_bytes[start..end] == *word_bytes
+            && is_word_match(s, start, end)
+        {
+            return true;
         }
         search_start = start + 1;
     }
@@ -106,10 +107,11 @@ pub fn contains_word_start(s: &str, word: &str) -> bool {
     while let Some(offset) = memchr::memchr(first_byte, &s_bytes[search_start..]) {
         let start = search_start + offset;
         let end = start + word_len;
-        if s_bytes.len() >= end && s_bytes[start..end] == *word_bytes {
-            if start == 0 || !is_word_char(s_bytes[start - 1]) {
-                return true;
-            }
+        if s_bytes.len() >= end
+            && s_bytes[start..end] == *word_bytes
+            && (start == 0 || !is_word_char(s_bytes[start - 1]))
+        {
+            return true;
         }
         search_start = start + 1;
     }
