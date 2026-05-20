@@ -34,9 +34,7 @@ fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
             if pos > 0 && string_utils::is_word_char(bytes[pos - 1]) {
                 continue;
             }
-            if end < bytes.len()
-                && string_utils::is_word_char(bytes[end])
-            {
+            if end < bytes.len() && string_utils::is_word_char(bytes[end]) {
                 continue;
             }
 
