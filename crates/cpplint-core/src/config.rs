@@ -332,9 +332,7 @@ fn apply_config_layer(
     }
     if let Some(headers) = &config.headers {
         options.hpp_headers = headers.clone();
-        for header in headers {
-            options.valid_extensions.insert(header.clone());
-        }
+        options.valid_extensions.extend(headers.iter().cloned());
     }
     if let Some(include_order) = config.include_order {
         options.include_order = include_order;
