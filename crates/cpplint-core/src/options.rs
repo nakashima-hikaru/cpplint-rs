@@ -141,8 +141,9 @@ impl Options {
 
     pub fn set_headers_from_csv(&mut self, value: &str) {
         self.hpp_headers = parse_comma_separated_list(value);
-        self.valid_extensions
-            .extend(self.hpp_headers.iter().cloned());
+        for header in self.hpp_headers.clone() {
+            self.valid_extensions.insert(header);
+        }
     }
 
     pub fn set_include_order_from_str(&mut self, value: &str) -> bool {

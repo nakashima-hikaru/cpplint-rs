@@ -11,6 +11,3 @@
 ## 2026-05-15 - memchr-based substring search optimization for hot paths
 **Learning:** In highly-executed word matching functions (like `contains_word` and `contains_word_start`), searching for strings with `str::find` incurs measurable overhead. We discovered that since `memchr::memchr` is already part of our dependency tree (indirectly or via workspace dependencies), we can significantly accelerate these operations.
 **Action:** Replace `s[search_start..].find(word)` with a combined approach of `memchr::memchr(word.as_bytes()[0], &s.as_bytes()[search_start..])` followed by a direct byte slice comparison for the remaining characters. This avoids standard library overhead and achieves a ~9% speedup on macro-level benchmarks (`quantlib`).
-## 2026-05-24 - Pre-allocating via Extend for Iterators
-**Learning:** Found that when merging one `BTreeSet` or `HashSet` into another, `target.insert(element)` in a loop causes incremental re-allocations which is less optimal. Also, cloning the entire source collection just to iterate over it is inefficient.
-**Action:** Always prefer `target.extend(source.iter().cloned())` for performance. This avoids cloning the entire collection and allows the target collection to use the iterator's size hint to pre-allocate memory, preventing repeated internal re-allocations.
