@@ -136,16 +136,7 @@ fn has_ref_call(fncall: &str) -> bool {
 
 /// Manual replacement for OPERATOR_NAME_RE (`\boperator_*\b`).
 fn has_operator_name(line: &str) -> bool {
-    let mut offset = 0;
-    while let Some(pos) = line[offset..].find("operator") {
-        let start = offset + pos;
-        let end = start + 8;
-        if string_utils::is_word_match(line, start, end) {
-            return true;
-        }
-        offset = start + 1;
-    }
-    false
+    crate::string_utils::contains_word(line, "operator")
 }
 
 static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
@@ -1124,14 +1115,8 @@ fn check_spacing_for_function_call_base(
             "if", "elif", "for", "while", "switch", "return", "new", "delete", "catch", "sizeof",
         ];
         for keyword in &CONTROL_STRUCTS {
-            let mut search_start = 0;
-            while let Some(offset) = fncall[search_start..].find(keyword) {
-                let start = search_start + offset;
-                let end = start + keyword.len();
-                if string_utils::is_word_match(fncall, start, end) {
-                    return;
-                }
-                search_start = start + 1;
+            if crate::string_utils::contains_word(fncall, keyword) {
+                return;
             }
         }
     }
