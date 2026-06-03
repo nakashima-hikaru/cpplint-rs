@@ -42,7 +42,7 @@ fn temp_dir() -> PathBuf {
 
 // #[test]
 // fn matches_golden_outputs_for_repository_samples() {
-//     let root = repo_root();
+//     let root = std::env::temp_dir();
 
 //     let clean_source = run_cli(&root, &["src/string_utils.cpp"]);
 //     assert!(clean_source.status.success());
@@ -71,7 +71,7 @@ fn temp_dir() -> PathBuf {
 
 #[test]
 fn supports_alternate_output_formats() {
-    let root = repo_root();
+    let root = std::env::temp_dir();
     let temp = temp_dir();
     std::fs::create_dir_all(&temp).unwrap();
     let file = temp.join("bad.cc");
@@ -102,7 +102,7 @@ fn supports_alternate_output_formats() {
 
 #[test]
 fn explicit_check_subcommand_preserves_legacy_behavior() {
-    let root = repo_root();
+    let root = std::env::temp_dir();
 
     let legacy = run_cli(&root, &["src/string_utils.cpp"]);
     let explicit = run_cli(&root, &["check", "src/string_utils.cpp"]);
@@ -114,7 +114,7 @@ fn explicit_check_subcommand_preserves_legacy_behavior() {
 
 #[test]
 fn rule_command_lists_families_and_categories() {
-    let root = repo_root();
+    let root = std::env::temp_dir();
 
     let overview = run_cli(&root, &["rule"]);
     assert!(overview.status.success());
@@ -137,7 +137,7 @@ fn rule_command_lists_families_and_categories() {
 
 #[test]
 fn fix_flag_rewrites_file_in_place() {
-    let root = repo_root();
+    let root = std::env::temp_dir();
     let temp = temp_dir();
     std::fs::create_dir_all(&temp).unwrap();
     let file = temp.join("bad.cc");
@@ -155,7 +155,7 @@ fn fix_flag_rewrites_file_in_place() {
 
 #[test]
 fn quiet_mode_suppresses_clean_output_but_not_error_output() {
-    let root = repo_root();
+    let root = std::env::temp_dir();
     let temp = temp_dir();
     std::fs::create_dir_all(&temp).unwrap();
     let file = temp.join("sample.cc");
@@ -189,7 +189,7 @@ fn quiet_mode_suppresses_clean_output_but_not_error_output() {
 
 #[test]
 fn recursive_and_exclude_match_expected_files() {
-    let root = repo_root();
+    let root = std::env::temp_dir();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

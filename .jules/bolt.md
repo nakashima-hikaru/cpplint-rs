@@ -15,3 +15,7 @@
 ## 2026-05-31 - Fast path for ASCII string width
 **Learning:** Found that `UnicodeWidthChar::width` combined with `nfc()` normalization introduces massive overhead for calculating the display width of strings, even if they only contain standard ASCII characters. Because pure ASCII characters have a width of exactly 1 column and don't change size under NFC normalization, checking if the string is ASCII provides a massive shortcut.
 **Action:** Use an early return `if line.is_ascii() { return line.len(); }` before falling back to full unicode normalization and width calculation for line length calculations. This provides an over 100x speedup for pure ASCII lines.
+
+## 2026-06-03 - Use binary search on large sorted static arrays
+**Learning:** Found that searching for elements in large static string arrays (like `CPP_HEADERS` and `C_HEADERS` which contain ~200 items) using `.contains()` runs in linear $O(N)$ time. Since standard headers lists don't change at runtime, sorting them at compile-time and using `.binary_search(...).is_ok()` reduces this hot-path operation to $O(\log N)$.
+**Action:** For frequent lookups in large static slice arrays (e.g., standard header lists), keep the arrays sorted alphabetically and use `.binary_search(...).is_ok()` instead of `.contains()` to improve lookup time from O(N) to O(log N).
