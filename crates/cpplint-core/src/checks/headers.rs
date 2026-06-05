@@ -1051,7 +1051,9 @@ fn classify_include(
     include_order: IncludeOrder,
 ) -> IncludeKind {
     let include_str = include.to_string_lossy().replace('\\', "/");
-    let is_cpp_header = c_headers::CPP_HEADERS.contains(&include_str.as_str());
+    let is_cpp_header = c_headers::CPP_HEADERS
+        .binary_search(&include_str.as_str())
+        .is_ok();
     let include_ext = include
         .extension()
         .and_then(|ext| ext.to_str())
@@ -1060,7 +1062,9 @@ fn classify_include(
     let is_system =
         used_angle_brackets && !matches!(include_ext.as_str(), ".hh" | ".hpp" | ".hxx" | ".h++");
     let is_std_c_header = include_order == IncludeOrder::Default
-        || c_headers::C_HEADERS.contains(&include_str.as_str());
+        || c_headers::C_HEADERS
+            .binary_search(&include_str.as_str())
+            .is_ok();
 
     if is_system {
         return if is_cpp_header {

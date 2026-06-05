@@ -15,3 +15,7 @@
 ## 2026-05-31 - Fast path for ASCII string width
 **Learning:** Found that `UnicodeWidthChar::width` combined with `nfc()` normalization introduces massive overhead for calculating the display width of strings, even if they only contain standard ASCII characters. Because pure ASCII characters have a width of exactly 1 column and don't change size under NFC normalization, checking if the string is ASCII provides a massive shortcut.
 **Action:** Use an early return `if line.is_ascii() { return line.len(); }` before falling back to full unicode normalization and width calculation for line length calculations. This provides an over 100x speedup for pure ASCII lines.
+
+## 2026-06-05 - Binary search for headers check optimization
+**Learning:** We saw that looking up strings in large static arrays (e.g. standard header lists and error categories) using `.contains()` iterates over each item resulting in O(N) lookup time. Since the lists are static, they can be pre-sorted and then queried using `binary_search(...).is_ok()` for O(log N) performance. Testing with macro-level benchmarks shows that applying this fast search strategy reduces overhead and significantly improves runtime performance on string validation.
+**Action:** For frequent lookups in large static slice arrays, keep the arrays sorted alphabetically and use `.binary_search(...).is_ok()` instead of `.contains()` to improve lookup time from O(N) to O(log N).

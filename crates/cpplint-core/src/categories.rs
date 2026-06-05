@@ -238,13 +238,13 @@ pub const ERROR_CATEGORIES: &[&str] = &[
     "build/forward_decl",
     "build/header_guard",
     "build/include",
-    "build/include_subdir",
     "build/include_alpha",
     "build/include_order",
+    "build/include_subdir",
     "build/include_what_you_use",
+    "build/namespaces",
     "build/namespaces_headers",
     "build/namespaces_literals",
-    "build/namespaces",
     "build/printf_format",
     "build/storage_class",
     "legal/copyright",
@@ -266,8 +266,8 @@ pub const ERROR_CATEGORIES: &[&str] = &[
     "runtime/arrays",
     "runtime/casting",
     "runtime/explicit",
-    "runtime/int",
     "runtime/init",
+    "runtime/int",
     "runtime/invalid_increment",
     "runtime/member_string_references",
     "runtime/memset",
@@ -335,13 +335,13 @@ pub const OTHER_NOLINT_CATEGORY_PREFIXES: &[&str] = &[
 /// Returns true if the category is a valid error category.
 #[inline]
 pub fn is_error_category(category: &str) -> bool {
-    ERROR_CATEGORIES.contains(&category)
+    ERROR_CATEGORIES.binary_search(&category).is_ok()
 }
 
 /// Returns true if the category is a legacy error category.
 #[inline]
 pub fn is_legacy_error_category(category: &str) -> bool {
-    LEGACY_ERROR_CATEGORIES.contains(&category)
+    LEGACY_ERROR_CATEGORIES.binary_search(&category).is_ok()
 }
 
 /// Returns true if the category is from another tool (based on prefix).
