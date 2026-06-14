@@ -301,7 +301,7 @@ pub const ERROR_CATEGORIES: &[&str] = &[
 
 /// Error categories no longer enforced, but kept for backwards compatibility in NOLINT.
 pub const LEGACY_ERROR_CATEGORIES: &[&str] =
-    &["build/class", "readability/streams", "readability/function"];
+    &["build/class", "readability/function", "readability/streams"];
 
 /// Prefixes for categories from other tools (e.g., clang-tidy) that should be ignored in NOLINT.
 pub const OTHER_NOLINT_CATEGORY_PREFIXES: &[&str] = &[

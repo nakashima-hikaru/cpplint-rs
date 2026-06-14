@@ -130,9 +130,9 @@ const RULE_FAMILIES: &[RuleFamily] = &[
         categories: &[
             "build/header_guard",
             "build/include",
-            "build/include_subdir",
             "build/include_alpha",
             "build/include_order",
+            "build/include_subdir",
             "build/include_what_you_use",
         ],
     },
@@ -170,8 +170,8 @@ const RULE_FAMILIES: &[RuleFamily] = &[
             "runtime/arrays",
             "runtime/casting",
             "runtime/explicit",
-            "runtime/int",
             "runtime/init",
+            "runtime/int",
             "runtime/invalid_increment",
             "runtime/member_string_references",
             "runtime/memset",
@@ -195,9 +195,9 @@ const RULE_FAMILIES: &[RuleFamily] = &[
             "build/endif_comment",
             "build/explicit_make_pair",
             "build/forward_decl",
+            "build/namespaces",
             "build/namespaces_headers",
             "build/namespaces_literals",
-            "build/namespaces",
             "build/printf_format",
             "build/storage_class",
             "readability/alt_tokens",
@@ -242,7 +242,7 @@ impl RuleRegistry {
         self.families
             .iter()
             .copied()
-            .find(|family| family.categories.contains(&category))
+            .find(|family| family.categories.binary_search(&category).is_ok())
     }
 
     pub fn select(&self, query: &str) -> Option<RuleSelection> {
@@ -253,10 +253,12 @@ impl RuleRegistry {
         self.family_for_category(query).and_then(|family| {
             family
                 .categories
-                .iter()
-                .copied()
-                .find(|candidate| *candidate == query)
-                .map(|category| RuleSelection::Category { category, family })
+                .binary_search(&query)
+                .ok()
+                .map(|idx| RuleSelection::Category {
+                    category: family.categories[idx],
+                    family,
+                })
         })
     }
 
