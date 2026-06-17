@@ -15,6 +15,12 @@ static TODO_COMMENT_RE: LazyLock<Regex> =
 /// Also allows optional `slots` after the specifier (e.g., `public slots:`).
 /// Returns `(prefix_len, specifier_string, has_slots)` if matched.
 fn parse_access_specifier(line: &str) -> Option<(usize, &'static str, bool)> {
+    // ⚡ Bolt: Fast path - skip keyword searches if the line doesn't contain a colon.
+    // Valid access specifiers must end with `:`.
+    if !line.contains(':') {
+        return None;
+    }
+
     let bytes = line.as_bytes();
     for specifier in &["public", "private", "protected", "signals"] {
         let mut search_start = 0;
