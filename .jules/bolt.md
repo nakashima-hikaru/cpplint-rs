@@ -19,3 +19,6 @@
 ## 2026-06-05 - Binary search for headers check optimization
 **Learning:** We saw that looking up strings in large static arrays (e.g. standard header lists and error categories) using `.contains()` iterates over each item resulting in O(N) lookup time. Since the lists are static, they can be pre-sorted and then queried using `binary_search(...).is_ok()` for O(log N) performance. Testing with macro-level benchmarks shows that applying this fast search strategy reduces overhead and significantly improves runtime performance on string validation.
 **Action:** For frequent lookups in large static slice arrays, keep the arrays sorted alphabetically and use `.binary_search(...).is_ok()` instead of `.contains()` to improve lookup time from O(N) to O(log N).
+## 2026-06-17 - [Fast-Path Text Parsing with `str::contains`]
+**Learning:** In C++ linter hot paths (like `parse_access_specifier`), searching multiple keywords across strings is expensive. However, access specifiers always terminate with `:`. `line.contains(':')` avoids all keyword checks using `memchr`-accelerated SIMD instructions for lines that cannot logically match.
+**Action:** When a regex or multi-word search pattern requires a specific, single byte (e.g., `:`, `,`, or `{`), check for its presence first using `str::contains(char)` as a fast-path rejection before invoking complex matching logic.
