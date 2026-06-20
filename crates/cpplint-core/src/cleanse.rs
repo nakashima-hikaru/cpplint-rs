@@ -25,13 +25,6 @@ const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
     ("xor_eq", "^="),
 ];
 
-static ALT_TOKEN_AC: LazyLock<AhoCorasick> = LazyLock::new(|| {
-    AhoCorasickBuilder::new()
-        .match_kind(MatchKind::LeftmostLongest)
-        .build(ALT_TOKEN_REPLACEMENT.iter().map(|(token, _)| *token))
-        .unwrap()
-});
-
 const KEYWORDS: &[&str] = &[
     "if",
     "for",
@@ -404,13 +397,27 @@ fn is_valid_alt_token_match(bytes: &[u8], start: usize, end: usize) -> bool {
 pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
     let bytes = line.as_bytes();
     let mut matches = Vec::new();
-    for mat in ALT_TOKEN_AC.find_iter(line) {
-        let start = mat.start();
-        let end = mat.end();
-        if !is_valid_alt_token_match(bytes, start, end) {
-            continue;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if matches!(c, b'a' | b'b' | b'c' | b'n' | b'o' | b'x') {
+            let mut matched = false;
+            for &(token, replacement) in ALT_TOKEN_REPLACEMENT {
+                if line[i..].starts_with(token)
+                    && is_valid_alt_token_match(bytes, i, i + token.len())
+                {
+                    matches.push((token, replacement));
+                    i += token.len();
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                i += 1;
+            }
+        } else {
+            i += 1;
         }
-        matches.push(ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()]);
     }
     matches
 }
@@ -418,9 +425,21 @@ pub fn find_alternate_tokens(line: &str) -> Vec<(&'static str, &'static str)> {
 /// Returns true if the line contains at least one alternate token, without allocating.
 fn has_alternate_tokens(line: &str) -> bool {
     let bytes = line.as_bytes();
-    ALT_TOKEN_AC
-        .find_iter(line)
-        .any(|mat| is_valid_alt_token_match(bytes, mat.start(), mat.end()))
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if matches!(c, b'a' | b'b' | b'c' | b'n' | b'o' | b'x') {
+            for &(token, _) in ALT_TOKEN_REPLACEMENT {
+                if line[i..].starts_with(token)
+                    && is_valid_alt_token_match(bytes, i, i + token.len())
+                {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 fn scan_line_features(
@@ -1167,25 +1186,38 @@ pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
     let mut last = 0usize;
     let mut result = String::new();
 
-    for mat in ALT_TOKEN_AC.find_iter(line) {
-        let start = mat.start();
-        let end = mat.end();
-        if !is_valid_alt_token_match(bytes, start, end) {
-            continue;
-        }
-
-        if result.is_empty() {
-            result.reserve(line.len());
-        }
-
-        let (token, replacement) = ALT_TOKEN_REPLACEMENT[mat.pattern().as_usize()];
-        result.push_str(&line[last..start]);
-        result.push_str(replacement);
-        last = if end < bytes.len() && matches!(token, "not" | "compl") && bytes[end] == b' ' {
-            end + 1
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if matches!(c, b'a' | b'b' | b'c' | b'n' | b'o' | b'x') {
+            let mut matched = false;
+            for &(token, replacement) in ALT_TOKEN_REPLACEMENT {
+                let end = i + token.len();
+                if line[i..].starts_with(token) && is_valid_alt_token_match(bytes, i, end) {
+                    if result.is_empty() {
+                        result.reserve(line.len());
+                    }
+                    result.push_str(&line[last..i]);
+                    result.push_str(replacement);
+                    last = if end < bytes.len()
+                        && matches!(token, "not" | "compl")
+                        && bytes[end] == b' '
+                    {
+                        end + 1
+                    } else {
+                        end
+                    };
+                    i = last;
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                i += 1;
+            }
         } else {
-            end
-        };
+            i += 1;
+        }
     }
 
     if result.is_empty() {
