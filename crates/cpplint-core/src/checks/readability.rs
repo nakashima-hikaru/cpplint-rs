@@ -40,9 +40,6 @@ fn is_check_const(s: &str) -> bool {
     });
     CHECK_CONST_RE.is_match(s.trim())
 }
-const INHERITANCE_KEYWORDS: [&str; 3] = ["virtual", "override", "final"];
-static INHERITANCE_KEYWORDS_AC: LazyLock<AhoCorasick> =
-    LazyLock::new(|| AhoCorasick::new(INHERITANCE_KEYWORDS).unwrap());
 
 const CHECK_MACROS: [crate::messages::CheckMacroName; 6] = [
     crate::messages::CheckMacroName::Dcheck,
@@ -936,38 +933,35 @@ fn check_redundant_virtuals(
     linenum: usize,
 ) {
     let trimmed = elided_line.trim();
-    let mut keyword_flags = 0u8;
-    for mat in INHERITANCE_KEYWORDS_AC.find_iter(trimmed) {
-        if !string_utils::is_word_match(trimmed, mat.start(), mat.end()) {
-            continue;
-        }
-        keyword_flags |= 1 << mat.pattern().as_usize();
-        if keyword_flags == 0b111 {
-            break;
-        }
-    }
-    let has_virtual = keyword_flags & 0b001 != 0;
-    let has_override = keyword_flags & 0b010 != 0;
-    let has_final = keyword_flags & 0b100 != 0;
 
-    if has_virtual && (has_override || has_final) {
-        linter.error(
-            linenum,
-            Category::ReadabilityInheritance,
-            4,
-            crate::messages::LintMessage::RedundantVirtual,
-        );
-        return;
-    }
+    // ⚡ Bolt: Fast-path AhoCorasick removal.
+    // `contains_word` (memchr-based) is significantly faster for small, static keyword sets.
+    // We only need to check for override and final if we know we have virtual or override respectively.
+    let has_virtual = string_utils::contains_word(trimmed, "virtual");
+    let has_override = string_utils::contains_word(trimmed, "override");
 
-    if has_override && has_final {
-        linter.error(
-            linenum,
-            Category::ReadabilityInheritance,
-            4,
-            crate::messages::LintMessage::RedundantOverride,
-        );
-        return;
+    if has_virtual {
+        let has_final = string_utils::contains_word(trimmed, "final");
+        if has_override || has_final {
+            linter.error(
+                linenum,
+                Category::ReadabilityInheritance,
+                4,
+                crate::messages::LintMessage::RedundantVirtual,
+            );
+            return;
+        }
+    } else if has_override {
+        let has_final = string_utils::contains_word(trimmed, "final");
+        if has_final {
+            linter.error(
+                linenum,
+                Category::ReadabilityInheritance,
+                4,
+                crate::messages::LintMessage::RedundantOverride,
+            );
+            return;
+        }
     }
 
     if !(trimmed == "override;"
@@ -983,10 +977,7 @@ fn check_redundant_virtuals(
     else {
         return;
     };
-    let prev_has_virtual = INHERITANCE_KEYWORDS_AC.find_iter(prev_line).any(|mat| {
-        mat.pattern().as_usize() == 0
-            && string_utils::is_word_match(prev_line, mat.start(), mat.end())
-    });
+    let prev_has_virtual = string_utils::contains_word(prev_line, "virtual");
     if prev_has_virtual {
         linter.error(
             linenum,
