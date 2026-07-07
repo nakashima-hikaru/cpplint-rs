@@ -22,3 +22,7 @@
 ## 2026-06-17 - [Fast-Path Text Parsing with `str::contains`]
 **Learning:** In C++ linter hot paths (like `parse_access_specifier`), searching multiple keywords across strings is expensive. However, access specifiers always terminate with `:`. `line.contains(':')` avoids all keyword checks using `memchr`-accelerated SIMD instructions for lines that cannot logically match.
 **Action:** When a regex or multi-word search pattern requires a specific, single byte (e.g., `:`, `,`, or `{`), check for its presence first using `str::contains(char)` as a fast-path rejection before invoking complex matching logic.
+
+## 2026-07-07 - Avoid format!() allocation in hot loops
+**Learning:** Found a performance bottleneck in `check_disallow_macros_at_end` (and potentially others) where `format!("{macro_name}({class_name})")` was dynamically allocating a String on every iteration of a loop checking lines for macro occurrences. Inside hot paths like per-line iteration or token checking, heap allocation adds up significantly.
+**Action:** Replace `format!()` with string slice index verification using `.find()` combined with `.starts_with()` checks. This allows searching for dynamically combined substrings entirely without heap allocation.
