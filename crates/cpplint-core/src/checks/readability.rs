@@ -1239,11 +1239,20 @@ fn check_disallow_macros_at_end(
     }
 
     let mut seen_last_thing_in_class = false;
+    // ⚡ Bolt: Avoid format!() allocation inside hot loops by pre-formatting the full strings outside the loop.
+    let copy_macro = format!("DISALLOW_COPY_AND_ASSIGN({class_name})");
+    let implicit_macro = format!("DISALLOW_IMPLICIT_CONSTRUCTORS({class_name})");
+    let macros_to_check = [
+        ("DISALLOW_COPY_AND_ASSIGN", copy_macro.as_str()),
+        ("DISALLOW_IMPLICIT_CONSTRUCTORS", implicit_macro.as_str()),
+    ];
+
     for i in (class_range.start + 1..linenum).rev() {
         let line = clean_lines.elided[i];
-        let matched_macro = ["DISALLOW_COPY_AND_ASSIGN", "DISALLOW_IMPLICIT_CONSTRUCTORS"]
-            .into_iter()
-            .find(|macro_name| line.contains(&format!("{macro_name}({class_name})")));
+        let matched_macro = macros_to_check
+            .iter()
+            .find(|&(_, macro_str)| line.contains(macro_str))
+            .map(|&(name, _)| name);
 
         if let Some(macro_name) = matched_macro {
             if seen_last_thing_in_class {
