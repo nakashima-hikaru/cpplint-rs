@@ -760,7 +760,13 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
                     .chars()
                     .take_while(|ch| ch.is_whitespace())
                     .collect::<String>();
-                new_line = format!("{}\"\"{}", leading_space, &line[pos + delimiter.len()..]);
+                // ⚡ Bolt: Avoid format!() allocation
+                let rest = &line[pos + delimiter.len()..];
+                let mut tmp = String::with_capacity(leading_space.len() + 2 + rest.len());
+                tmp.push_str(&leading_space);
+                tmp.push_str("\"\"");
+                tmp.push_str(rest);
+                new_line = tmp;
                 delimiter.clear();
             } else {
                 new_line = "\"\"".to_string();
@@ -776,12 +782,28 @@ pub fn cleanse_raw_strings(raw_lines: &[String]) -> Vec<String> {
                 break;
             }
 
-            delimiter = format!("){}\"", raw_delimiter);
+            // ⚡ Bolt: Avoid format!() allocation
+            delimiter.clear();
+            delimiter.reserve(raw_delimiter.len() + 2);
+            delimiter.push(')');
+            delimiter.push_str(raw_delimiter);
+            delimiter.push('"');
+
             if let Some(end) = suffix.find(&delimiter) {
-                new_line = format!("{}\"\"{}", prefix, &suffix[end + delimiter.len()..]);
+                // ⚡ Bolt: Avoid format!() allocation
+                let rest = &suffix[end + delimiter.len()..];
+                let mut tmp = String::with_capacity(prefix.len() + 2 + rest.len());
+                tmp.push_str(prefix);
+                tmp.push_str("\"\"");
+                tmp.push_str(rest);
+                new_line = tmp;
                 delimiter.clear();
             } else {
-                new_line = format!("{}\"\"", prefix);
+                // ⚡ Bolt: Avoid format!() allocation
+                let mut tmp = String::with_capacity(prefix.len() + 2);
+                tmp.push_str(prefix);
+                tmp.push_str("\"\"");
+                new_line = tmp;
             }
         }
         result.push(new_line);
