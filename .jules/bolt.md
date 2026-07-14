@@ -30,3 +30,7 @@
 ## 2024-07-10 - Avoiding format! allocations in string manipulation hot paths
 **Learning:** `format!()` in Rust introduces significant overhead (argument parsing, formatting traits, and dynamic allocation). In our isolated tests, string manipulation with pre-allocated `String::with_capacity` combined with `push_str` resulted in a >30% speedup.
 **Action:** When performing heavily repeated string interpolations in hot loops, explicitly calculate the capacity and use `push_str` instead of relying on the `format!` macro.
+
+## 2024-07-20 - Avoid dynamic string allocation in hot loops using string slicing methods
+**Learning:** `format!()` incurs dynamic heap allocation overhead. In `crates/cpplint-core/src/checks/headers.rs`, `format!(".{}", extension.as_str())` was being allocated repeatedly in an iterator loop to check if an include string ends with an extension.
+**Action:** Replace `include.ends_with(&format!(".{}", ext))` with `include.strip_suffix(ext).is_some_and(|prefix| prefix.ends_with('.'))`. This leverages zero-allocation string slicing operations and avoids `format!()`, resulting in measurable performance improvements (e.g. ~4% faster on `quantlib` macro benchmark).

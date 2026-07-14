@@ -980,9 +980,12 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             continue;
         }
 
+        // ⚡ Bolt: Avoid format!() allocation in hot loop by using strip_suffix and ends_with
         let includes_non_header_from_other_package =
             non_header_extensions.iter().find(|extension| {
-                include.ends_with(&format!(".{}", extension.as_str()))
+                include
+                    .strip_suffix(extension.as_str())
+                    .is_some_and(|prefix| prefix.ends_with('.'))
                     && file_from_repo_dir
                         != Path::new(include).parent().unwrap_or_else(|| Path::new(""))
             });
