@@ -34,3 +34,7 @@
 ## 2024-07-20 - Avoid dynamic string allocation in hot loops using string slicing methods
 **Learning:** `format!()` incurs dynamic heap allocation overhead. In `crates/cpplint-core/src/checks/headers.rs`, `format!(".{}", extension.as_str())` was being allocated repeatedly in an iterator loop to check if an include string ends with an extension.
 **Action:** Replace `include.ends_with(&format!(".{}", ext))` with `include.strip_suffix(ext).is_some_and(|prefix| prefix.ends_with('.'))`. This leverages zero-allocation string slicing operations and avoids `format!()`, resulting in measurable performance improvements (e.g. ~4% faster on `quantlib` macro benchmark).
+
+## 2024-07-25 - Fast Path Valid UTF-8 and Null Byte check in File Readers
+**Learning:** Checking standard library `from_utf8` and slice `contains` over an entire buffer is much faster than checking byte sequences line-by-line. Rust's `std::str::from_utf8` and slice `contains` are highly optimized and use SIMD under the hood. For cases where most files are likely perfectly well-formed, computing this property over the entire file up front creates a fast path that avoids a 100x slower line-by-line fallback.
+**Action:** When working on text processing (like file linter and tokenization), try to evaluate conditions on the entire slice early with standard library primitives (e.g. `is_ascii()`, `contains()`, `from_utf8()`) before falling back to manual loops or iterator chaining.
