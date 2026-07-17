@@ -32,13 +32,22 @@ pub(crate) fn read_raw_bytes(path: &Path) -> Result<Vec<u8>> {
 pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     let mut invalid_utf8_lines = Vec::new();
     let mut null_lines = Vec::new();
-    for (linenum, raw_line) in bytes.split(|&byte| byte == b'\n').enumerate() {
-        let line_bytes = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
-        if std::str::from_utf8(line_bytes).is_err() {
-            invalid_utf8_lines.push(linenum);
-        }
-        if line_bytes.contains(&b'\0') {
-            null_lines.push(linenum);
+
+    // ⚡ Bolt: Fast path for files that are fully valid UTF-8 and contain no null bytes.
+    // The standard library `from_utf8` and slice `contains` are highly optimized and
+    // process the entire buffer much faster than checking line-by-line.
+    let all_valid_utf8 = std::str::from_utf8(bytes).is_ok();
+    let has_null = bytes.contains(&b'\0');
+
+    if !all_valid_utf8 || has_null {
+        for (linenum, raw_line) in bytes.split(|&byte| byte == b'\n').enumerate() {
+            let line_bytes = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+            if !all_valid_utf8 && std::str::from_utf8(line_bytes).is_err() {
+                invalid_utf8_lines.push(linenum);
+            }
+            if has_null && line_bytes.contains(&b'\0') {
+                null_lines.push(linenum);
+            }
         }
     }
 
