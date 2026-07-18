@@ -1002,11 +1002,20 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
         }
 
         let include_has_alias = include.contains("./") || include.contains("../");
-        let third_src_header = !include_has_alias
-            && header_extensions.iter().any(|ext| {
-                let headername = format!("{}.{}", basefilename_relative, ext);
+        let third_src_header = if include_has_alias {
+            false
+        } else {
+            // ⚡ Bolt: Avoid format!() allocation in hot loop by reusing a pre-allocated string
+            let mut headername = String::with_capacity(basefilename_relative.len() + 8);
+            headername.push_str(&basefilename_relative);
+            headername.push('.');
+            let base_len = headername.len();
+            header_extensions.iter().any(|ext| {
+                headername.truncate(base_len);
+                headername.push_str(ext);
                 headername.contains(include) || include.contains(&headername)
-            });
+            })
+        };
         if third_src_header || !is_special_include_name(include) {
             include_state
                 .last_include_list_mut()
@@ -1131,9 +1140,12 @@ fn normalize_module_path(path: &Path) -> String {
 fn path_without_extension(path: &Path) -> String {
     let mut value = path.to_string_lossy().replace('\\', "/");
     if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
-        let ext_with_dot = format!(".{ext}");
-        if value.ends_with(&ext_with_dot) {
-            value.truncate(value.len().saturating_sub(ext_with_dot.len()));
+        // ⚡ Bolt: Avoid format!(".{ext}") allocation by directly using lengths
+        let ext_len_with_dot = ext.len() + 1;
+        if value.len() >= ext_len_with_dot
+            && value[value.len() - ext_len_with_dot..].starts_with('.')
+        {
+            value.truncate(value.len() - ext_len_with_dot);
         }
     }
     value
