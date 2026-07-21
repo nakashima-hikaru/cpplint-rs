@@ -26,7 +26,7 @@ thread_local! {
             .expect("tree-sitter-cpp language should initialize");
         parser
     });
-    static LAST_PARSED_LINE: RefCell<Option<(Arc<str>, Tree)>> = const { RefCell::new(None) };
+    static LAST_PARSED_LINE: RefCell<Option<(u64, Arc<str>, Tree)>> = const { RefCell::new(None) };
 }
 
 #[derive(Debug)]
@@ -57,11 +57,12 @@ pub(crate) struct InvalidIncrementExpression<'tree> {
 
 impl ParsedLine {
     pub(crate) fn parse(line: &str) -> Option<Self> {
+        let line_hash = fxhash::hash64(line.as_bytes());
         if let Some((source, tree)) = LAST_PARSED_LINE.with_borrow(|cached| {
             cached
                 .as_ref()
-                .filter(|(source, _)| source.as_ref() == line)
-                .map(|(source, tree)| (source.clone(), tree.clone()))
+                .filter(|(hash, source, _)| *hash == line_hash && source.as_ref() == line)
+                .map(|(_, source, tree)| (source.clone(), tree.clone()))
         }) {
             return Some(Self { source, tree });
         }
@@ -69,7 +70,7 @@ impl ParsedLine {
         let tree = CPP_PARSER.with_borrow_mut(|parser| parser.parse(line, None))?;
         let source: Arc<str> = Arc::from(line);
         LAST_PARSED_LINE.with_borrow_mut(|cached| {
-            *cached = Some((source.clone(), tree.clone()));
+            *cached = Some((line_hash, source.clone(), tree.clone()));
         });
         Some(Self { source, tree })
     }

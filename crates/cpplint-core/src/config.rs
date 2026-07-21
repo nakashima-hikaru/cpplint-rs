@@ -318,6 +318,7 @@ fn apply_config_layer(
 ) {
     messages.extend(config.messages.iter().cloned());
     options.filters.extend(config.filters.clone());
+    options.recompute_category_defaults();
 
     if let Some(line_length) = config.line_length {
         options.line_length = line_length;

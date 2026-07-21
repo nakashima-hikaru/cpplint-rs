@@ -72,6 +72,83 @@ pub enum Category {
 }
 
 impl Category {
+    pub const COUNT: usize = 67;
+
+    #[inline]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const ALL: &'static [Category] = &[
+        Self::BuildCpp11,
+        Self::BuildCpp17,
+        Self::BuildDeprecated,
+        Self::BuildEndifComment,
+        Self::BuildExplicitMakePair,
+        Self::BuildForwardDecl,
+        Self::BuildHeaderGuard,
+        Self::BuildInclude,
+        Self::BuildIncludeSubdir,
+        Self::BuildIncludeAlpha,
+        Self::BuildIncludeOrder,
+        Self::BuildIncludeWhatYouUse,
+        Self::BuildNamespacesHeaders,
+        Self::BuildNamespacesLiterals,
+        Self::BuildNamespaces,
+        Self::BuildPrintfFormat,
+        Self::BuildStorageClass,
+        Self::LegalCopyright,
+        Self::ReadabilityAltTokens,
+        Self::ReadabilityBraces,
+        Self::ReadabilityCasting,
+        Self::ReadabilityCheck,
+        Self::ReadabilityConstructors,
+        Self::ReadabilityFnSize,
+        Self::ReadabilityInheritance,
+        Self::ReadabilityMultilineComment,
+        Self::ReadabilityMultilineString,
+        Self::ReadabilityNamespace,
+        Self::ReadabilityNolint,
+        Self::ReadabilityNul,
+        Self::ReadabilityStrings,
+        Self::ReadabilityTodo,
+        Self::ReadabilityUtf8,
+        Self::RuntimeArrays,
+        Self::RuntimeCasting,
+        Self::RuntimeExplicit,
+        Self::RuntimeInt,
+        Self::RuntimeInit,
+        Self::RuntimeInvalidIncrement,
+        Self::RuntimeMemberStringReferences,
+        Self::RuntimeMemset,
+        Self::RuntimeOperator,
+        Self::RuntimePrintf,
+        Self::RuntimePrintfFormat,
+        Self::RuntimeReferences,
+        Self::RuntimeString,
+        Self::RuntimeThreadsafeFn,
+        Self::RuntimeVlog,
+        Self::WhitespaceBlankLine,
+        Self::WhitespaceBraces,
+        Self::WhitespaceComma,
+        Self::WhitespaceComments,
+        Self::WhitespaceEmptyConditionalBody,
+        Self::WhitespaceEmptyIfBody,
+        Self::WhitespaceEmptyLoopBody,
+        Self::WhitespaceEndOfLine,
+        Self::WhitespaceEndingNewline,
+        Self::WhitespaceForcolon,
+        Self::WhitespaceIndent,
+        Self::WhitespaceIndentNamespace,
+        Self::WhitespaceLineLength,
+        Self::WhitespaceNewline,
+        Self::WhitespaceOperators,
+        Self::WhitespaceParens,
+        Self::WhitespaceSemicolon,
+        Self::WhitespaceTab,
+        Self::WhitespaceTodo,
+    ];
+
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::BuildCpp11 => "build/c++11",

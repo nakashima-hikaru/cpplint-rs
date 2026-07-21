@@ -92,11 +92,13 @@ pub struct Options {
     pub include_order: IncludeOrder,
     pub filters: Vec<Filter>,
     pub timing: bool,
+    category_defaults: [bool; crate::categories::Category::COUNT],
+    has_specific_filters: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self {
+        let mut opts = Self {
             root: PathBuf::new(),
             repository: PathBuf::new(),
             line_length: DEFAULT_LINE_LENGTH,
@@ -115,13 +117,36 @@ impl Default for Options {
                 .map(|value| Filter::new(value))
                 .collect(),
             timing: false,
-        }
+            category_defaults: [true; crate::categories::Category::COUNT],
+            has_specific_filters: false,
+        };
+        opts.recompute_category_defaults();
+        opts
     }
 }
 
 impl Options {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn recompute_category_defaults(&mut self) {
+        self.has_specific_filters = self
+            .filters
+            .iter()
+            .any(|f| f.file.is_some() || f.linenum.is_some());
+        for &cat in crate::categories::Category::ALL {
+            let mut result = true;
+            for filter in &self.filters {
+                if filter.file.is_none()
+                    && filter.linenum.is_none()
+                    && cat.as_str().starts_with(&filter.category)
+                {
+                    result = filter.sign;
+                }
+            }
+            self.category_defaults[cat.index()] = result;
+        }
     }
 
     pub fn all_extensions(&self) -> FxHashSet<String> {
@@ -168,10 +193,15 @@ impl Options {
         filename: &str,
         linenum: usize,
     ) -> bool {
-        let mut result = true;
+        if !self.has_specific_filters {
+            return self.category_defaults[category.index()];
+        }
+        let mut result = self.category_defaults[category.index()];
         for filter in &self.filters {
-            if filter.is_matched(category.as_str(), filename, linenum) {
-                result = filter.sign;
+            if filter.file.is_some() || filter.linenum.is_some() {
+                if filter.is_matched(category.as_str(), filename, linenum) {
+                    result = filter.sign;
+                }
             }
         }
         result
@@ -213,6 +243,7 @@ impl Options {
 
     pub fn add_filter(&mut self, filter_str: &str) {
         self.filters.push(Filter::new(filter_str));
+        self.recompute_category_defaults();
     }
 
     pub fn add_filters(&mut self, filters: &str) -> bool {
@@ -220,6 +251,7 @@ impl Options {
             return false;
         };
         self.filters.extend(parsed);
+        self.recompute_category_defaults();
         true
     }
 }
