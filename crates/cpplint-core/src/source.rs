@@ -34,7 +34,7 @@ impl SourceFile {
             invalid_utf8_lines,
             null_lines,
         } = file_reader::scan_raw_lines(&bytes);
-        let decoded = file_reader::decode_bytes(bytes)?;
+        let decoded = file_reader::decode_bytes(&bytes)?;
         Ok(DecodedSource::from_decoded_text(
             arena,
             self.clone(),

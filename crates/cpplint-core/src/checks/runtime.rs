@@ -470,11 +470,14 @@ fn expecting_function_args(
     elided_line: &str,
     linenum: usize,
 ) -> bool {
-    EXPECTING_MOCK_RE.is_match(elided_line)
+    (elided_line.contains("MOCK_") && EXPECTING_MOCK_RE.is_match(elided_line))
         || (linenum >= 2
-            && (EXPECTING_MOCK2_RE.is_match(clean_lines.elided[linenum - 1])
-                || EXPECTING_MOCK3_RE.is_match(clean_lines.elided[linenum - 2])
-                || EXPECTING_STD_FUNCTION_RE.is_match(clean_lines.elided[linenum - 1])))
+            && ((clean_lines.elided[linenum - 1].contains("MOCK_")
+                && EXPECTING_MOCK2_RE.is_match(clean_lines.elided[linenum - 1]))
+                || (clean_lines.elided[linenum - 2].contains("MOCK_")
+                    && EXPECTING_MOCK3_RE.is_match(clean_lines.elided[linenum - 2]))
+                || (clean_lines.elided[linenum - 1].contains("function")
+                    && EXPECTING_STD_FUNCTION_RE.is_match(clean_lines.elided[linenum - 1]))))
 }
 
 fn check_c_style_cast(

@@ -44,21 +44,18 @@ struct ClassFact<'a> {
     kind: ClassKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct LineFact {
-    pub class_fact_index: Option<NonZeroU32>,
-    pub namespace_top_level_depth: Option<NonZeroU8>,
-    pub matching_block_start: Option<NonZeroU32>,
-    pub block_kind: Option<ScopeKind>,
-    pub namespace_decl_line: Option<NonZeroU32>,
-    pub non_namespace_indent_depth_before: u16,
-    pub non_namespace_indent_depth: u16,
-}
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileFacts<'a> {
     class_facts: Vec<ClassFact<'a>>,
-    line_facts: Vec<LineFact>,
+    class_fact_indices: Vec<Option<NonZeroU32>>,
+    namespace_top_level_depths: Vec<Option<NonZeroU8>>,
+    matching_block_starts: Vec<Option<NonZeroU32>>,
+    block_kinds: Vec<Option<ScopeKind>>,
+    namespace_decl_lines: Vec<Option<NonZeroU32>>,
+    non_namespace_indent_depths_before: Vec<u16>,
+    non_namespace_indent_depths: Vec<u16>,
     non_blank_elided_prefix: Vec<u32>,
 }
 
@@ -73,7 +70,12 @@ impl<'a> FileFacts<'a> {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn new(clean_lines: &CleansedLines<'a>) -> Self {
         let n = clean_lines.elided.len();
-        let mut line_facts = vec![LineFact::default(); n];
+        let mut namespace_top_level_depths = vec![None; n];
+        let mut matching_block_starts = vec![None; n];
+        let mut block_kinds = vec![None; n];
+        let mut namespace_decl_lines = vec![None; n];
+        let mut non_namespace_indent_depths_before = vec![0u16; n];
+        let mut non_namespace_indent_depths = vec![0u16; n];
         let mut matching_block_ends: Vec<Option<NonZeroU32>> = vec![None; n];
         let mut non_blank_elided_prefix = Vec::with_capacity(n + 1);
         non_blank_elided_prefix.push(0);
@@ -116,8 +118,8 @@ impl<'a> FileFacts<'a> {
                 if trimmed_elided.starts_with('{') {
                     ns_ext_stack.push(scope);
                     if scope == ScopeKind::Namespace {
-                        line_facts[linenum].block_kind = Some(ScopeKind::Namespace);
-                        line_facts[linenum].namespace_decl_line = last_namespace_decl;
+                        block_kinds[linenum] = Some(ScopeKind::Namespace);
+                        namespace_decl_lines[linenum] = last_namespace_decl;
                     }
                     if matches!(scope, ScopeKind::Namespace | ScopeKind::Extern) {
                         ns_ext_depth += 1;
@@ -140,8 +142,8 @@ impl<'a> FileFacts<'a> {
             if pending_ns_ext_scope.is_none() {
                 if l_braces > 0 && last_namespace_decl.is_some() {
                     ns_ext_stack.push(ScopeKind::Namespace);
-                    line_facts[linenum].block_kind = Some(ScopeKind::Namespace);
-                    line_facts[linenum].namespace_decl_line = last_namespace_decl;
+                    block_kinds[linenum] = Some(ScopeKind::Namespace);
+                    namespace_decl_lines[linenum] = last_namespace_decl;
                     ns_ext_depth += 1;
                     for _ in 1..l_braces {
                         ns_ext_stack.push(ScopeKind::Block);
@@ -157,8 +159,8 @@ impl<'a> FileFacts<'a> {
                 } else if trimmed_elided.starts_with("namespace") {
                     if l_braces > 0 {
                         ns_ext_stack.push(ScopeKind::Namespace);
-                        line_facts[linenum].block_kind = Some(ScopeKind::Namespace);
-                        line_facts[linenum].namespace_decl_line =
+                        block_kinds[linenum] = Some(ScopeKind::Namespace);
+                        namespace_decl_lines[linenum] =
                             u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
                         ns_ext_depth += 1;
                         for _ in 1..l_braces {
@@ -189,11 +191,11 @@ impl<'a> FileFacts<'a> {
             }
 
             // 3b. namespace_top_level_depth
-            line_facts[linenum].non_namespace_indent_depth_before = top_non_namespace_depth as u16;
+            non_namespace_indent_depths_before[linenum] = top_non_namespace_depth as u16;
 
-            line_facts[linenum].namespace_top_level_depth =
+            namespace_top_level_depths[linenum] =
                 u8::try_from(top_ns_depth).ok().and_then(NonZeroU8::new);
-            if l_braces > 0 && line_facts[linenum].block_kind == Some(ScopeKind::Namespace) {
+            if l_braces > 0 && block_kinds[linenum] == Some(ScopeKind::Namespace) {
                 top_ns_stack.push(ScopeKind::Namespace);
                 top_ns_depth += 1;
                 for _ in 1..l_braces {
@@ -232,7 +234,7 @@ impl<'a> FileFacts<'a> {
                     }
                 }
             }
-            line_facts[linenum].non_namespace_indent_depth = top_non_namespace_depth as u16;
+            non_namespace_indent_depths[linenum] = top_non_namespace_depth as u16;
 
             // 3d. matching_block_starts
             for _ in 0..l_braces {
@@ -246,78 +248,84 @@ impl<'a> FileFacts<'a> {
                     last_popped = Some(start);
                 }
             }
-            line_facts[linenum].matching_block_start =
+            matching_block_starts[linenum] =
                 last_popped.and_then(|line| u32::try_from(line + 1).ok().and_then(NonZeroU32::new));
         }
 
-        let (class_facts, class_fact_by_line) = build_class_facts(
+        let (class_facts, class_fact_indices) = build_class_facts(
             clean_lines.elided.as_slice(),
             &line_braces,
             &matching_block_ends,
         );
 
-        for (i, class_idx) in class_fact_by_line.into_iter().enumerate() {
-            line_facts[i].class_fact_index = class_idx;
-        }
-
         Self {
             class_facts,
-            line_facts,
+            class_fact_indices,
+            namespace_top_level_depths,
+            matching_block_starts,
+            block_kinds,
+            namespace_decl_lines,
+            non_namespace_indent_depths_before,
+            non_namespace_indent_depths,
             non_blank_elided_prefix,
         }
     }
 
     pub fn enclosing_class_range(&self, linenum: usize) -> Option<ClassRange> {
-        self.line_facts
+        self.class_fact_indices
             .get(linenum)
-            .and_then(|fact| fact.class_fact_index.map(|nz| self.class_facts[nz.get() as usize - 1].range))
+            .copied()
+            .flatten()
+            .map(|nz| self.class_facts[nz.get() as usize - 1].range)
     }
 
     pub fn nearest_class_name(&self, linenum: usize) -> Option<&str> {
-        self.line_facts.get(linenum).and_then(|fact| {
-            fact.class_fact_index.and_then(|nz| {
+        self.class_fact_indices
+            .get(linenum)
+            .copied()
+            .flatten()
+            .and_then(|nz| {
                 let name = self.class_facts[nz.get() as usize - 1].name;
                 (!name.is_empty()).then_some(name)
             })
-        })
     }
 
     pub fn enclosing_class_kind(&self, linenum: usize) -> Option<ClassKind> {
-        self.line_facts
+        self.class_fact_indices
             .get(linenum)
-            .and_then(|fact| fact.class_fact_index.map(|nz| self.class_facts[nz.get() as usize - 1].kind))
+            .copied()
+            .flatten()
+            .map(|nz| self.class_facts[nz.get() as usize - 1].kind)
     }
 
     pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroU8> {
-        self.line_facts
-            .get(linenum)
-            .and_then(|fact| fact.namespace_top_level_depth)
+        self.namespace_top_level_depths.get(linenum).copied().flatten()
     }
 
     pub fn non_namespace_indent_depth_before(&self, linenum: usize) -> usize {
-        self.line_facts
+        self.non_namespace_indent_depths_before
             .get(linenum)
-            .map(|fact| fact.non_namespace_indent_depth_before as usize)
-            .unwrap_or(0)
+            .copied()
+            .unwrap_or(0) as usize
     }
 
     pub fn non_namespace_indent_depth(&self, linenum: usize) -> usize {
-        self.line_facts
+        self.non_namespace_indent_depths
             .get(linenum)
-            .map(|fact| fact.non_namespace_indent_depth as usize)
-            .unwrap_or(0)
+            .copied()
+            .unwrap_or(0) as usize
     }
 
     pub fn block_kind(&self, linenum: usize) -> Option<ScopeKind> {
-        self.line_facts.get(linenum).and_then(|fact| fact.block_kind)
+        self.block_kinds.get(linenum).copied().flatten()
     }
 
     pub fn namespace_decl_line(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts.get(linenum).and_then(|fact| fact.namespace_decl_line)
+        self.namespace_decl_lines.get(linenum).copied().flatten()
     }
 
     pub fn matching_block_start(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts.get(linenum).and_then(|fact| fact.matching_block_start)
+        self.matching_block_starts.get(linenum).copied().flatten()
     }
 
     pub fn non_blank_elided_lines_between(

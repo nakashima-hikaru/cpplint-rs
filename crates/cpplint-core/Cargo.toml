@@ -27,6 +27,7 @@ parking_lot.workspace = true
 rayon.workspace = true
 fxhash.workspace = true
 memchr.workspace = true
+memmap2.workspace = true
 hotpath = { workspace = true, optional = true }
 bumpalo = { version = "3.20.2", features = ["collections"] }
 bitflags = "2.11.1"

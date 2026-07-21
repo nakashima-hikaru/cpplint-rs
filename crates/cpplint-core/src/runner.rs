@@ -337,7 +337,11 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
 
         let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
         if config.recursive && canonical.is_dir() {
-            collected.extend(expand_directory(&canonical, &config.options));
+            collected.extend(expand_directory(
+                &canonical,
+                &config.options,
+                config.num_threads.get(),
+            ));
         } else {
             collected.push(canonical);
         }
@@ -487,7 +491,7 @@ fn should_exclude(file: &Path, excludes: &[GlobPattern]) -> bool {
     excludes.iter().any(|pattern| pattern.is_match(&normalized))
 }
 
-fn expand_directory(directory: &Path, options: &Options) -> Vec<PathBuf> {
+fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<PathBuf> {
     let mut walk = WalkBuilder::new(directory);
     walk.hidden(false)
         .git_ignore(false)
@@ -495,20 +499,45 @@ fn expand_directory(directory: &Path, options: &Options) -> Vec<PathBuf> {
         .parents(false)
         .ignore(false);
 
-    let mut files = Vec::new();
-    for entry in walk.build().flatten() {
-        if !entry
-            .file_type()
-            .is_some_and(|file_type| file_type.is_file())
-        {
-            continue;
+    if threads <= 1 {
+        let mut files = Vec::new();
+        for entry in walk.build().flatten() {
+            if !entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
+            {
+                continue;
+            }
+            let path = entry.into_path();
+            if options.is_valid_file(&path) {
+                files.push(path);
+            }
         }
-        let path = entry.into_path();
-        if options.is_valid_file(&path) {
-            files.push(path);
-        }
+        files
+    } else {
+        walk.threads(threads);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let walker = walk.build_parallel();
+        walker.run(|| {
+            let tx = tx.clone();
+            Box::new(move |result| {
+                if let Ok(entry) = result {
+                    if entry
+                        .file_type()
+                        .is_some_and(|file_type| file_type.is_file())
+                    {
+                        let path = entry.into_path();
+                        if options.is_valid_file(&path) {
+                            let _ = tx.send(path);
+                        }
+                    }
+                }
+                ignore::WalkState::Continue
+            })
+        });
+        drop(tx);
+        rx.into_iter().collect()
     }
-    files
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]

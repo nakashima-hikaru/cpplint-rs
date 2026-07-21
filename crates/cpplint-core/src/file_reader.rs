@@ -19,14 +19,42 @@ pub struct ReadFileResult {
     pub null_lines: Vec<usize>,
 }
 
-pub(crate) fn read_raw_bytes(path: &Path) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    if path == Path::new("-") {
-        io::stdin().read_to_end(&mut bytes)?;
-    } else {
-        File::open(path)?.read_to_end(&mut bytes)?;
+pub(crate) enum FileBytes {
+    Mmap(memmap2::Mmap),
+    Heap(Vec<u8>),
+}
+
+impl std::ops::Deref for FileBytes {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        match self {
+            FileBytes::Mmap(mmap) => mmap,
+            FileBytes::Heap(vec) => vec,
+        }
     }
-    Ok(bytes)
+}
+
+pub(crate) fn read_raw_bytes(path: &Path) -> Result<FileBytes> {
+    if path == Path::new("-") {
+        let mut bytes = Vec::new();
+        io::stdin().read_to_end(&mut bytes)?;
+        return Ok(FileBytes::Heap(bytes));
+    }
+
+    let file = File::open(path)?;
+    let metadata = file.metadata()?;
+    let len = metadata.len();
+
+    if len >= 16384 {
+        if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
+            return Ok(FileBytes::Mmap(mmap));
+        }
+    }
+
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.take(len).read_to_end(&mut bytes)?;
+    Ok(FileBytes::Heap(bytes))
 }
 
 pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
@@ -57,7 +85,7 @@ pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     }
 }
 
-pub(crate) fn decode_bytes(bytes: Vec<u8>) -> Result<String> {
+pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<String> {
     let mut decoded_bytes = Vec::new();
     DecodeReaderBytesBuilder::new()
         .bom_sniffing(true)
@@ -72,7 +100,7 @@ pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
         invalid_utf8_lines,
         null_lines,
     } = scan_raw_lines(&bytes);
-    let decoded = decode_bytes(bytes)?;
+    let decoded = decode_bytes(&bytes)?;
 
     let mut lines = Vec::new();
     let mut crlf_lines = Vec::new();
