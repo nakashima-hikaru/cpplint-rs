@@ -1,8 +1,12 @@
 use crate::string_utils::parse_comma_separated_list;
 use std::collections::BTreeSet;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_LINE_LENGTH: usize = 80;
+pub const DEFAULT_LINE_LENGTH: NonZeroUsize = match NonZeroUsize::new(80) {
+    Some(val) => val,
+    None => unreachable!(),
+};
 
 const DEFAULT_SOURCE_EXTENSIONS: &[&str] = &["c", "cc", "cpp", "cxx", "c++", "cu"];
 const DEFAULT_HEADER_EXTENSIONS: &[&str] = &["h", "hh", "hpp", "hxx", "h++", "cuh"];
@@ -13,7 +17,7 @@ pub struct Filter {
     pub sign: bool,
     pub category: String,
     pub file: Option<String>,
-    pub linenum: Option<usize>,
+    pub linenum: Option<NonZeroUsize>,
 }
 
 impl Filter {
@@ -41,7 +45,10 @@ impl Filter {
             .next()
             .filter(|value| !value.is_empty())
             .map(|value| value.to_string());
-        let linenum = parts.next().and_then(|value| value.parse::<usize>().ok());
+        let linenum = parts
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .and_then(NonZeroUsize::new);
 
         Some(Self {
             sign,
@@ -55,7 +62,7 @@ impl Filter {
         self.matches_category_and_file(category, file)
             && self
                 .linenum
-                .is_none_or(|expected_line| expected_line == linenum)
+                .is_none_or(|expected_line| expected_line.get() == linenum)
     }
 
     fn matches_category_and_file(&self, category: &str, file: &str) -> bool {
@@ -78,7 +85,7 @@ pub enum IncludeOrder {
 pub struct Options {
     pub root: PathBuf,
     pub repository: PathBuf,
-    pub line_length: usize,
+    pub line_length: NonZeroUsize,
     pub config_filename: String,
     pub valid_extensions: BTreeSet<String>,
     pub hpp_headers: BTreeSet<String>,
@@ -186,11 +193,11 @@ impl Options {
             if let Some(linenum) = filter.linenum {
                 if let Some((_, state)) = line_results
                     .iter_mut()
-                    .find(|(candidate, _)| *candidate == linenum)
+                    .find(|(candidate, _)| *candidate == linenum.get())
                 {
                     *state = filter.sign;
                 } else {
-                    line_results.push((linenum, filter.sign));
+                    line_results.push((linenum.get(), filter.sign));
                 }
                 continue;
             }
@@ -239,7 +246,7 @@ mod tests {
         assert!(!filter.sign);
         assert_eq!(filter.category, "build/include");
         assert_eq!(filter.file.as_deref(), Some("test.cpp"));
-        assert_eq!(filter.linenum, Some(10));
+        assert_eq!(filter.linenum, NonZeroUsize::new(10));
         assert!(filter.is_matched("build/include_alpha", "test.cpp", 10));
         assert!(!filter.is_matched("build/include_alpha", "test.cpp", 11));
     }

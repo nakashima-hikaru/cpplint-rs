@@ -1,5 +1,6 @@
 use crate::iwyu::IwyuHeader;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OperatorSymbol {
@@ -278,7 +279,7 @@ pub enum LintMessage {
     ExtraSpaceBeforeLastSemicolonUseBraces,
     ExtraSpaceBeforeCloseParen,
     ClosingParenShouldBeMovedToPreviousLine,
-    LineLength(usize),
+    LineLength(NonZeroUsize),
     TrailingWhitespace,
     WeirdNumberOfSpacesAtLineStart,
     TabFound,

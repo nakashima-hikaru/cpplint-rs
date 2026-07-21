@@ -24,8 +24,7 @@ fn bench_quantlib(c: &mut Criterion) {
         recursive: true,
         quiet: true,
         num_threads: std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1),
+            .unwrap_or(std::num::NonZeroUsize::MIN),
         ..RunnerConfig::default()
     };
 

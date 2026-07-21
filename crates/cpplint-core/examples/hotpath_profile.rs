@@ -88,7 +88,7 @@ fn profile_config(num_threads: usize) -> RunnerConfig {
     let mut config = RunnerConfig {
         output_format: OutputFormat::Emacs,
         quiet: true,
-        num_threads,
+        num_threads: std::num::NonZeroUsize::new(num_threads).unwrap_or(std::num::NonZeroUsize::MIN),
         ..RunnerConfig::default()
     };
     config.options.add_filter("-legal/copyright");

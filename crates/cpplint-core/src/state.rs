@@ -1,6 +1,7 @@
 use crate::diagnostics::{Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -235,7 +236,7 @@ pub struct SessionSettings {
     pub counting_style: CountingStyle,
     pub quiet: bool,
     pub output_format: OutputFormat,
-    pub num_threads: usize,
+    pub num_threads: NonZeroUsize,
 }
 
 impl Default for SessionSettings {
@@ -245,7 +246,7 @@ impl Default for SessionSettings {
             counting_style: CountingStyle::Total,
             quiet: false,
             output_format: OutputFormat::Emacs,
-            num_threads: 1,
+            num_threads: NonZeroUsize::MIN,
         }
     }
 }
@@ -358,14 +359,14 @@ impl LintSession {
     }
 
     #[inline]
-    pub fn num_threads(&self) -> usize {
+    pub fn num_threads(&self) -> NonZeroUsize {
         self.settings().num_threads
     }
 
-    pub fn set_num_threads(&self, num_threads: usize) -> usize {
+    pub fn set_num_threads(&self, num_threads: NonZeroUsize) -> NonZeroUsize {
         let mut inner = self.inner.lock();
         let last = inner.settings.num_threads;
-        inner.settings.num_threads = num_threads.max(1);
+        inner.settings.num_threads = num_threads;
         last
     }
 
@@ -769,13 +770,13 @@ mod tests {
             counting_style: CountingStyle::Detailed,
             quiet: true,
             output_format: OutputFormat::JUnit,
-            num_threads: 8,
+            num_threads: NonZeroUsize::new(8).unwrap(),
         });
         assert_eq!(state.verbose_level(), 3);
         assert_eq!(state.counting_style(), CountingStyle::Detailed);
         assert!(state.quiet());
         assert_eq!(state.output_format(), OutputFormat::JUnit);
-        assert_eq!(state.num_threads(), 8);
+        assert_eq!(state.num_threads(), NonZeroUsize::new(8).unwrap());
 
         let file_id = state.register_file("demo.cc");
         state.record_diagnostic(

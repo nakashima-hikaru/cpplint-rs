@@ -14,6 +14,7 @@ use ignore::WalkBuilder;
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -25,7 +26,7 @@ pub struct RunnerConfig {
     pub counting_style: CountingStyle,
     pub verbose_level: i32,
     pub quiet: bool,
-    pub num_threads: usize,
+    pub num_threads: NonZeroUsize,
     pub recursive: bool,
     pub excludes: Vec<String>,
     pub fix: bool,
@@ -39,7 +40,7 @@ impl Default for RunnerConfig {
             counting_style: CountingStyle::Total,
             verbose_level: 1,
             quiet: false,
-            num_threads: 1,
+            num_threads: NonZeroUsize::MIN,
             recursive: false,
             excludes: Vec::new(),
             fix: false,
@@ -115,7 +116,7 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         counting_style: config.counting_style,
         quiet: config.quiet,
         output_format: config.output_format,
-        num_threads: config.num_threads.max(1),
+        num_threads: config.num_threads,
     };
 
     let started_at = config.options.timing.then(Instant::now);
@@ -128,10 +129,10 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     // Handle JUnit or other formats that require full collection
     let is_buffered_format = matches!(config.output_format, OutputFormat::JUnit);
 
-    let pool = if config.num_threads > 1 {
+    let pool = if config.num_threads.get() > 1 {
         Some(
             ThreadPoolBuilder::new()
-                .num_threads(config.num_threads.max(1))
+                .num_threads(config.num_threads.get())
                 .build()?,
         )
     } else {
@@ -371,7 +372,7 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn plan_files(files: Vec<(FileId, PathBuf)>, config: &RunnerConfig) -> PlannedRun {
     let config_cache = DirectoryConfigCache::new(&config.options);
-    let entries = if config.num_threads <= 1 {
+    let entries = if config.num_threads.get() <= 1 {
         files
             .into_iter()
             .map(|(file_id, file)| plan_single_file(&config_cache, config, file_id, file))
@@ -634,7 +635,7 @@ mod tests {
             &[dirty.clone(), clean.clone()],
             &RunnerConfig {
                 output_format: OutputFormat::Emacs,
-                num_threads: 1,
+                num_threads: NonZeroUsize::new(1).unwrap(),
                 ..RunnerConfig::default()
             },
             Vec::new(),
@@ -645,7 +646,7 @@ mod tests {
             &[dirty, clean],
             &RunnerConfig {
                 output_format: OutputFormat::Emacs,
-                num_threads: 2,
+                num_threads: NonZeroUsize::new(2).unwrap(),
                 ..RunnerConfig::default()
             },
             Vec::new(),

@@ -1362,13 +1362,13 @@ fn check_blank_line_rules(
         let closes_extern_block = facts
             .matching_block_start(linenum + 1)
             .is_some_and(|start| {
-                let start_line = clean_lines.raw_lines[start].trim();
+                let start_line = clean_lines.raw_lines[start.get() - 1].trim();
                 start_line.starts_with("extern ") && start_line.ends_with('{')
             });
         let closes_namespace_block = facts
             .matching_block_start(linenum + 1)
             .is_some_and(|start| {
-                crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start).is_some()
+                crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start.get() - 1).is_some()
             });
         if closes_extern_block || closes_namespace_block {
             return;
@@ -1606,7 +1606,7 @@ fn check_tabs_and_line_length(
     }
 
     let line_length_limit = linter.options().line_length;
-    if !has_tab && line_without_raw_strings.len() <= line_length_limit {
+    if !has_tab && line_without_raw_strings.len() <= line_length_limit.get() {
         return;
     }
 
@@ -1615,7 +1615,7 @@ fn check_tabs_and_line_length(
     } else {
         UnicodeWidthStr::width(line_without_raw_strings)
     };
-    if width > line_length_limit && !should_skip_line_length(line_without_raw_strings) {
+    if width > line_length_limit.get() && !should_skip_line_length(line_without_raw_strings) {
         linter.error(
             linenum,
             Category::WhitespaceLineLength,

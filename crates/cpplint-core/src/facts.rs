@@ -2,6 +2,7 @@ use crate::cleanse::CleansedLines;
 use crate::line_utils;
 use memchr::memchr3_iter;
 use regex::Regex;
+use std::num::NonZeroUsize;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x32;
 use std::sync::LazyLock;
@@ -30,14 +31,14 @@ struct ClassFact<'a> {
 pub struct FileFacts<'a> {
     in_namespace_or_extern_block: Vec<bool>,
     class_facts: Vec<ClassFact<'a>>,
-    class_fact_by_line: Vec<Option<usize>>,
-    namespace_top_level_depth: Vec<Option<usize>>,
-    closing_brace_starts: Vec<Option<usize>>,
+    class_fact_by_line: Vec<Option<NonZeroUsize>>,
+    namespace_top_level_depth: Vec<Option<NonZeroUsize>>,
+    closing_brace_starts: Vec<Option<NonZeroUsize>>,
     macro_lines: Vec<bool>,
-    matching_block_starts: Vec<Option<usize>>,
+    matching_block_starts: Vec<Option<NonZeroUsize>>,
     non_blank_elided_prefix: Vec<usize>,
     block_kind: Vec<Option<ScopeKind>>,
-    namespace_decl_line: Vec<Option<usize>>,
+    namespace_decl_line: Vec<Option<NonZeroUsize>>,
     non_namespace_indent_depth_before: Vec<usize>,
     non_namespace_indent_depth: Vec<usize>,
 }
@@ -119,7 +120,7 @@ impl<'a> FileFacts<'a> {
             let trimmed_elided = elided.trim();
 
             if trimmed_elided.starts_with("namespace") {
-                last_namespace_decl = Some(linenum);
+                last_namespace_decl = NonZeroUsize::new(linenum + 1);
             }
 
             if let Some(scope) = pending_ns_ext_scope {
@@ -170,7 +171,7 @@ impl<'a> FileFacts<'a> {
                     if l_braces > 0 {
                         ns_ext_stack.push(ScopeKind::Namespace);
                         block_kind[linenum] = Some(ScopeKind::Namespace);
-                        namespace_decl_line[linenum] = Some(linenum);
+                        namespace_decl_line[linenum] = NonZeroUsize::new(linenum + 1);
                         ns_ext_depth += 1;
                         for _ in 1..l_braces {
                             ns_ext_stack.push(ScopeKind::Block);
@@ -202,7 +203,7 @@ impl<'a> FileFacts<'a> {
             // 3b. namespace_top_level_depth
             non_namespace_indent_depth_before.push(top_non_namespace_depth);
 
-            namespace_top_level_depth.push((top_ns_depth > 0).then_some(top_ns_depth));
+            namespace_top_level_depth.push(NonZeroUsize::new(top_ns_depth));
             if l_braces > 0 && block_kind[linenum] == Some(ScopeKind::Namespace) {
                 top_ns_stack.push(ScopeKind::Namespace);
                 top_ns_depth += 1;
@@ -276,7 +277,7 @@ impl<'a> FileFacts<'a> {
                         .and_then(|index| brace_stack.get(index).copied())
                 }
             };
-            closing_brace_starts.push(cbs);
+            closing_brace_starts.push(cbs.and_then(|line| NonZeroUsize::new(line + 1)));
             // 3c. closing_brace_starts
             // brace_stack must be updated AFTER checking cbs.
             for byte in elided.bytes() {
@@ -300,7 +301,7 @@ impl<'a> FileFacts<'a> {
                     last_popped = Some(start);
                 }
             }
-            matching_block_starts[linenum] = last_popped;
+            matching_block_starts[linenum] = last_popped.and_then(|line| NonZeroUsize::new(line + 1));
         }
 
         let (class_facts, class_fact_by_line) = build_class_facts(
@@ -328,13 +329,13 @@ impl<'a> FileFacts<'a> {
     pub fn enclosing_class_range(&self, linenum: usize) -> Option<ClassRange> {
         self.class_fact_by_line
             .get(linenum)
-            .and_then(|index| index.map(|index| self.class_facts[index].range))
+            .and_then(|index| index.map(|nz| self.class_facts[nz.get() - 1].range))
     }
 
     pub fn nearest_class_name(&self, linenum: usize) -> Option<&str> {
         self.class_fact_by_line.get(linenum).and_then(|index| {
-            index.and_then(|index| {
-                let name = self.class_facts[index].name;
+            index.and_then(|nz| {
+                let name = self.class_facts[nz.get() - 1].name;
                 (!name.is_empty()).then_some(name)
             })
         })
@@ -343,10 +344,10 @@ impl<'a> FileFacts<'a> {
     pub fn enclosing_class_is_struct(&self, linenum: usize) -> Option<bool> {
         self.class_fact_by_line
             .get(linenum)
-            .and_then(|index| index.map(|index| self.class_facts[index].is_struct))
+            .and_then(|index| index.map(|nz| self.class_facts[nz.get() - 1].is_struct))
     }
 
-    pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<usize> {
+    pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroUsize> {
         self.namespace_top_level_depth
             .get(linenum)
             .copied()
@@ -371,12 +372,18 @@ impl<'a> FileFacts<'a> {
         self.block_kind.get(linenum).copied().flatten()
     }
 
-    pub fn namespace_decl_line(&self, linenum: usize) -> Option<usize> {
-        self.namespace_decl_line.get(linenum).copied().flatten()
+    pub fn namespace_decl_line(&self, linenum: usize) -> Option<NonZeroUsize> {
+        self.namespace_decl_line
+            .get(linenum)
+            .copied()
+            .flatten()
     }
 
-    pub fn matching_block_start(&self, linenum: usize) -> Option<usize> {
-        self.matching_block_starts.get(linenum).copied().flatten()
+    pub fn matching_block_start(&self, linenum: usize) -> Option<NonZeroUsize> {
+        self.matching_block_starts
+            .get(linenum)
+            .copied()
+            .flatten()
     }
 
     pub fn non_blank_elided_lines_between(
@@ -410,7 +417,7 @@ fn build_class_facts<'a>(
     lines: &[&'a str],
     line_braces: &[(u32, u32)],
     matching_block_ends: &[Option<usize>],
-) -> (Vec<ClassFact<'a>>, Vec<Option<usize>>) {
+) -> (Vec<ClassFact<'a>>, Vec<Option<NonZeroUsize>>) {
     let mut class_facts = Vec::new();
     let mut pending: Option<(usize, &'a str, bool)> = None;
 
@@ -465,7 +472,7 @@ fn build_class_facts<'a>(
         }
     }
 
-    let mut class_fact_by_line: Vec<Option<usize>> = vec![None; lines.len()];
+    let mut class_fact_by_line: Vec<Option<NonZeroUsize>> = vec![None; lines.len()];
     for (index, class_fact) in class_facts.iter().enumerate() {
         for existing_opt in class_fact_by_line
             .iter_mut()
@@ -473,10 +480,10 @@ fn build_class_facts<'a>(
             .skip(class_fact.range.start + 1)
         {
             let should_replace = existing_opt
-                .map(|existing| class_facts[existing].range.start <= class_fact.range.start)
+                .map(|existing| class_facts[existing.get() - 1].range.start <= class_fact.range.start)
                 .unwrap_or(true);
             if should_replace {
-                *existing_opt = Some(index);
+                *existing_opt = NonZeroUsize::new(index + 1);
             }
         }
     }
@@ -587,18 +594,18 @@ mod tests {
     fn test_namespace() {
         with_facts!(["namespace {", "  int value = 0;", "}"], |facts| {
             assert_eq!(facts.block_kind(0), Some(ScopeKind::Namespace));
-            assert_eq!(facts.namespace_decl_line(0), Some(0));
-            assert_eq!(facts.namespace_top_level_depth(1), Some(1));
-            assert_eq!(facts.matching_block_start(2), Some(0));
+            assert_eq!(facts.namespace_decl_line(0), NonZeroUsize::new(1));
+            assert_eq!(facts.namespace_top_level_depth(1), NonZeroUsize::new(1));
+            assert_eq!(facts.matching_block_start(2), NonZeroUsize::new(1));
         });
 
         with_facts!(
             ["namespace", "Foo", "{", "  int value = 0;", "}"],
             |facts| {
-                assert_eq!(facts.namespace_top_level_depth(3), Some(1));
+                assert_eq!(facts.namespace_top_level_depth(3), NonZeroUsize::new(1));
                 assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
                 assert_eq!(facts.non_namespace_indent_depth(3), 0);
-                assert_eq!(facts.matching_block_start(4), Some(2));
+                assert_eq!(facts.matching_block_start(4), NonZeroUsize::new(3));
             }
         );
     }
@@ -765,10 +772,10 @@ mod tests {
 
         let facts = FileFacts::new(&clean_lines);
 
-        assert_eq!(facts.namespace_top_level_depth(1), Some(1));
+        assert_eq!(facts.namespace_top_level_depth(1), NonZeroUsize::new(1));
         assert_eq!(facts.non_namespace_indent_depth_before(6), 1);
         assert_eq!(facts.non_namespace_indent_depth(6), 1);
-        assert_eq!(facts.matching_block_start(2), Some(0));
+        assert_eq!(facts.matching_block_start(2), NonZeroUsize::new(1));
         assert_eq!(
             facts.enclosing_class_range(6),
             Some(ClassRange { start: 5, end: 7 })
@@ -785,10 +792,10 @@ mod tests {
 
         let facts = FileFacts::new(&clean_lines);
 
-        assert_eq!(facts.namespace_top_level_depth(3), Some(1));
+        assert_eq!(facts.namespace_top_level_depth(3), NonZeroUsize::new(1));
         assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
         assert_eq!(facts.non_namespace_indent_depth(3), 0);
-        assert_eq!(facts.matching_block_start(4), Some(2));
+        assert_eq!(facts.matching_block_start(4), NonZeroUsize::new(3));
     }
 
     #[test]
@@ -809,7 +816,7 @@ mod tests {
 
         assert_eq!(facts.non_namespace_indent_depth_before(4), 0);
         assert_eq!(facts.non_namespace_indent_depth(4), 1);
-        assert_eq!(facts.matching_block_start(3), Some(1));
+        assert_eq!(facts.matching_block_start(3), NonZeroUsize::new(2));
     }
 
     #[test]

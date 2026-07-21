@@ -107,7 +107,7 @@ pub struct CheckArgs {
     #[arg(long)]
     pub repository: Option<PathBuf>,
 
-    #[arg(long = "linelength", default_value_t = DEFAULT_LINE_LENGTH)]
+    #[arg(long = "linelength", default_value_t = DEFAULT_LINE_LENGTH.get())]
     pub line_length: usize,
 
     #[arg(long, value_delimiter = ',')]
@@ -200,15 +200,15 @@ impl CheckArgs {
                 self.verbose
             ));
         }
-        if self.line_length == 0 {
+        let Some(line_length) = NonZeroUsize::new(self.line_length) else {
             return Err("Line length should be a positive integer.".to_string());
-        }
+        };
         if self.config.contains('/') || self.config.contains('\\') {
             return Err("Config file name must not include directory components.".to_string());
         }
 
         let mut options = Options::new();
-        options.line_length = self.line_length;
+        options.line_length = line_length;
         options.config_filename = self.config.clone();
         options.include_order = self.includeorder.into();
         options.timing = self.timing;
@@ -259,20 +259,23 @@ impl CheckArgs {
     }
 }
 
-fn parse_num_threads(threads: Option<i32>) -> Result<usize, String> {
-    match threads {
+use std::num::NonZeroUsize;
+
+fn parse_num_threads(threads: Option<i32>) -> Result<NonZeroUsize, String> {
+    let count = match threads {
         None => std::thread::available_parallelism()
             .map(|count| count.get().min(DEFAULT_AUTO_THREADS_CAP))
-            .map_err(|error| error.to_string()),
+            .map_err(|error| error.to_string())?,
         Some(0) | Some(-1) => std::thread::available_parallelism()
             .map(|count| count.get())
-            .map_err(|error| error.to_string()),
-        Some(value) if value > 0 => Ok(value as usize),
-        Some(value) => Err(format!(
+            .map_err(|error| error.to_string())?,
+        Some(value) if value > 0 => value as usize,
+        Some(value) => return Err(format!(
             "Number of threads should be a positive integer, 0, or -1. (--threads={})",
             value
         )),
-    }
+    };
+    NonZeroUsize::new(count).ok_or_else(|| "Thread count must be non-zero".to_string())
 }
 
 #[cfg(test)]
@@ -296,7 +299,7 @@ mod tests {
             counting: CliCountingStyle::Total,
             root: None,
             repository: None,
-            line_length: DEFAULT_LINE_LENGTH,
+            line_length: DEFAULT_LINE_LENGTH.get(),
             filter: Vec::new(),
             recursive: false,
             exclude: Vec::new(),
@@ -313,18 +316,18 @@ mod tests {
 
     #[test]
     fn parse_num_threads_caps_default_auto_value() {
-        let parsed = parse_num_threads(None).unwrap();
+        let parsed = parse_num_threads(None).unwrap().get();
         assert!((1..=DEFAULT_AUTO_THREADS_CAP).contains(&parsed));
     }
 
     #[test]
     fn parse_num_threads_keeps_explicit_positive_value() {
-        assert_eq!(parse_num_threads(Some(2)).unwrap(), 2);
+        assert_eq!(parse_num_threads(Some(2)).unwrap(), NonZeroUsize::new(2).unwrap());
     }
 
     #[test]
     fn parse_num_threads_allows_uncapped_auto_values() {
-        let available = std::thread::available_parallelism().unwrap().get();
+        let available = std::thread::available_parallelism().unwrap();
         assert_eq!(parse_num_threads(Some(0)).unwrap(), available);
         assert_eq!(parse_num_threads(Some(-1)).unwrap(), available);
     }
@@ -388,7 +391,7 @@ mod tests {
         assert_eq!(parsed.check.filter, vec!["+runtime/printf", "-whitespace"]);
 
         let config = parsed.check.to_runner_config().unwrap();
-        assert_eq!(config.options.line_length, 120);
+        assert_eq!(config.options.line_length, NonZeroUsize::new(120).unwrap());
         assert_eq!(config.verbose_level, 1);
     }
 
@@ -428,12 +431,12 @@ mod tests {
         assert!(config.quiet);
         assert_eq!(
             config.num_threads,
-            std::thread::available_parallelism().unwrap().get()
+            std::thread::available_parallelism().unwrap()
         );
         assert!(config.recursive);
         assert_eq!(config.excludes, vec!["third_party/**"]);
         assert!(config.fix);
-        assert_eq!(config.options.line_length, 120);
+        assert_eq!(config.options.line_length, NonZeroUsize::new(120).unwrap());
         assert_eq!(config.options.config_filename, "CPPLINT.custom");
         assert_eq!(config.options.include_order, IncludeOrder::StandardCFirst);
         assert!(config.options.valid_extensions.contains("cc"));

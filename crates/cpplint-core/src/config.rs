@@ -4,6 +4,7 @@ use fxhash::FxHashMap;
 use parking_lot::RwLock;
 use regex::Regex;
 use std::cell::RefCell;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -35,7 +36,7 @@ struct ConfigFile {
     noparent: bool,
     filters: Vec<Filter>,
     exclude_files: Vec<ExcludePattern>,
-    line_length: Option<usize>,
+    line_length: Option<NonZeroUsize>,
     root: Option<PathBuf>,
     extensions: Option<std::collections::BTreeSet<String>>,
     headers: Option<std::collections::BTreeSet<String>>,
@@ -466,9 +467,9 @@ fn read_config_file(path: &Path) -> Arc<ConfigFile> {
                         regex,
                     });
                 }
-                "linelength" => match value.parse::<usize>() {
-                    Ok(line_length) => config.line_length = Some(line_length),
-                    Err(_) => messages.push(ConfigMessage {
+                "linelength" => match value.parse::<usize>().ok().and_then(NonZeroUsize::new) {
+                    Some(line_length) => config.line_length = Some(line_length),
+                    None => messages.push(ConfigMessage {
                         kind: ConfigMessageKind::Error,
                         text: format!("Line length must be numeric in file ({})\n", path.display()),
                     }),
@@ -600,7 +601,7 @@ mod tests {
             panic!("file should not be excluded");
         };
 
-        assert_eq!(options.line_length, 120);
+        assert_eq!(options.line_length, NonZeroUsize::new(120).unwrap());
         assert!(options.hpp_headers.contains("hpp"));
         assert_eq!(options.include_order, IncludeOrder::StandardCFirst);
 
@@ -675,7 +676,7 @@ mod tests {
                 .iter()
                 .any(|message| message.text.contains("Invalid exclude_files regex"))
         );
-        assert_eq!(config.line_length, Some(120));
+        assert_eq!(config.line_length, NonZeroUsize::new(120));
         assert_eq!(config.root.as_deref(), Some(Path::new("src")));
         assert!(config.extensions.as_ref().unwrap().contains("cc"));
         assert!(config.headers.as_ref().unwrap().contains("hxx"));
