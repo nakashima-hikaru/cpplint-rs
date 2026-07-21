@@ -15,6 +15,23 @@ static CLASS_DECL_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassKind {
+    Class,
+    Struct,
+    Union,
+}
+
+impl ClassKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Class => "class",
+            Self::Struct => "struct",
+            Self::Union => "union",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClassRange {
     pub start: usize,
     pub end: usize,
@@ -24,7 +41,7 @@ pub struct ClassRange {
 struct ClassFact<'a> {
     range: ClassRange,
     name: &'a str,
-    is_struct: bool,
+    kind: ClassKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,10 +280,10 @@ impl<'a> FileFacts<'a> {
         })
     }
 
-    pub fn enclosing_class_is_struct(&self, linenum: usize) -> Option<bool> {
+    pub fn enclosing_class_kind(&self, linenum: usize) -> Option<ClassKind> {
         self.class_fact_by_line
             .get(linenum)
-            .and_then(|index| index.map(|nz| self.class_facts[nz.get() as usize - 1].is_struct))
+            .and_then(|index| index.map(|nz| self.class_facts[nz.get() as usize - 1].kind))
     }
 
     pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroU8> {
@@ -343,7 +360,7 @@ fn build_class_facts<'a>(
     matching_block_ends: &[Option<NonZeroU32>],
 ) -> (Vec<ClassFact<'a>>, Vec<Option<NonZeroU32>>) {
     let mut class_facts = Vec::new();
-    let mut pending: Option<(usize, &'a str, bool)> = None;
+    let mut pending: Option<(usize, &'a str, ClassKind)> = None;
 
     for (linenum, line) in lines.iter().enumerate() {
         let line = *line;
@@ -361,10 +378,12 @@ fn build_class_facts<'a>(
                     .get(3)
                     .map(|matched| matched.as_str())
                     .unwrap_or("");
-                let is_struct = captures
-                    .get(2)
-                    .is_some_and(|matched| matched.as_str() == "struct");
-                pending = Some((linenum, name, is_struct));
+                let kind = match captures.get(2).map(|matched| matched.as_str()) {
+                    Some("struct") => ClassKind::Struct,
+                    Some("union") => ClassKind::Union,
+                    _ => ClassKind::Class,
+                };
+                pending = Some((linenum, name, kind));
             }
         }
 
@@ -386,11 +405,11 @@ fn build_class_facts<'a>(
 
         if let Some(end_nz) = matching_block_ends[linenum] {
             let end = end_nz.get() as usize - 1;
-            let (_, name, is_struct) = pending.take().unwrap();
+            let (_, name, kind) = pending.take().unwrap();
             class_facts.push(ClassFact {
                 range: ClassRange { start, end },
                 name,
-                is_struct,
+                kind,
             });
         } else {
             pending = None;
@@ -545,7 +564,7 @@ mod tests {
                     Some(ClassRange { start: 0, end: 2 })
                 );
                 assert_eq!(facts.nearest_class_name(1), Some("A"));
-                assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+                assert_eq!(facts.enclosing_class_kind(1), Some(ClassKind::Class));
             }
         );
     }
@@ -558,7 +577,7 @@ mod tests {
                 Some(ClassRange { start: 0, end: 2 })
             );
             assert_eq!(facts.nearest_class_name(1), Some("A::B::C"));
-            assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+            assert_eq!(facts.enclosing_class_kind(1), Some(ClassKind::Class));
         });
     }
 
@@ -570,7 +589,7 @@ mod tests {
                 Some(ClassRange { start: 0, end: 2 })
             );
             assert_eq!(facts.nearest_class_name(1), Some("A"));
-            assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+            assert_eq!(facts.enclosing_class_kind(1), Some(ClassKind::Class));
         });
 
         with_facts!(["struct B : public A {", "  int value;", "};"], |facts| {
@@ -579,7 +598,7 @@ mod tests {
                 Some(ClassRange { start: 0, end: 2 })
             );
             assert_eq!(facts.nearest_class_name(1), Some("B"));
-            assert_eq!(facts.enclosing_class_is_struct(1), Some(true));
+            assert_eq!(facts.enclosing_class_kind(1), Some(ClassKind::Struct));
         });
 
         with_facts!(["class C", ": public A {", "  int value;", "};"], |facts| {
@@ -588,7 +607,7 @@ mod tests {
                 Some(ClassRange { start: 0, end: 3 })
             );
             assert_eq!(facts.nearest_class_name(2), Some("C"));
-            assert_eq!(facts.enclosing_class_is_struct(2), Some(false));
+            assert_eq!(facts.enclosing_class_kind(2), Some(ClassKind::Class));
         });
 
         with_facts!(
@@ -599,7 +618,7 @@ mod tests {
                     Some(ClassRange { start: 1, end: 3 })
                 );
                 assert_eq!(facts.nearest_class_name(2), Some("E"));
-                assert_eq!(facts.enclosing_class_is_struct(2), Some(false));
+                assert_eq!(facts.enclosing_class_kind(2), Some(ClassKind::Class));
             }
         );
     }
@@ -612,7 +631,7 @@ mod tests {
                 Some(ClassRange { start: 0, end: 2 })
             );
             assert_eq!(facts.nearest_class_name(1), Some("A"));
-            assert_eq!(facts.enclosing_class_is_struct(1), Some(true));
+            assert_eq!(facts.enclosing_class_kind(1), Some(ClassKind::Struct));
         });
     }
 
@@ -632,7 +651,7 @@ mod tests {
                     Some(ClassRange { start: 2, end: 4 })
                 );
                 assert_eq!(facts.nearest_class_name(3), Some("A"));
-                assert_eq!(facts.enclosing_class_is_struct(3), Some(false));
+                assert_eq!(facts.enclosing_class_kind(3), Some(ClassKind::Class));
             }
         );
     }
@@ -651,7 +670,7 @@ mod tests {
                     Some(ClassRange { start: 0, end: 2 })
                 );
                 assert_eq!(facts.nearest_class_name(1), Some("unique_ptr"));
-                assert_eq!(facts.enclosing_class_is_struct(1), Some(false));
+                assert_eq!(facts.enclosing_class_kind(1), Some(ClassKind::Class));
             }
         );
     }
@@ -675,7 +694,7 @@ mod tests {
                     Some(ClassRange { start: 0, end: 7 })
                 );
                 assert_eq!(facts.nearest_class_name(5), Some("A"));
-                assert_eq!(facts.enclosing_class_is_struct(5), Some(false));
+                assert_eq!(facts.enclosing_class_kind(5), Some(ClassKind::Class));
             }
         );
     }

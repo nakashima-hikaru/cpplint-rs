@@ -1510,32 +1510,12 @@ fn check_access_specifier_indentation(
     let access = specifier;
     let slots = if has_slots { " slots" } else { "" };
     if prefix_len != class_indent + 1 {
-        let message = match (
-            facts.enclosing_class_is_struct(linenum).unwrap_or(false),
-            facts.nearest_class_name(linenum),
-        ) {
-            (true, Some(name)) if !name.is_empty() => {
-                format!(
-                    "{}{}: should be indented +1 space inside struct {}",
-                    access, slots, name
-                )
-            }
-            (false, Some(name)) if !name.is_empty() => {
-                format!(
-                    "{}{}: should be indented +1 space inside class {}",
-                    access, slots, name
-                )
-            }
-            (true, _) => format!(
-                "{}{}: should be indented +1 space inside struct",
-                access, slots
-            ),
-            (false, _) => {
-                format!(
-                    "{}{}: should be indented +1 space inside class",
-                    access, slots
-                )
-            }
+        let kind = facts.enclosing_class_kind(linenum).unwrap_or(crate::facts::ClassKind::Class);
+        let name = facts.nearest_class_name(linenum).unwrap_or("");
+        let message = if name.is_empty() {
+            format!("{access}{slots}: should be indented +1 space inside {}", kind.as_str())
+        } else {
+            format!("{access}{slots}: should be indented +1 space inside {} {name}", kind.as_str())
         };
         linter.error(
             linenum,
@@ -1573,14 +1553,12 @@ fn check_class_closing_brace_alignment(
         return;
     }
 
-    let parent = match (
-        facts.enclosing_class_is_struct(linenum).unwrap_or(false),
-        facts.nearest_class_name(linenum),
-    ) {
-        (true, Some(name)) if !name.is_empty() => format!("struct {}", name),
-        (false, Some(name)) if !name.is_empty() => format!("class {}", name),
-        (true, _) => "struct".to_string(),
-        (false, _) => "class".to_string(),
+    let kind = facts.enclosing_class_kind(linenum).unwrap_or(crate::facts::ClassKind::Class);
+    let name = facts.nearest_class_name(linenum).unwrap_or("");
+    let parent = if name.is_empty() {
+        kind.as_str().to_string()
+    } else {
+        format!("{} {name}", kind.as_str())
     };
     linter.error(
         linenum,
