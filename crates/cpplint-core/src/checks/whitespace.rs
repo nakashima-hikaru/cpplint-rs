@@ -611,14 +611,12 @@ fn check_operator_spacing(
     }
 
     if let Some(op) = analysis.missing_comparison_space {
-        if let Some(op) = crate::messages::OperatorSymbol::from_str_opt(op) {
-            linter.error(
-                linenum,
-                Category::WhitespaceOperators,
-                3,
-                crate::messages::LintMessage::MissingSpacesAround(op),
-            );
-        }
+        linter.error(
+            linenum,
+            Category::WhitespaceOperators,
+            3,
+            crate::messages::LintMessage::MissingSpacesAround(op),
+        );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
         if let Some(end_pos) = analysis.less_pos
             && crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none()
@@ -677,10 +675,7 @@ fn check_operator_spacing(
         );
     }
 
-    if let Some(op) = analysis
-        .extra_unary_space
-        .and_then(crate::messages::OperatorSymbol::from_str_opt)
-    {
+    if let Some(op) = analysis.extra_unary_space {
         linter.error(
             linenum,
             Category::WhitespaceOperators,
@@ -742,12 +737,12 @@ fn ends_with_case_insensitive(s: &str, suffix: &str) -> bool {
 #[derive(Default)]
 struct OperatorSpacingAnalysis {
     missing_assignment_space: bool,
-    missing_comparison_space: Option<&'static str>,
+    missing_comparison_space: Option<crate::messages::OperatorSymbol>,
     less_pos: Option<usize>,
     greater_pos: Option<usize>,
     lshift_pos: Option<usize>,
     rshift_spacing: bool,
-    extra_unary_space: Option<&'static str>,
+    extra_unary_space: Option<crate::messages::OperatorSymbol>,
 }
 
 impl OperatorSpacingAnalysis {
@@ -769,7 +764,7 @@ impl OperatorSpacingAnalysis {
                         && bytes.get(i + 1) == Some(&b'=')
                         && has_missing_comparison_space_at(bytes, i)
                     {
-                        analysis.missing_comparison_space = Some("==");
+                        analysis.missing_comparison_space = Some(crate::messages::OperatorSymbol::EqEq);
                         i += 1;
                     }
                 }
@@ -778,14 +773,14 @@ impl OperatorSpacingAnalysis {
                         && bytes.get(i + 1) == Some(&b'=')
                         && has_missing_comparison_space_at(bytes, i)
                     {
-                        analysis.missing_comparison_space = Some("!=");
+                        analysis.missing_comparison_space = Some(crate::messages::OperatorSymbol::Ne);
                         i += 1;
                     } else if analysis.extra_unary_space.is_none()
                         && bytes
                             .get(i + 1)
                             .is_some_and(|next| next.is_ascii_whitespace())
                     {
-                        analysis.extra_unary_space = Some("!");
+                        analysis.extra_unary_space = Some(crate::messages::OperatorSymbol::Bang);
                     }
                 }
                 b'<' => {
@@ -793,7 +788,7 @@ impl OperatorSpacingAnalysis {
                         && bytes.get(i + 1) == Some(&b'=')
                         && has_missing_comparison_space_at(bytes, i)
                     {
-                        analysis.missing_comparison_space = Some("<=");
+                        analysis.missing_comparison_space = Some(crate::messages::OperatorSymbol::Le);
                         i += 1;
                     } else if analysis.lshift_pos.is_none() && bytes.get(i + 1) == Some(&b'<') {
                         if let Some(&next_b) = bytes.get(i + 2)
@@ -810,7 +805,7 @@ impl OperatorSpacingAnalysis {
                         && bytes.get(i + 1) == Some(&b'=')
                         && has_missing_comparison_space_at(bytes, i)
                     {
-                        analysis.missing_comparison_space = Some(">=");
+                        analysis.missing_comparison_space = Some(crate::messages::OperatorSymbol::Ge);
                         i += 1;
                     } else if !analysis.rshift_spacing && bytes.get(i + 1) == Some(&b'>') {
                         if let Some(&next) = bytes.get(i + 2)
@@ -825,7 +820,7 @@ impl OperatorSpacingAnalysis {
                     && bytes.get(i + 1) == Some(&b'|')
                     && has_missing_comparison_space_at(bytes, i) =>
                 {
-                    analysis.missing_comparison_space = Some("||");
+                    analysis.missing_comparison_space = Some(crate::messages::OperatorSymbol::OrOr);
                     i += 1;
                 }
                 b'~' if analysis.extra_unary_space.is_none()
@@ -833,7 +828,7 @@ impl OperatorSpacingAnalysis {
                         .get(i + 1)
                         .is_some_and(|next| next.is_ascii_whitespace()) =>
                 {
-                    analysis.extra_unary_space = Some("~");
+                    analysis.extra_unary_space = Some(crate::messages::OperatorSymbol::Tilde);
                 }
                 b'+' | b'-'
                     if analysis.extra_unary_space.is_none()
@@ -844,7 +839,11 @@ impl OperatorSpacingAnalysis {
                             .get(i + 2)
                             .is_some_and(|after| after.is_ascii_whitespace() || *after == b';') =>
                 {
-                    analysis.extra_unary_space = Some(if bytes[i] == b'-' { "--" } else { "++" });
+                    analysis.extra_unary_space = Some(if bytes[i] == b'-' {
+                        crate::messages::OperatorSymbol::Dec
+                    } else {
+                        crate::messages::OperatorSymbol::Inc
+                    });
                     i += 1;
                 }
                 _ => {}
@@ -2027,15 +2026,17 @@ mod tests {
 
     #[test]
     fn operator_spacing_analysis_matches_existing_cases() {
+        use crate::messages::OperatorSymbol;
+
         let analysis = OperatorSpacingAnalysis::scan("value=1", true);
         assert!(analysis.missing_assignment_space);
 
         let analysis = OperatorSpacingAnalysis::scan("if (a==b)", false);
-        assert_eq!(analysis.missing_comparison_space, Some("=="));
+        assert_eq!(analysis.missing_comparison_space, Some(OperatorSymbol::EqEq));
         let analysis = OperatorSpacingAnalysis::scan("if ((foo)||(bar))", false);
-        assert_eq!(analysis.missing_comparison_space, Some("||"));
+        assert_eq!(analysis.missing_comparison_space, Some(OperatorSymbol::OrOr));
         let analysis = OperatorSpacingAnalysis::scan("if ((foo)||(bar)) return;", false);
-        assert_eq!(analysis.missing_comparison_space, Some("||"));
+        assert_eq!(analysis.missing_comparison_space, Some(OperatorSymbol::OrOr));
 
         let analysis = OperatorSpacingAnalysis::scan("foo<<bar", false);
         assert_eq!(analysis.lshift_pos, Some(3));
@@ -2045,7 +2046,7 @@ mod tests {
         assert!(analysis.rshift_spacing);
 
         let analysis = OperatorSpacingAnalysis::scan("! value", false);
-        assert_eq!(analysis.extra_unary_space, Some("!"));
+        assert_eq!(analysis.extra_unary_space, Some(OperatorSymbol::Bang));
 
         let analysis = OperatorSpacingAnalysis::scan("Foo::operator=(rhs)", true);
         assert!(!analysis.missing_assignment_space);

@@ -4,16 +4,21 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OperatorSymbol {
     Eq,
+    EqEq,
     Ne,
-    OrOr,
     Lt,
+    Le,
     Gt,
+    Ge,
+    OrOr,
     LShift,
     RShift,
     Colon,
     Bang,
     BangSpaced,
     Tilde,
+    Inc,
+    Dec,
 }
 
 impl std::str::FromStr for OperatorSymbol {
@@ -22,16 +27,21 @@ impl std::str::FromStr for OperatorSymbol {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "=" => Ok(Self::Eq),
+            "==" => Ok(Self::EqEq),
             "!=" => Ok(Self::Ne),
-            "||" => Ok(Self::OrOr),
             "<" => Ok(Self::Lt),
+            "<=" => Ok(Self::Le),
             ">" => Ok(Self::Gt),
+            ">=" => Ok(Self::Ge),
+            "||" => Ok(Self::OrOr),
             "<<" => Ok(Self::LShift),
             ">>" => Ok(Self::RShift),
             ":" => Ok(Self::Colon),
             "!" => Ok(Self::Bang),
             "! " => Ok(Self::BangSpaced),
             "~" => Ok(Self::Tilde),
+            "++" => Ok(Self::Inc),
+            "--" => Ok(Self::Dec),
             _ => Err(()),
         }
     }
@@ -45,16 +55,21 @@ impl OperatorSymbol {
     pub fn as_display_str(self) -> &'static str {
         match self {
             Self::Eq => "=",
+            Self::EqEq => "==",
             Self::Ne => "!=",
-            Self::OrOr => "||",
             Self::Lt => "<",
+            Self::Le => "<=",
             Self::Gt => ">",
+            Self::Ge => ">=",
+            Self::OrOr => "||",
             Self::LShift => "<<",
             Self::RShift => ">>",
             Self::Colon => ":",
             Self::Bang => "!",
             Self::BangSpaced => "! ",
             Self::Tilde => "~",
+            Self::Inc => "++",
+            Self::Dec => "--",
         }
     }
 
