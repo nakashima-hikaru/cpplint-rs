@@ -44,8 +44,6 @@ struct ClassFact<'a> {
     kind: ClassKind,
 }
 
-
-
 use bumpalo::Bump;
 use bumpalo::collections::Vec as BumpVec;
 
@@ -304,7 +302,10 @@ impl<'a> FileFacts<'a> {
     }
 
     pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroU8> {
-        self.namespace_top_level_depths.get(linenum).copied().flatten()
+        self.namespace_top_level_depths
+            .get(linenum)
+            .copied()
+            .flatten()
     }
 
     pub fn non_namespace_indent_depth_before(&self, linenum: usize) -> usize {

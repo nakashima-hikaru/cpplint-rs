@@ -1,9 +1,9 @@
 use crate::options::Options;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use bitflags::bitflags;
+use bumpalo::Bump;
 use bumpalo::collections::String as BumpString;
 use bumpalo::collections::Vec as BumpVec;
-use bumpalo::Bump;
 use std::borrow::Cow;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x32;
@@ -1042,12 +1042,7 @@ fn cleanse_comments_line_in<'a>(
         && !in_char
         && result.len() == line.trim_end().len()
     {
-        return (
-            line.trim_end(),
-            false,
-            false,
-            has_quote_or_backslash,
-        );
+        return (line.trim_end(), false, false, has_quote_or_backslash);
     }
 
     let trimmed_len = result.trim_end().len();
@@ -1068,9 +1063,19 @@ fn cleanse_comments_line<'a>(
     let (cleansed, is_comment, still_in_block, has_quote) =
         cleanse_comments_line_in(&arena, line, in_block_comment);
     if cleansed == line.trim_end() {
-        (Cow::Borrowed(line.trim_end()), is_comment, still_in_block, has_quote)
+        (
+            Cow::Borrowed(line.trim_end()),
+            is_comment,
+            still_in_block,
+            has_quote,
+        )
     } else {
-        (Cow::Owned(cleansed.to_string()), is_comment, still_in_block, has_quote)
+        (
+            Cow::Owned(cleansed.to_string()),
+            is_comment,
+            still_in_block,
+            has_quote,
+        )
     }
 }
 

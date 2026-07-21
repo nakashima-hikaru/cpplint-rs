@@ -914,10 +914,10 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             continue;
         };
 
-            let delim = captures.get(1).map(|m| m.as_str()).unwrap_or("");
-            let include = captures.get(2).map(|m| m.as_str()).unwrap_or("");
-            let used_angle_brackets = delim == "<";
-            let kind = classify_include(
+        let delim = captures.get(1).map(|m| m.as_str()).unwrap_or("");
+        let include = captures.get(2).map(|m| m.as_str()).unwrap_or("");
+        let used_angle_brackets = delim == "<";
+        let kind = classify_include(
             &file_from_repo,
             Path::new(include),
             used_angle_brackets,
