@@ -63,11 +63,12 @@ impl<'a> DecodedSource<'a> {
         invalid_utf8_lines_in: Vec<usize>,
         null_lines_in: Vec<usize>,
     ) -> Self {
+        let allocated_decoded = arena.alloc_str(&decoded);
         let mut lines = BumpVec::new_in(arena);
         let mut crlf_lines = BumpVec::new_in(arena);
         let mut lf_lines_count = 0usize;
 
-        for (linenum, raw_line) in decoded.split('\n').enumerate() {
+        for (linenum, raw_line) in allocated_decoded.split('\n').enumerate() {
             let line = if let Some(line) = raw_line.strip_suffix('\r') {
                 crlf_lines.push(linenum);
                 line
@@ -75,7 +76,7 @@ impl<'a> DecodedSource<'a> {
                 lf_lines_count += 1;
                 raw_line
             };
-            lines.push(arena.alloc_str(line) as &str);
+            lines.push(line);
         }
 
         if lines.is_empty() {

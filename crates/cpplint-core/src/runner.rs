@@ -16,7 +16,7 @@ use rayon::prelude::*;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -203,19 +203,17 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     }
 
     // Streaming mode for human-readable formats
-    let counter = DiagnosticCounter::new(config.counting_style);
-    let stdout_shared = Arc::new(Mutex::new(stdout));
-    let stderr_shared = Arc::new(Mutex::new(stderr));
+    let mut counter = DiagnosticCounter::new(config.counting_style);
 
     // Process planned reports (errors during discovery)
     for report in planned_reports {
         for note in report.notes {
             match note.stream {
                 NoteStream::Stdout => {
-                    let _ = write!(stdout_shared.lock().unwrap(), "{}", format_note(&note));
+                    let _ = write!(stdout, "{}", format_note(&note));
                 }
                 NoteStream::Stderr => {
-                    let _ = write!(stderr_shared.lock().unwrap(), "{}", format_note(&note));
+                    let _ = write!(stderr, "{}", format_note(&note));
                 }
             }
         }
@@ -225,28 +223,25 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     for note in collected_notes {
         match note.stream {
             NoteStream::Stdout => {
-                let _ = write!(stdout_shared.lock().unwrap(), "{}", format_note(&note));
+                let _ = write!(stdout, "{}", format_note(&note));
             }
             NoteStream::Stderr => {
-                let _ = write!(stderr_shared.lock().unwrap(), "{}", format_note(&note));
+                let _ = write!(stderr, "{}", format_note(&note));
             }
         }
     }
 
-    // Process lint jobs with streaming output
-    let counter_lock = Arc::new(Mutex::new(counter));
-
-    let process_report = |report: FileRunReport| {
-        let mut stdout_lock = stdout_shared.lock().unwrap();
-        let mut stderr_lock = stderr_shared.lock().unwrap();
-
+    let process_report = |report: FileRunReport,
+                          stdout: &mut W1,
+                          stderr: &mut W2,
+                          counter: &mut DiagnosticCounter| {
         for note in &report.notes {
             match note.stream {
                 NoteStream::Stdout => {
-                    let _ = write!(stdout_lock, "{}", format_note(note));
+                    let _ = write!(stdout, "{}", format_note(note));
                 }
                 NoteStream::Stderr => {
-                    let _ = write!(stderr_lock, "{}", format_note(note));
+                    let _ = write!(stderr, "{}", format_note(note));
                 }
             }
         }
@@ -257,14 +252,14 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
                     let (is_fixable, text) =
                         format_sed_diagnostic(config.output_format, &file_names, diag);
                     if is_fixable {
-                        let _ = write!(stdout_lock, "{}", text);
+                        let _ = write!(stdout, "{}", text);
                     } else {
-                        let _ = write!(stderr_lock, "{}", text);
+                        let _ = write!(stderr, "{}", text);
                     }
                 }
                 _ => {
                     let _ = write!(
-                        stderr_lock,
+                        stderr,
                         "{}",
                         format_diagnostic(config.output_format, &file_names, diag)
                     );
@@ -272,45 +267,41 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
             }
         }
 
-        let mut counter = counter_lock.lock().unwrap();
         for diag in &report.diagnostics {
             counter.add(diag);
         }
     };
 
     if let Some(pool) = &pool {
-        pool.install(|| {
-            lint_jobs.into_par_iter().for_each(|job| {
-                let report = process_file(job, session_settings, config.fix);
-                process_report(report);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let fix = config.fix;
+        pool.spawn(move || {
+            lint_jobs.into_par_iter().for_each_with(tx, |tx, job| {
+                let report = process_file(job, session_settings, fix);
+                let _ = tx.send(report);
             });
         });
+
+        for report in rx {
+            process_report(report, &mut stdout, &mut stderr, &mut counter);
+        }
     } else {
         for job in lint_jobs {
             let report = process_file(job, session_settings, config.fix);
-            process_report(report);
+            process_report(report, &mut stdout, &mut stderr, &mut counter);
         }
     }
 
-    let final_counter = Arc::try_unwrap(counter_lock).unwrap().into_inner().unwrap();
-    let final_error_count = final_counter.total();
+    let final_error_count = counter.total();
 
     if !config.quiet || final_error_count > 0 {
-        let _ = write!(
-            stdout_shared.lock().unwrap(),
-            "{}",
-            final_counter.render_summary()
-        );
+        let _ = write!(stdout, "{}", counter.render_summary());
     }
 
     if let Some(start) = started_at
         && !config.quiet
     {
-        let _ = writeln!(
-            stdout_shared.lock().unwrap(),
-            "Runtime: {:.3}(s)",
-            start.elapsed().as_secs_f64()
-        );
+        let _ = writeln!(stdout, "Runtime: {:.3}(s)", start.elapsed().as_secs_f64());
     }
 
     Ok(LintRunResult {
