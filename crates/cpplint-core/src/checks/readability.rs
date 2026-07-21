@@ -1337,7 +1337,11 @@ fn is_namespace_closing_brace(
                     None
                 }
             })
-            .is_some_and(|namespace_line| facts.namespace_top_level_depth(namespace_line.get() as usize - 1).is_none())
+            .is_some_and(|namespace_line| {
+                facts
+                    .namespace_top_level_depth(namespace_line.get() as usize - 1)
+                    .is_none()
+            })
 }
 
 fn is_assign_match(line: &str) -> bool {

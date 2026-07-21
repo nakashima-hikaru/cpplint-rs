@@ -23,8 +23,7 @@ fn bench_quantlib(c: &mut Criterion) {
     let config = RunnerConfig {
         recursive: true,
         quiet: true,
-        num_threads: std::thread::available_parallelism()
-            .unwrap_or(std::num::NonZeroUsize::MIN),
+        num_threads: std::thread::available_parallelism().unwrap_or(std::num::NonZeroUsize::MIN),
         ..RunnerConfig::default()
     };
 

@@ -158,7 +158,8 @@ impl<'a> FileFacts<'a> {
                     if l_braces > 0 {
                         ns_ext_stack.push(ScopeKind::Namespace);
                         block_kind[linenum] = Some(ScopeKind::Namespace);
-                        namespace_decl_line[linenum] = u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
+                        namespace_decl_line[linenum] =
+                            u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
                         ns_ext_depth += 1;
                         for _ in 1..l_braces {
                             ns_ext_stack.push(ScopeKind::Block);
@@ -190,7 +191,8 @@ impl<'a> FileFacts<'a> {
             // 3b. namespace_top_level_depth
             non_namespace_indent_depth_before.push(top_non_namespace_depth as u16);
 
-            namespace_top_level_depth.push(u8::try_from(top_ns_depth).ok().and_then(NonZeroU8::new));
+            namespace_top_level_depth
+                .push(u8::try_from(top_ns_depth).ok().and_then(NonZeroU8::new));
             if l_braces > 0 && block_kind[linenum] == Some(ScopeKind::Namespace) {
                 top_ns_stack.push(ScopeKind::Namespace);
                 top_ns_depth += 1;
@@ -239,11 +241,13 @@ impl<'a> FileFacts<'a> {
             let mut last_popped = None;
             for _ in 0..r_braces {
                 if let Some(start) = matching_stack.pop() {
-                    matching_block_ends[start] = u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
+                    matching_block_ends[start] =
+                        u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
                     last_popped = Some(start);
                 }
             }
-            matching_block_starts[linenum] = last_popped.and_then(|line| u32::try_from(line + 1).ok().and_then(NonZeroU32::new));
+            matching_block_starts[linenum] =
+                last_popped.and_then(|line| u32::try_from(line + 1).ok().and_then(NonZeroU32::new));
         }
 
         let (class_facts, class_fact_by_line) = build_class_facts(
@@ -314,17 +318,11 @@ impl<'a> FileFacts<'a> {
     }
 
     pub fn namespace_decl_line(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.namespace_decl_line
-            .get(linenum)
-            .copied()
-            .flatten()
+        self.namespace_decl_line.get(linenum).copied().flatten()
     }
 
     pub fn matching_block_start(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.matching_block_starts
-            .get(linenum)
-            .copied()
-            .flatten()
+        self.matching_block_starts.get(linenum).copied().flatten()
     }
 
     pub fn non_blank_elided_lines_between(
@@ -424,7 +422,9 @@ fn build_class_facts<'a>(
             .skip(class_fact.range.start + 1)
         {
             let should_replace = existing_opt
-                .map(|existing| class_facts[existing.get() as usize - 1].range.start <= class_fact.range.start)
+                .map(|existing| {
+                    class_facts[existing.get() as usize - 1].range.start <= class_fact.range.start
+                })
                 .unwrap_or(true);
             if should_replace {
                 *existing_opt = u32::try_from(index + 1).ok().and_then(NonZeroU32::new);

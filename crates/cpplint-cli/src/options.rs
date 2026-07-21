@@ -270,10 +270,12 @@ fn parse_num_threads(threads: Option<i32>) -> Result<NonZeroUsize, String> {
             .map(|count| count.get())
             .map_err(|error| error.to_string())?,
         Some(value) if value > 0 => value as usize,
-        Some(value) => return Err(format!(
-            "Number of threads should be a positive integer, 0, or -1. (--threads={})",
-            value
-        )),
+        Some(value) => {
+            return Err(format!(
+                "Number of threads should be a positive integer, 0, or -1. (--threads={})",
+                value
+            ));
+        }
     };
     NonZeroUsize::new(count).ok_or_else(|| "Thread count must be non-zero".to_string())
 }
@@ -322,7 +324,10 @@ mod tests {
 
     #[test]
     fn parse_num_threads_keeps_explicit_positive_value() {
-        assert_eq!(parse_num_threads(Some(2)).unwrap(), NonZeroUsize::new(2).unwrap());
+        assert_eq!(
+            parse_num_threads(Some(2)).unwrap(),
+            NonZeroUsize::new(2).unwrap()
+        );
     }
 
     #[test]

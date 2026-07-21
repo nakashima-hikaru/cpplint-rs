@@ -77,7 +77,9 @@ pub fn namespace_decl_start_line<S: AsRef<str>>(lines: &[S], start: usize) -> Op
     }
 
     get_previous_non_blank_line(lines, prev).and_then(|(namespace_line, namespace_decl)| {
-        is_namespace_decl(namespace_decl.trim()).then(|| NonZeroUsize::new(namespace_line + 1)).flatten()
+        is_namespace_decl(namespace_decl.trim())
+            .then(|| NonZeroUsize::new(namespace_line + 1))
+            .flatten()
     })
 }
 
@@ -451,8 +453,14 @@ mod tests {
         assert_eq!(get_previous_non_blank_line(&lines, 0), None);
 
         let namespace_lines = ["namespace foo", "{", "int x;", "}"];
-        assert_eq!(namespace_decl_start_line(&namespace_lines, 0), NonZeroUsize::new(1));
-        assert_eq!(namespace_decl_start_line(&namespace_lines, 1), NonZeroUsize::new(1));
+        assert_eq!(
+            namespace_decl_start_line(&namespace_lines, 0),
+            NonZeroUsize::new(1)
+        );
+        assert_eq!(
+            namespace_decl_start_line(&namespace_lines, 1),
+            NonZeroUsize::new(1)
+        );
         assert_eq!(namespace_decl_start_line(&["class Foo", "{"], 1), None);
     }
 
