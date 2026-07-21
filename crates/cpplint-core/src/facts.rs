@@ -59,7 +59,7 @@ impl<'a> FileFacts<'a> {
         let mut closing_brace_starts = Vec::with_capacity(n);
         let mut macro_lines = Vec::with_capacity(n);
         let mut matching_block_starts = vec![None; n];
-        let mut matching_block_ends = vec![None; n];
+        let mut matching_block_ends: Vec<Option<NonZeroUsize>> = vec![None; n];
         let mut non_blank_elided_prefix = Vec::with_capacity(n + 1);
         non_blank_elided_prefix.push(0);
 
@@ -297,7 +297,7 @@ impl<'a> FileFacts<'a> {
             let mut last_popped = None;
             for _ in 0..r_braces {
                 if let Some(start) = matching_stack.pop() {
-                    matching_block_ends[start] = Some(linenum);
+                    matching_block_ends[start] = NonZeroUsize::new(linenum + 1);
                     last_popped = Some(start);
                 }
             }
@@ -416,7 +416,7 @@ fn class_keywords_is_match(line: &str) -> bool {
 fn build_class_facts<'a>(
     lines: &[&'a str],
     line_braces: &[(u32, u32)],
-    matching_block_ends: &[Option<usize>],
+    matching_block_ends: &[Option<NonZeroUsize>],
 ) -> (Vec<ClassFact<'a>>, Vec<Option<NonZeroUsize>>) {
     let mut class_facts = Vec::new();
     let mut pending: Option<(usize, &'a str, bool)> = None;
@@ -460,7 +460,8 @@ fn build_class_facts<'a>(
             continue;
         }
 
-        if let Some(end) = matching_block_ends[linenum] {
+        if let Some(end_nz) = matching_block_ends[linenum] {
+            let end = end_nz.get() - 1;
             let (_, name, is_struct) = pending.take().unwrap();
             class_facts.push(ClassFact {
                 range: ClassRange { start, end },

@@ -618,8 +618,8 @@ fn check_operator_spacing(
             crate::messages::LintMessage::MissingSpacesAround(op),
         );
     } else if !line_to_check.starts_with('#') || !line_to_check.contains("include") {
-        if let Some(end_pos) = analysis.less_pos
-            && crate::line_utils::close_expression(clean_lines, linenum, end_pos).is_none()
+        if let Some(end_pos_nz) = analysis.less_pos
+            && crate::line_utils::close_expression(clean_lines, linenum, end_pos_nz.get() - 1).is_none()
         {
             linter.error(
                 linenum,
@@ -631,8 +631,8 @@ fn check_operator_spacing(
             );
         }
 
-        if let Some(start_pos) = analysis.greater_pos
-            && crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos)
+        if let Some(start_pos_nz) = analysis.greater_pos
+            && crate::line_utils::reverse_close_expression(clean_lines, linenum, start_pos_nz.get() - 1)
                 .is_none()
         {
             linter.error(
@@ -646,8 +646,8 @@ fn check_operator_spacing(
         }
     }
 
-    if let Some(pos) = analysis.lshift_pos
-        && let Some((left, right)) = lshift_tokens_at(line_to_check, pos)
+    if let Some(pos_nz) = analysis.lshift_pos
+        && let Some((left, right)) = lshift_tokens_at(line_to_check, pos_nz.get() - 1)
     {
         let left_is_digit = left.len() == 1 && left.as_bytes()[0].is_ascii_digit();
         let right_is_digit = right.len() == 1 && right.as_bytes()[0].is_ascii_digit();
@@ -734,13 +734,15 @@ fn ends_with_case_insensitive(s: &str, suffix: &str) -> bool {
         .all(|(a, b)| a.to_ascii_uppercase() == *b)
 }
 
+use std::num::NonZeroUsize;
+
 #[derive(Default)]
 struct OperatorSpacingAnalysis {
     missing_assignment_space: bool,
     missing_comparison_space: Option<crate::messages::OperatorSymbol>,
-    less_pos: Option<usize>,
-    greater_pos: Option<usize>,
-    lshift_pos: Option<usize>,
+    less_pos: Option<NonZeroUsize>,
+    greater_pos: Option<NonZeroUsize>,
+    lshift_pos: Option<NonZeroUsize>,
     rshift_spacing: bool,
     extra_unary_space: Option<crate::messages::OperatorSymbol>,
 }
@@ -795,7 +797,7 @@ impl OperatorSpacingAnalysis {
                             && !(next_b.is_ascii_whitespace()
                                 || matches!(next_b, b',' | b'=' | b'<'))
                         {
-                            analysis.lshift_pos = Some(i);
+                            analysis.lshift_pos = NonZeroUsize::new(i + 1);
                         }
                         i += 1;
                     }
@@ -864,7 +866,7 @@ impl OperatorSpacingAnalysis {
                     && !next.is_ascii_whitespace()
                     && !matches!(next, b'=' | b'<' | b',')
                 {
-                    analysis.less_pos = Some(i);
+                    analysis.less_pos = NonZeroUsize::new(i + 1);
                 }
 
                 if analysis.greater_pos.is_none()
@@ -875,7 +877,7 @@ impl OperatorSpacingAnalysis {
                     && !next.is_ascii_whitespace()
                     && !matches!(next, b'=' | b'>' | b',')
                 {
-                    analysis.greater_pos = Some(i);
+                    analysis.greater_pos = NonZeroUsize::new(i + 1);
                 }
 
                 if analysis.less_pos.is_some() && analysis.greater_pos.is_some() {
@@ -2039,7 +2041,7 @@ mod tests {
         assert_eq!(analysis.missing_comparison_space, Some(OperatorSymbol::OrOr));
 
         let analysis = OperatorSpacingAnalysis::scan("foo<<bar", false);
-        assert_eq!(analysis.lshift_pos, Some(3));
+        assert_eq!(analysis.lshift_pos, NonZeroUsize::new(4));
         assert_eq!(lshift_tokens_at("foo<<bar", 3), Some(("o", "b")));
 
         let analysis = OperatorSpacingAnalysis::scan("foo>>bar", false);

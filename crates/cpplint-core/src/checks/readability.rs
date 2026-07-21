@@ -1174,11 +1174,12 @@ fn check_namespace_termination_comment(
         return;
     };
     let start_line = start_line_nz.get() - 1;
-    let Some(namespace_line) =
+    let Some(namespace_line_nz) =
         crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start_line)
     else {
         return;
     };
+    let namespace_line = namespace_line_nz.get() - 1;
     let start = clean_lines.elided[namespace_line].trim();
     let Some(captures) = NAMESPACE_START_RE.captures(start) else {
         return;

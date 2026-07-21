@@ -56,10 +56,12 @@ pub fn get_previous_non_blank_line<S: AsRef<str>>(
     None
 }
 
-pub fn namespace_decl_start_line<S: AsRef<str>>(lines: &[S], start: usize) -> Option<usize> {
+use std::num::NonZeroUsize;
+
+pub fn namespace_decl_start_line<S: AsRef<str>>(lines: &[S], start: usize) -> Option<NonZeroUsize> {
     let trimmed = lines.get(start)?.as_ref().trim();
     if is_namespace_decl(trimmed) {
-        return Some(start);
+        return NonZeroUsize::new(start + 1);
     }
     if trimmed != "{" {
         return None;
@@ -68,14 +70,14 @@ pub fn namespace_decl_start_line<S: AsRef<str>>(lines: &[S], start: usize) -> Op
     let (prev, prev_line) = get_previous_non_blank_line(lines, start)?;
     let prev_trimmed = prev_line.trim();
     if is_namespace_decl(prev_trimmed) {
-        return Some(prev);
+        return NonZeroUsize::new(prev + 1);
     }
     if !is_namespace_name_continuation(prev_trimmed) {
         return None;
     }
 
     get_previous_non_blank_line(lines, prev).and_then(|(namespace_line, namespace_decl)| {
-        is_namespace_decl(namespace_decl.trim()).then_some(namespace_line)
+        is_namespace_decl(namespace_decl.trim()).then(|| NonZeroUsize::new(namespace_line + 1)).flatten()
     })
 }
 
@@ -449,8 +451,8 @@ mod tests {
         assert_eq!(get_previous_non_blank_line(&lines, 0), None);
 
         let namespace_lines = ["namespace foo", "{", "int x;", "}"];
-        assert_eq!(namespace_decl_start_line(&namespace_lines, 0), Some(0));
-        assert_eq!(namespace_decl_start_line(&namespace_lines, 1), Some(0));
+        assert_eq!(namespace_decl_start_line(&namespace_lines, 0), NonZeroUsize::new(1));
+        assert_eq!(namespace_decl_start_line(&namespace_lines, 1), NonZeroUsize::new(1));
         assert_eq!(namespace_decl_start_line(&["class Foo", "{"], 1), None);
     }
 
