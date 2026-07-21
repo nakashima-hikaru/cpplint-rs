@@ -64,7 +64,8 @@ impl<'a> DecodedSource<'a> {
         null_lines_in: Vec<usize>,
     ) -> Self {
         let allocated_decoded = arena.alloc_str(&decoded);
-        let mut lines = BumpVec::new_in(arena);
+        let est_lines = allocated_decoded.bytes().filter(|&b| b == b'\n').count() + 1;
+        let mut lines = BumpVec::with_capacity_in(est_lines, arena);
         let mut crlf_lines = BumpVec::new_in(arena);
         let mut lf_lines_count = 0usize;
 

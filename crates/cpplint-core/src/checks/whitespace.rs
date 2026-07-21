@@ -1923,7 +1923,7 @@ pub fn check(
         }
     }
 
-    if elided_line.contains("}else") {
+    if (has_brace || keywords.has_else()) && elided_line.contains("}else") {
         linter.error(
             linenum,
             Category::WhitespaceBraces,
@@ -1932,35 +1932,37 @@ pub fn check(
         );
     }
 
-    if let Some(colon_pos) = elided_line.find(':') {
-        let suffix = &elided_line[colon_pos + 1..];
-        let trimmed_suffix = suffix.trim();
-        if trimmed_suffix == ";" {
+    if has_colon || has_semicolon {
+        if let Some(colon_pos) = elided_line.find(':') {
+            let suffix = &elided_line[colon_pos + 1..];
+            let trimmed_suffix = suffix.trim();
+            if trimmed_suffix == ";" {
+                linter.error(
+                    linenum,
+                    Category::WhitespaceSemicolon,
+                    5,
+                    crate::messages::LintMessage::SemicolonDefiningEmptyStatementUseBraces,
+                );
+            }
+        } else if elided_line.trim() == ";" {
             linter.error(
                 linenum,
                 Category::WhitespaceSemicolon,
                 5,
-                crate::messages::LintMessage::SemicolonDefiningEmptyStatementUseBraces,
+                crate::messages::LintMessage::LineContainsOnlySemicolonUseBraces,
             );
-        }
-    } else if elided_line.trim() == ";" {
-        linter.error(
-            linenum,
-            Category::WhitespaceSemicolon,
-            5,
-            crate::messages::LintMessage::LineContainsOnlySemicolonUseBraces,
-        );
-    } else if let Some(stripped) = elided_line.strip_suffix(';') {
-        let before_semi = stripped.as_bytes();
-        if before_semi.last().is_some_and(|c| c.is_ascii_whitespace())
-            && !string_utils::contains_word(elided_line, "for")
-        {
-            linter.error(
-                linenum,
-                Category::WhitespaceSemicolon,
-                5,
-                crate::messages::LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces,
-            );
+        } else if let Some(stripped) = elided_line.strip_suffix(';') {
+            let before_semi = stripped.as_bytes();
+            if before_semi.last().is_some_and(|c| c.is_ascii_whitespace())
+                && !string_utils::contains_word(elided_line, "for")
+            {
+                linter.error(
+                    linenum,
+                    Category::WhitespaceSemicolon,
+                    5,
+                    crate::messages::LintMessage::ExtraSpaceBeforeLastSemicolonUseBraces,
+                );
+            }
         }
     }
 }

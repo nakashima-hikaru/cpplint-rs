@@ -109,7 +109,7 @@ pub fn check(
     if line_features.contains(LineFeatures::RAW_HAS_QUOTE) {
         check_multiline_strings(linter, clean_lines, linenum);
     }
-    if elided_line.contains("string") {
+    if keywords.has_string() {
         check_redundant_string_ctor(linter, clean_lines.raw_lines[linenum], linenum);
     }
 

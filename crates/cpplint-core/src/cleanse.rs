@@ -298,6 +298,10 @@ impl MatchedKeywords {
         self.contains(Self::VA_OPT)
     }
     #[inline(always)]
+    pub fn has_string(&self) -> bool {
+        self.contains(Self::STRING)
+    }
+    #[inline(always)]
     pub fn has_access(&self) -> bool {
         self.contains(Self::ACCESS)
     }
