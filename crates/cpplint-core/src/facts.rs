@@ -85,20 +85,20 @@ impl<'a> FileFacts<'a> {
         non_blank_elided_prefix.push(0);
 
         // State for various trackers
-        let mut ns_ext_stack = Vec::new();
+        let mut ns_ext_stack = BumpVec::new_in(arena);
         let mut ns_ext_depth = 0usize;
         let mut pending_ns_ext_scope = None;
         let mut last_namespace_decl = None;
 
-        let mut top_ns_stack = Vec::new();
+        let mut top_ns_stack = BumpVec::new_in(arena);
         let mut top_ns_depth = 0usize;
         let mut top_non_namespace_depth = 0usize;
 
-        let mut matching_stack = Vec::new();
+        let mut matching_stack = BumpVec::new_in(arena);
         let mut non_blank_count = 0u32;
 
         // 1. We will compute line_braces on the fly.
-        let mut line_braces = Vec::with_capacity(n);
+        let mut line_braces = BumpVec::with_capacity_in(n, arena);
 
         for (linenum, elided) in clean_lines.elided.iter().enumerate() {
             // 1. Non-blank prefix

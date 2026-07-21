@@ -347,8 +347,16 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
         }
     }
 
-    collected.retain(|file| !should_exclude(file, &excludes));
-    collected.sort_unstable();
+    if config.num_threads.get() > 1 {
+        collected = collected
+            .into_par_iter()
+            .filter(|file| !should_exclude(file, &excludes))
+            .collect();
+        collected.par_sort_unstable();
+    } else {
+        collected.retain(|file| !should_exclude(file, &excludes));
+        collected.sort_unstable();
+    }
     collected.dedup();
     let files = collected
         .into_iter()
