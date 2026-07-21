@@ -425,19 +425,22 @@ fn build_class_facts<'a>(
 
     let mut class_fact_by_line: BumpVec<'a, Option<NonZeroU32>> =
         bumpalo::vec![in arena; None; lines.len()];
-    for (index, class_fact) in class_facts.iter().enumerate() {
-        for existing_opt in class_fact_by_line
-            .iter_mut()
-            .take(class_fact.range.end + 1)
-            .skip(class_fact.range.start + 1)
-        {
-            let should_replace = existing_opt
-                .map(|existing| {
-                    class_facts[existing.get() as usize - 1].range.start <= class_fact.range.start
-                })
-                .unwrap_or(true);
-            if should_replace {
-                *existing_opt = u32::try_from(index + 1).ok().and_then(NonZeroU32::new);
+
+    if !class_facts.is_empty() {
+        let mut order: BumpVec<'a, usize> = BumpVec::with_capacity_in(class_facts.len(), arena);
+        order.extend(0..class_facts.len());
+        order.sort_unstable_by_key(|&i| {
+            let f = &class_facts[i];
+            (f.range.start, std::cmp::Reverse(f.range.end))
+        });
+
+        for &index in &order {
+            let class_fact = &class_facts[index];
+            let nz = u32::try_from(index + 1).ok().and_then(NonZeroU32::new);
+            let start = class_fact.range.start + 1;
+            let end = (class_fact.range.end + 1).min(class_fact_by_line.len());
+            if start < end {
+                class_fact_by_line[start..end].fill(nz);
             }
         }
     }

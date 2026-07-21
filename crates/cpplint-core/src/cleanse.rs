@@ -1,8 +1,9 @@
 use crate::options::Options;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use bitflags::bitflags;
-use bumpalo::Bump;
+use bumpalo::collections::String as BumpString;
 use bumpalo::collections::Vec as BumpVec;
+use bumpalo::Bump;
 use std::borrow::Cow;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x32;
@@ -593,7 +594,7 @@ impl<'a> CleansedLines<'a> {
         for &raw_line_ref in raw_lines {
             let was_in_raw_string = !raw_delimiter.is_empty();
             // 1. Cleanse raw strings
-            let mut line_without_raw: Cow<'_, str> = Cow::Borrowed(raw_line_ref);
+            let mut line_without_raw_ref: &'a str = raw_line_ref;
 
             if !raw_delimiter.is_empty() {
                 if let Some(pos) = raw_line_ref.find(&raw_delimiter) {
@@ -601,24 +602,25 @@ impl<'a> CleansedLines<'a> {
                         .bytes()
                         .take_while(|b| b.is_ascii_whitespace())
                         .count();
-                    let mut s = String::with_capacity(
+                    let mut s = BumpString::with_capacity_in(
                         leading_space_count + 2 + raw_line_ref.len() - (pos + raw_delimiter.len()),
+                        arena,
                     );
                     for _ in 0..leading_space_count {
                         s.push(' ');
                     }
                     s.push_str("\"\"");
                     s.push_str(&raw_line_ref[pos + raw_delimiter.len()..]);
-                    line_without_raw = Cow::Owned(s);
+                    line_without_raw_ref = s.into_bump_str();
                     raw_delimiter.clear();
                 } else {
-                    line_without_raw = Cow::Borrowed("\"\"");
+                    line_without_raw_ref = "\"\"";
                 }
             }
 
             while raw_delimiter.is_empty() {
                 let Some((prefix, delimiter_text, suffix)) =
-                    find_raw_string_start(&line_without_raw)
+                    find_raw_string_start(line_without_raw_ref)
                 else {
                     break;
                 };
@@ -633,51 +635,36 @@ impl<'a> CleansedLines<'a> {
                 raw_delimiter.push('"');
 
                 if let Some(end) = suffix.find(&raw_delimiter) {
-                    let mut s = String::with_capacity(
+                    let mut s = BumpString::with_capacity_in(
                         prefix.len() + 2 + suffix.len() - (end + raw_delimiter.len()),
+                        arena,
                     );
                     s.push_str(prefix);
                     s.push_str("\"\"");
                     s.push_str(&suffix[end + raw_delimiter.len()..]);
-                    line_without_raw = Cow::Owned(s);
+                    line_without_raw_ref = s.into_bump_str();
                     raw_delimiter.clear();
                 } else {
-                    let mut s = String::with_capacity(prefix.len() + 2);
+                    let mut s = BumpString::with_capacity_in(prefix.len() + 2, arena);
                     s.push_str(prefix);
                     s.push_str("\"\"");
-                    line_without_raw = Cow::Owned(s);
+                    line_without_raw_ref = s.into_bump_str();
                 }
             }
 
-            let was_raw_string_replaced = matches!(line_without_raw, Cow::Owned(_));
-            let line_without_raw_ref: &'a str = if was_raw_string_replaced {
-                arena.alloc_str(line_without_raw.as_ref())
-            } else {
-                raw_line_ref
-            };
             lines_without_raw_strings.push(line_without_raw_ref);
 
             // 2. Cleanse comments
-            let (comment_removed, is_comment, still_in_block, has_quote_or_backslash) =
-                cleanse_comments_line(line_without_raw_ref, in_block_comment);
+            let (line_comment_removed_ref, is_comment, still_in_block, has_quote_or_backslash) =
+                cleanse_comments_line_in(arena, line_without_raw_ref, in_block_comment);
 
-            let line_comment_removed_ref: &'a str = if let Cow::Owned(s) = comment_removed {
-                arena.alloc_str(&s)
-            } else {
-                line_without_raw_ref
-            };
             lines.push(line_comment_removed_ref);
             has_comment.push(is_comment);
             in_block_comment = still_in_block;
 
             // 3. Collapse strings
-            let collapsed_line = if has_quote_or_backslash {
-                collapse_strings(line_comment_removed_ref)
-            } else {
-                Cow::Borrowed(line_comment_removed_ref)
-            };
-            let line_collapsed_ref: &'a str = if let Cow::Owned(s) = collapsed_line {
-                arena.alloc_str(s.as_ref())
+            let line_collapsed_ref = if has_quote_or_backslash {
+                collapse_strings_in(arena, line_comment_removed_ref)
             } else {
                 line_comment_removed_ref
             };
@@ -685,14 +672,8 @@ impl<'a> CleansedLines<'a> {
             let has_alt = has_alternate_tokens(line_collapsed_ref);
 
             if let Some(lines_without_alt_tokens) = &mut elided_without_alternate_tokens {
-                let elided_line = replace_alternate_tokens(line_collapsed_ref);
+                let line_elided_ref = replace_alternate_tokens_in(arena, line_collapsed_ref);
                 lines_without_alt_tokens.push(line_collapsed_ref);
-
-                let line_elided_ref: &'a str = if let Cow::Owned(s) = elided_line {
-                    arena.alloc_str(&s)
-                } else {
-                    line_collapsed_ref
-                };
 
                 let mut bits = MatchedKeywords::from_line(line_elided_ref);
                 if has_alt {
@@ -924,16 +905,15 @@ fn cleanse_comments_from_lines(lines: &[String]) -> (Vec<String>, Vec<bool>) {
     (result, has_comment)
 }
 
-fn cleanse_comments_line<'a>(
+fn cleanse_comments_line_in<'a>(
+    arena: &'a Bump,
     line: &'a str,
     mut in_block_comment: bool,
-) -> (Cow<'a, str>, bool, bool, bool) {
+) -> (&'a str, bool, bool, bool) {
     if line.is_empty() {
-        return (Cow::Borrowed(""), false, in_block_comment, false);
+        return ("", false, in_block_comment, false);
     }
 
-    // Quick check if we need to do anything.
-    // If we're not in a block comment and the line has no interesting characters, return as-is (possibly trimmed)
     if !in_block_comment {
         let bytes = line.as_bytes();
         let mut has_special = false;
@@ -962,11 +942,11 @@ fn cleanse_comments_line<'a>(
         }
         if !has_special {
             let trimmed = line.trim_end();
-            return (Cow::Borrowed(trimmed), false, false, false);
+            return (trimmed, false, false, false);
         }
     }
 
-    let mut result = String::with_capacity(line.len());
+    let mut result = BumpString::with_capacity_in(line.len(), arena);
     let mut is_comment = false;
     let mut has_quote_or_backslash = false;
     let mut in_string = false;
@@ -1063,19 +1043,35 @@ fn cleanse_comments_line<'a>(
         && result.len() == line.trim_end().len()
     {
         return (
-            Cow::Borrowed(line.trim_end()),
+            line.trim_end(),
             false,
             false,
             has_quote_or_backslash,
         );
     }
 
+    let trimmed_len = result.trim_end().len();
+    result.truncate(trimmed_len);
     (
-        Cow::Owned(result.trim_end().to_string()),
+        result.into_bump_str(),
         is_comment,
         in_block_comment,
         has_quote_or_backslash,
     )
+}
+
+fn cleanse_comments_line<'a>(
+    line: &'a str,
+    in_block_comment: bool,
+) -> (Cow<'a, str>, bool, bool, bool) {
+    let arena = Bump::new();
+    let (cleansed, is_comment, still_in_block, has_quote) =
+        cleanse_comments_line_in(&arena, line, in_block_comment);
+    if cleansed == line.trim_end() {
+        (Cow::Borrowed(line.trim_end()), is_comment, still_in_block, has_quote)
+    } else {
+        (Cow::Owned(cleansed.to_string()), is_comment, still_in_block, has_quote)
+    }
 }
 
 pub fn is_cpp_string(line: &str) -> bool {
@@ -1093,20 +1089,13 @@ pub fn is_cpp_string(line: &str) -> bool {
     in_string
 }
 
-/// Strip C/C++ backslash escape sequences from a string slice, without regex.
-///
-/// Handles:
-///   - single-char escapes `\a \b \f \n \r \t \v \? \" \' \\`  → skip both bytes
-///   - octal/decimal digit runs `\NNN`                          → skip `\` + all digits
-///   - hex runs `\xHH...`                                       → skip `\` + `x` + all hex digits
-///   - anything else                                            → keep the `\` as-is
-fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
+fn strip_escape_sequences_in<'a>(arena: &'a Bump, s: &'a str) -> &'a str {
     let bytes = s.as_bytes();
     let Some(first_bs) = memchr::memchr(b'\\', bytes) else {
-        return Cow::Borrowed(s);
+        return s;
     };
 
-    let mut result = String::with_capacity(s.len());
+    let mut result = BumpString::with_capacity_in(s.len(), arena);
     result.push_str(&s[..first_bs]);
     let mut i = first_bs;
 
@@ -1118,30 +1107,26 @@ fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
         }
 
         let Some(&next) = bytes.get(i + 1) else {
-            // Trailing lone backslash — keep it
             result.push('\\');
             break;
         };
 
         match next {
-            // Recognised single-char escape sequences — drop both bytes
             b'a' | b'b' | b'f' | b'n' | b'r' | b't' | b'v' | b'?' | b'"' | b'\'' | b'\\' => {
                 i += 2;
             }
-            // \x followed by hex digits
             b'x' => {
                 let mut j = i + 2;
                 while j < bytes.len() && bytes[j].is_ascii_hexdigit() {
                     j += 1;
                 }
                 if j > i + 2 {
-                    i = j; // skip \\ + 'x' + hex digits
+                    i = j;
                 } else {
                     result.push('\\');
                     i += 1;
                 }
             }
-            // Octal/decimal digit run
             b'0'..=b'9' => {
                 let mut j = i + 1;
                 while j < bytes.len() && bytes[j].is_ascii_digit() {
@@ -1156,13 +1141,23 @@ fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
         }
     }
 
-    Cow::Owned(result)
+    result.into_bump_str()
+}
+
+fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
+    let arena = Bump::new();
+    let stripped = strip_escape_sequences_in(&arena, s);
+    if stripped == s {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(stripped.to_string())
+    }
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
+pub fn collapse_strings_in<'a>(arena: &'a Bump, elided: &'a str) -> &'a str {
     if elided.trim_start().starts_with('#') && INCLUDE_RE.is_match(elided) {
-        return Cow::Borrowed(elided);
+        return elided;
     }
 
     let bytes = elided.as_bytes();
@@ -1189,28 +1184,32 @@ pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
     }
 
     if !has_backslash && !has_quote {
-        return Cow::Borrowed(elided);
+        return elided;
     }
 
-    // Remove escapes — only needed when both backslash and quotes are present
     let result = if has_backslash && has_quote {
-        strip_escape_sequences(elided)
+        strip_escape_sequences_in(arena, elided)
     } else {
-        Cow::Borrowed(elided)
+        elided
     };
 
-    let collapsed = collapse_quotes_and_separators(&result);
-    if collapsed.len() == result.len() {
-        result
+    collapse_quotes_and_separators_in(arena, result)
+}
+
+pub fn collapse_strings<'a>(elided: &'a str) -> Cow<'a, str> {
+    let arena = Bump::new();
+    let collapsed = collapse_strings_in(&arena, elided);
+    if collapsed == elided {
+        Cow::Borrowed(elided)
     } else {
-        Cow::Owned(collapsed)
+        Cow::Owned(collapsed.to_string())
     }
 }
 
-pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
+pub fn replace_alternate_tokens_in<'a>(arena: &'a Bump, line: &'a str) -> &'a str {
     let bytes = line.as_bytes();
     let mut last = 0usize;
-    let mut result = String::new();
+    let mut result = BumpString::new_in(arena);
 
     let mut i = 0usize;
     while i < bytes.len() {
@@ -1247,16 +1246,30 @@ pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
     }
 
     if result.is_empty() {
-        return Cow::Borrowed(line);
+        return line;
     }
 
     result.push_str(&line[last..]);
-    Cow::Owned(result)
+    result.into_bump_str()
 }
 
-fn collapse_quotes_and_separators(elided: &str) -> String {
-    let mut result = String::with_capacity(elided.len());
+pub fn replace_alternate_tokens<'a>(line: &'a str) -> Cow<'a, str> {
+    let arena = Bump::new();
+    let replaced = replace_alternate_tokens_in(&arena, line);
+    if replaced == line {
+        Cow::Borrowed(line)
+    } else {
+        Cow::Owned(replaced.to_string())
+    }
+}
+
+fn collapse_quotes_and_separators_in<'a>(arena: &'a Bump, elided: &'a str) -> &'a str {
     let bytes = elided.as_bytes();
+    let Some(_) = memchr::memchr2(b'"', b'\'', bytes) else {
+        return elided;
+    };
+
+    let mut result = BumpString::with_capacity_in(elided.len(), arena);
     let mut i = 0usize;
 
     while i < bytes.len() {
@@ -1297,7 +1310,16 @@ fn collapse_quotes_and_separators(elided: &str) -> String {
         }
     }
 
-    result
+    if result.len() == elided.len() {
+        elided
+    } else {
+        result.into_bump_str()
+    }
+}
+
+fn collapse_quotes_and_separators(elided: &str) -> String {
+    let arena = Bump::new();
+    collapse_quotes_and_separators_in(&arena, elided).to_string()
 }
 
 #[cfg(test)]
