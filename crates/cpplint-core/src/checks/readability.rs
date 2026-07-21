@@ -400,7 +400,7 @@ fn check_function_size(
     let Some(start_line_nz) = facts.matching_block_start(linenum) else {
         return;
     };
-    let start_line = start_line_nz.get() - 1;
+    let start_line = start_line_nz.get() as usize - 1;
 
     let signature_line = collect_function_signature(clean_lines, start_line);
     if signature_line.is_empty() || is_control_statement_start(&signature_line) {
@@ -1173,7 +1173,7 @@ fn check_namespace_termination_comment(
     let Some(start_line_nz) = facts.matching_block_start(linenum) else {
         return;
     };
-    let start_line = start_line_nz.get() - 1;
+    let start_line = start_line_nz.get() as usize - 1;
     let Some(namespace_line_nz) =
         crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start_line)
     else {
@@ -1330,14 +1330,14 @@ fn is_namespace_closing_brace(
         && facts
             .matching_block_start(linenum)
             .and_then(|start| {
-                let start_idx = start.get() - 1;
+                let start_idx = start.get() as usize - 1;
                 if facts.block_kind(start_idx) == Some(crate::facts::ScopeKind::Namespace) {
                     facts.namespace_decl_line(start_idx)
                 } else {
                     None
                 }
             })
-            .is_some_and(|namespace_line| facts.namespace_top_level_depth(namespace_line.get() - 1).is_none())
+            .is_some_and(|namespace_line| facts.namespace_top_level_depth(namespace_line.get() as usize - 1).is_none())
 }
 
 fn is_assign_match(line: &str) -> bool {

@@ -1364,13 +1364,13 @@ fn check_blank_line_rules(
         let closes_extern_block = facts
             .matching_block_start(linenum + 1)
             .is_some_and(|start| {
-                let start_line = clean_lines.raw_lines[start.get() - 1].trim();
+                let start_line = clean_lines.raw_lines[start.get() as usize - 1].trim();
                 start_line.starts_with("extern ") && start_line.ends_with('{')
             });
         let closes_namespace_block = facts
             .matching_block_start(linenum + 1)
             .is_some_and(|start| {
-                crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start.get() - 1).is_some()
+                crate::line_utils::namespace_decl_start_line(&clean_lines.elided, start.get() as usize - 1).is_some()
             });
         if closes_extern_block || closes_namespace_block {
             return;
