@@ -34,11 +34,24 @@ impl SourceFile {
             invalid_utf8_lines,
             null_lines,
         } = file_reader::scan_raw_lines(&bytes);
+
+        if let Ok(s) = std::str::from_utf8(&bytes) {
+            if !s.starts_with('\u{feff}') {
+                return Ok(DecodedSource::from_decoded_str(
+                    arena,
+                    self.clone(),
+                    s,
+                    invalid_utf8_lines,
+                    null_lines,
+                ));
+            }
+        }
+
         let decoded = file_reader::decode_bytes(&bytes)?;
-        Ok(DecodedSource::from_decoded_text(
+        Ok(DecodedSource::from_decoded_str(
             arena,
             self.clone(),
-            decoded,
+            &decoded,
             invalid_utf8_lines,
             null_lines,
         ))
@@ -56,10 +69,10 @@ pub struct DecodedSource<'a> {
 }
 
 impl<'a> DecodedSource<'a> {
-    fn from_decoded_text(
+    fn from_decoded_str(
         arena: &'a Bump,
         source_file: SourceFile,
-        decoded: String,
+        decoded: &str,
         invalid_utf8_lines_in: Vec<usize>,
         null_lines_in: Vec<usize>,
     ) -> Self {

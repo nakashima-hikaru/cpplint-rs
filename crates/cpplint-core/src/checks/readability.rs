@@ -1511,7 +1511,7 @@ mod tests {
         let arena = Bump::new();
         let lines = ["// Copyright 2026", "namespace {", ""];
         let clean_lines = CleansedLines::new(&arena, &lines);
-        let facts = crate::facts::FileFacts::new(&clean_lines);
+        let facts = crate::facts::FileFacts::new(&clean_lines, &arena);
 
         check(&mut linter, &facts, &clean_lines, 1);
 

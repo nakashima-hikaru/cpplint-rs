@@ -240,7 +240,7 @@ impl<'a> FileLinter<'a> {
         }
 
         if active_rules.has_line_checks() {
-            let facts = FileFacts::new(&clean_lines);
+            let facts = FileFacts::new(&clean_lines, arena);
             for linenum in 0..clean_lines.raw_lines.len() {
                 self.process_line(&clean_lines, &facts, linenum);
             }
@@ -294,6 +294,9 @@ impl<'a> FileLinter<'a> {
     }
 
     fn parse_nolint_suppressions(&mut self, raw_line: &str, linenum: usize) {
+        if !raw_line.contains("NOLINT") {
+            return;
+        }
         let Some(captures) = NOLINT_RE.captures(raw_line) else {
             return;
         };

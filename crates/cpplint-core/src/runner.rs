@@ -348,7 +348,7 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
     }
 
     collected.retain(|file| !should_exclude(file, &excludes));
-    collected.sort_by_cached_key(|file| file.to_string_lossy().into_owned());
+    collected.sort_unstable();
     collected.dedup();
     let files = collected
         .into_iter()

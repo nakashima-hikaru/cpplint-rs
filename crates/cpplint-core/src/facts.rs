@@ -46,17 +46,20 @@ struct ClassFact<'a> {
 
 
 
+use bumpalo::Bump;
+use bumpalo::collections::Vec as BumpVec;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileFacts<'a> {
-    class_facts: Vec<ClassFact<'a>>,
-    class_fact_indices: Vec<Option<NonZeroU32>>,
-    namespace_top_level_depths: Vec<Option<NonZeroU8>>,
-    matching_block_starts: Vec<Option<NonZeroU32>>,
-    block_kinds: Vec<Option<ScopeKind>>,
-    namespace_decl_lines: Vec<Option<NonZeroU32>>,
-    non_namespace_indent_depths_before: Vec<u16>,
-    non_namespace_indent_depths: Vec<u16>,
-    non_blank_elided_prefix: Vec<u32>,
+    class_facts: BumpVec<'a, ClassFact<'a>>,
+    class_fact_indices: BumpVec<'a, Option<NonZeroU32>>,
+    namespace_top_level_depths: BumpVec<'a, Option<NonZeroU8>>,
+    matching_block_starts: BumpVec<'a, Option<NonZeroU32>>,
+    block_kinds: BumpVec<'a, Option<ScopeKind>>,
+    namespace_decl_lines: BumpVec<'a, Option<NonZeroU32>>,
+    non_namespace_indent_depths_before: BumpVec<'a, u16>,
+    non_namespace_indent_depths: BumpVec<'a, u16>,
+    non_blank_elided_prefix: BumpVec<'a, u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,16 +71,17 @@ pub enum ScopeKind {
 
 impl<'a> FileFacts<'a> {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub fn new(clean_lines: &CleansedLines<'a>) -> Self {
+    pub fn new(clean_lines: &CleansedLines<'a>, arena: &'a Bump) -> Self {
         let n = clean_lines.elided.len();
-        let mut namespace_top_level_depths = vec![None; n];
-        let mut matching_block_starts = vec![None; n];
-        let mut block_kinds = vec![None; n];
-        let mut namespace_decl_lines = vec![None; n];
-        let mut non_namespace_indent_depths_before = vec![0u16; n];
-        let mut non_namespace_indent_depths = vec![0u16; n];
-        let mut matching_block_ends: Vec<Option<NonZeroU32>> = vec![None; n];
-        let mut non_blank_elided_prefix = Vec::with_capacity(n + 1);
+        let mut namespace_top_level_depths = bumpalo::vec![in arena; None; n];
+        let mut matching_block_starts = bumpalo::vec![in arena; None; n];
+        let mut block_kinds = bumpalo::vec![in arena; None; n];
+        let mut namespace_decl_lines = bumpalo::vec![in arena; None; n];
+        let mut non_namespace_indent_depths_before = bumpalo::vec![in arena; 0u16; n];
+        let mut non_namespace_indent_depths = bumpalo::vec![in arena; 0u16; n];
+        let mut matching_block_ends: BumpVec<'a, Option<NonZeroU32>> =
+            bumpalo::vec![in arena; None; n];
+        let mut non_blank_elided_prefix = BumpVec::with_capacity_in(n + 1, arena);
         non_blank_elided_prefix.push(0);
 
         // State for various trackers
@@ -256,6 +260,7 @@ impl<'a> FileFacts<'a> {
             clean_lines.elided.as_slice(),
             &line_braces,
             &matching_block_ends,
+            arena,
         );
 
         Self {
@@ -359,8 +364,9 @@ fn build_class_facts<'a>(
     lines: &[&'a str],
     line_braces: &[(u32, u32)],
     matching_block_ends: &[Option<NonZeroU32>],
-) -> (Vec<ClassFact<'a>>, Vec<Option<NonZeroU32>>) {
-    let mut class_facts = Vec::new();
+    arena: &'a Bump,
+) -> (BumpVec<'a, ClassFact<'a>>, BumpVec<'a, Option<NonZeroU32>>) {
+    let mut class_facts = BumpVec::new_in(arena);
     let mut pending: Option<(usize, &'a str, ClassKind)> = None;
 
     for (linenum, line) in lines.iter().enumerate() {
@@ -417,7 +423,8 @@ fn build_class_facts<'a>(
         }
     }
 
-    let mut class_fact_by_line: Vec<Option<NonZeroU32>> = vec![None; lines.len()];
+    let mut class_fact_by_line: BumpVec<'a, Option<NonZeroU32>> =
+        bumpalo::vec![in arena; None; lines.len()];
     for (index, class_fact) in class_facts.iter().enumerate() {
         for existing_opt in class_fact_by_line
             .iter_mut()
@@ -523,7 +530,7 @@ mod tests {
         ($lines:expr, |$facts:ident| $body:block) => {{
             let arena = Bump::new();
             let clean_lines = CleansedLines::new(&arena, &$lines);
-            let $facts = FileFacts::new(&clean_lines);
+            let $facts = FileFacts::new(&clean_lines, &arena);
             $body
         }};
     }
@@ -717,7 +724,7 @@ mod tests {
         ];
         let clean_lines = CleansedLines::new(&arena, &lines);
 
-        let facts = FileFacts::new(&clean_lines);
+        let facts = FileFacts::new(&clean_lines, &arena);
 
         assert_eq!(facts.namespace_top_level_depth(1), NonZeroU8::new(1));
         assert_eq!(facts.non_namespace_indent_depth_before(6), 1);
@@ -737,7 +744,7 @@ mod tests {
         let lines = ["namespace", "Foo", "{", "  int value = 0;", "}"];
         let clean_lines = CleansedLines::new(&arena, &lines);
 
-        let facts = FileFacts::new(&clean_lines);
+        let facts = FileFacts::new(&clean_lines, &arena);
 
         assert_eq!(facts.namespace_top_level_depth(3), NonZeroU8::new(1));
         assert_eq!(facts.non_namespace_indent_depth_before(3), 0);
@@ -759,7 +766,7 @@ mod tests {
         ];
         let clean_lines = CleansedLines::new(&arena, &lines);
 
-        let facts = FileFacts::new(&clean_lines);
+        let facts = FileFacts::new(&clean_lines, &arena);
 
         assert_eq!(facts.non_namespace_indent_depth_before(4), 0);
         assert_eq!(facts.non_namespace_indent_depth(4), 1);

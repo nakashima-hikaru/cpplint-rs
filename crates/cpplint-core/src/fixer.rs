@@ -1735,7 +1735,7 @@ fn build_facts<'a>(
     let arena_lines = arena_lines.into_bump_slice();
 
     let clean_lines = CleansedLines::new_with_options(arena, arena_lines, options, &filename);
-    let facts = FileFacts::new(&clean_lines);
+    let facts = FileFacts::new(&clean_lines, arena);
     (clean_lines, facts)
 }
 

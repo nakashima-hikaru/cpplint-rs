@@ -18,6 +18,38 @@ const STRING_NODE_KINDS: &[&str] = &[
     "raw_string_literal",
 ];
 
+struct ParsedLineCache {
+    slots: [(u64, Option<(Arc<str>, Tree)>); 4],
+    next_idx: usize,
+}
+
+impl ParsedLineCache {
+    const fn new() -> Self {
+        Self {
+            slots: [(0, None), (0, None), (0, None), (0, None)],
+            next_idx: 0,
+        }
+    }
+
+    fn get(&self, hash: u64, line: &str) -> Option<(Arc<str>, Tree)> {
+        for (h, slot) in &self.slots {
+            if *h == hash
+                && let Some((source, tree)) = slot
+                && source.as_ref() == line
+            {
+                return Some((source.clone(), tree.clone()));
+            }
+        }
+        None
+    }
+
+    fn insert(&mut self, hash: u64, source: Arc<str>, tree: Tree) {
+        let idx = self.next_idx;
+        self.slots[idx] = (hash, Some((source, tree)));
+        self.next_idx = (idx + 1) % 4;
+    }
+}
+
 thread_local! {
     static CPP_PARSER: RefCell<Parser> = RefCell::new({
         let mut parser = Parser::new();
@@ -26,7 +58,7 @@ thread_local! {
             .expect("tree-sitter-cpp language should initialize");
         parser
     });
-    static LAST_PARSED_LINE: RefCell<Option<(u64, Arc<str>, Tree)>> = const { RefCell::new(None) };
+    static PARSED_LINE_CACHE: RefCell<ParsedLineCache> = const { RefCell::new(ParsedLineCache::new()) };
 }
 
 #[derive(Debug)]
@@ -58,19 +90,16 @@ pub(crate) struct InvalidIncrementExpression<'tree> {
 impl ParsedLine {
     pub(crate) fn parse(line: &str) -> Option<Self> {
         let line_hash = fxhash::hash64(line.as_bytes());
-        if let Some((source, tree)) = LAST_PARSED_LINE.with_borrow(|cached| {
-            cached
-                .as_ref()
-                .filter(|(hash, source, _)| *hash == line_hash && source.as_ref() == line)
-                .map(|(_, source, tree)| (source.clone(), tree.clone()))
-        }) {
+        if let Some((source, tree)) =
+            PARSED_LINE_CACHE.with_borrow(|cache| cache.get(line_hash, line))
+        {
             return Some(Self { source, tree });
         }
 
         let tree = CPP_PARSER.with_borrow_mut(|parser| parser.parse(line, None))?;
         let source: Arc<str> = Arc::from(line);
-        LAST_PARSED_LINE.with_borrow_mut(|cached| {
-            *cached = Some((line_hash, source.clone(), tree.clone()));
+        PARSED_LINE_CACHE.with_borrow_mut(|cache| {
+            cache.insert(line_hash, source.clone(), tree.clone());
         });
         Some(Self { source, tree })
     }
