@@ -221,7 +221,7 @@ pub fn check(
         check_casts(linter, clean_lines, elided_line, linenum);
     }
     if has_paren {
-        check_explicit_constructors(linter, facts, clean_lines, elided_line, linenum);
+        check_explicit_constructors(linter, facts, elided_line, linenum);
     }
     if has_plus_minus {
         check_invalid_increment(linter, elided_line, linenum);
@@ -410,7 +410,6 @@ fn contains_single_ampersand_cast(re: &Regex, line: &str) -> bool {
 fn check_explicit_constructors(
     linter: &mut FileLinter,
     facts: &FileFacts<'_>,
-    _clean_lines: &CleansedLines<'_>,
     elided_line: &str,
     linenum: usize,
 ) {

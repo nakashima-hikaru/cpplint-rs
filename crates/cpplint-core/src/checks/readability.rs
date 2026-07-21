@@ -131,7 +131,7 @@ pub fn check(
 
     if has_brace || has_control {
         check_braces(linter, clean_lines, elided_line, linenum);
-        check_single_line_control_bodies(linter, clean_lines, elided_line, linenum);
+        check_single_line_control_bodies(linter, elided_line, linenum);
         check_multiline_if_else_bodies(linter, clean_lines, elided_line, linenum);
         check_function_size(linter, facts, clean_lines, elided_line, linenum);
     }
@@ -988,12 +988,7 @@ fn check_redundant_virtuals(
     }
 }
 
-fn check_single_line_control_bodies(
-    linter: &mut FileLinter,
-    _clean_lines: &CleansedLines<'_>,
-    elided_line: &str,
-    linenum: usize,
-) {
+fn check_single_line_control_bodies(linter: &mut FileLinter, elided_line: &str, linenum: usize) {
     if elided_line.trim().is_empty() {
         return;
     }
