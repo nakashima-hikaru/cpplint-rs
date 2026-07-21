@@ -1,5 +1,5 @@
 use crate::string_utils::parse_comma_separated_list;
-use std::collections::BTreeSet;
+use fxhash::FxHashSet;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
@@ -87,8 +87,8 @@ pub struct Options {
     pub repository: PathBuf,
     pub line_length: NonZeroUsize,
     pub config_filename: String,
-    pub valid_extensions: BTreeSet<String>,
-    pub hpp_headers: BTreeSet<String>,
+    pub valid_extensions: FxHashSet<String>,
+    pub hpp_headers: FxHashSet<String>,
     pub include_order: IncludeOrder,
     pub filters: Vec<Filter>,
     pub timing: bool,
@@ -124,14 +124,14 @@ impl Options {
         Self::default()
     }
 
-    pub fn all_extensions(&self) -> BTreeSet<String> {
+    pub fn all_extensions(&self) -> FxHashSet<String> {
         self.valid_extensions
             .union(&self.hpp_headers)
             .cloned()
             .collect()
     }
 
-    pub fn header_extensions(&self) -> BTreeSet<String> {
+    pub fn header_extensions(&self) -> FxHashSet<String> {
         self.hpp_headers.clone()
     }
 

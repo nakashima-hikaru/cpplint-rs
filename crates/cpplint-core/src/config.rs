@@ -1,6 +1,6 @@
 use crate::options::{Filter, IncludeOrder, Options, parse_filters};
 use crate::string_utils::parse_comma_separated_list;
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use parking_lot::RwLock;
 use regex::Regex;
 use std::cell::RefCell;
@@ -38,8 +38,8 @@ struct ConfigFile {
     exclude_files: Vec<ExcludePattern>,
     line_length: Option<NonZeroUsize>,
     root: Option<PathBuf>,
-    extensions: Option<std::collections::BTreeSet<String>>,
-    headers: Option<std::collections::BTreeSet<String>>,
+    extensions: Option<FxHashSet<String>>,
+    headers: Option<FxHashSet<String>>,
     include_order: Option<IncludeOrder>,
     messages: Arc<[ConfigMessage]>,
 }

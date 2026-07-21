@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use fxhash::FxHashSet;
 use unicode_normalization::UnicodeNormalization;
 use unicode_width::UnicodeWidthChar;
 
 /// Split string by comma, strip white spaces, and remove duplicated items.
-pub fn parse_comma_separated_list(s: &str) -> BTreeSet<String> {
+pub fn parse_comma_separated_list(s: &str) -> FxHashSet<String> {
     s.split(',')
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
@@ -11,9 +11,16 @@ pub fn parse_comma_separated_list(s: &str) -> BTreeSet<String> {
 }
 
 /// Converts a set of strings to a formatted string.
-pub fn set_to_str(set: &BTreeSet<String>, prefix: &str, delim: &str, suffix: &str) -> String {
+pub fn set_to_str<S: AsRef<str>>(
+    set: &FxHashSet<S>,
+    prefix: &str,
+    delim: &str,
+    suffix: &str,
+) -> String {
     let mut result = prefix.to_string();
-    for (i, item) in set.iter().enumerate() {
+    let mut items: Vec<_> = set.iter().map(|item| item.as_ref()).collect();
+    items.sort_unstable();
+    for (i, item) in items.iter().enumerate() {
         if i > 0 {
             result.push_str(delim);
         }
@@ -26,7 +33,12 @@ pub fn set_to_str(set: &BTreeSet<String>, prefix: &str, delim: &str, suffix: &st
 /// Returns the last non-space character or '\0'.
 #[inline]
 pub fn get_last_non_space(s: &str) -> char {
-    s.trim_end().chars().next_back().unwrap_or('\0')
+    for &b in s.as_bytes().iter().rev() {
+        if !matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0B' | b'\x0C') {
+            return b as char;
+        }
+    }
+    '\0'
 }
 
 /// Returns true if the string consists of only digits.
@@ -147,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_parse_comma_separated_list() {
-        let expected: BTreeSet<String> = vec!["a", "b", "see", "d"]
+        let expected: FxHashSet<String> = vec!["a", "b", "see", "d"]
             .into_iter()
             .map(String::from)
             .collect();
@@ -157,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_set_to_str_custom() {
-        let set: BTreeSet<String> = vec!["a", "bar", "foo"]
+        let set: FxHashSet<String> = vec!["a", "bar", "foo"]
             .into_iter()
             .map(String::from)
             .collect();
