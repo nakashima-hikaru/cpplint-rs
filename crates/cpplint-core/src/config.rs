@@ -1,8 +1,8 @@
 use crate::options::{Filter, IncludeOrder, Options, parse_filters};
 use crate::string_utils::parse_comma_separated_list;
-use rustc_hash::{FxHashMap, FxHashSet};
 use parking_lot::RwLock;
 use regex::Regex;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};

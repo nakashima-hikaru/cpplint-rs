@@ -1,5 +1,5 @@
-use rustc_hash::FxHashMap;
 use regex::Regex;
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::sync::Arc;
 
