@@ -18,8 +18,9 @@ const STRING_NODE_KINDS: &[&str] = &[
     "raw_string_literal",
 ];
 
+type ScopeCacheSlot = (u64, Option<(Arc<str>, Tree)>);
 struct ParsedLineCache {
-    slots: [(u64, Option<(Arc<str>, Tree)>); 4],
+    slots: [ScopeCacheSlot; 4],
     next_idx: usize,
 }
 

@@ -46,10 +46,10 @@ pub(crate) fn read_raw_bytes(path: &Path) -> Result<FileBytes> {
     let metadata = file.metadata()?;
     let len = metadata.len();
 
-    if len >= 16384 {
-        if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
-            return Ok(FileBytes::Mmap(mmap));
-        }
+    if len >= 16384
+        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) }
+    {
+        return Ok(FileBytes::Mmap(mmap));
     }
 
     let mut bytes = Vec::with_capacity(len as usize);

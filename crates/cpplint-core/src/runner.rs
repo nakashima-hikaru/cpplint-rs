@@ -529,15 +529,14 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
         walker.run(|| {
             let tx = tx.clone();
             Box::new(move |result| {
-                if let Ok(entry) = result {
-                    if entry
+                if let Ok(entry) = result
+                    && entry
                         .file_type()
                         .is_some_and(|file_type| file_type.is_file())
-                    {
-                        let path = entry.into_path();
-                        if options.is_valid_file(&path) {
-                            let _ = tx.send(path);
-                        }
+                {
+                    let path = entry.into_path();
+                    if options.is_valid_file(&path) {
+                        let _ = tx.send(path);
                     }
                 }
                 ignore::WalkState::Continue

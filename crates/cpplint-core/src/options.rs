@@ -198,10 +198,10 @@ impl Options {
         }
         let mut result = self.category_defaults[category.index()];
         for filter in &self.filters {
-            if filter.file.is_some() || filter.linenum.is_some() {
-                if filter.is_matched(category.as_str(), filename, linenum) {
-                    result = filter.sign;
-                }
+            if (filter.file.is_some() || filter.linenum.is_some())
+                && filter.is_matched(category.as_str(), filename, linenum)
+            {
+                result = filter.sign;
             }
         }
         result

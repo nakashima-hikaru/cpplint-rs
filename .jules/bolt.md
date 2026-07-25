@@ -41,6 +41,3 @@
 ## 2026-07-28 - Avoid format!() in headers check hot paths
 **Learning:** `format!()` in Rust introduces significant overhead. In `check_include_line` inside `crates/cpplint-core/src/checks/headers.rs`, `format!("{}.{}", basefilename_relative, ext)` was being repeatedly allocated in a hot loop that iterates over standard header extensions for every `#include` line parsed.
 **Action:** Replaced `format!("{}.{}", ...)` inside the loop with a reusable `String` pre-allocated via `String::with_capacity(...)` before the loop. Inside the loop, `string.truncate(...)` and `string.push_str(...)` are used to reuse the buffer without any dynamic memory allocations. Also optimized `path_without_extension` to use string slice lengths instead of `format!(".{ext}")`.
-## 2026-07-28 - Avoid allocating new strings when checking file extensions
-**Learning:** Found an unnecessary string allocation `format!(".{}", ext)` inside a hot function `classify_include` when extracting and matching file extensions via `Path::extension()`. This heap allocation can be avoided by passing the raw string slice `ext` directly into a `matches!` block.
-**Action:** When checking `Path::extension()` against known static values in Rust hot paths, avoid allocating new strings with `format!(".{}", ext)`. Instead, match the raw slice directly (e.g., `matches!(ext, "hh" | "hpp")`).

@@ -1149,6 +1149,7 @@ fn strip_escape_sequences_in<'a>(arena: &'a Bump, s: &'a str) -> &'a str {
     result.into_bump_str()
 }
 
+#[allow(dead_code)]
 fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
     let arena = Bump::new();
     let stripped = strip_escape_sequences_in(&arena, s);
@@ -1322,6 +1323,7 @@ fn collapse_quotes_and_separators_in<'a>(arena: &'a Bump, elided: &'a str) -> &'
     }
 }
 
+#[allow(dead_code)]
 fn collapse_quotes_and_separators(elided: &str) -> String {
     let arena = Bump::new();
     collapse_quotes_and_separators_in(&arena, elided).to_string()

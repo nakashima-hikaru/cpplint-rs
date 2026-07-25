@@ -35,16 +35,16 @@ impl SourceFile {
             null_lines,
         } = file_reader::scan_raw_lines(&bytes);
 
-        if let Ok(s) = std::str::from_utf8(&bytes) {
-            if !s.starts_with('\u{feff}') {
-                return Ok(DecodedSource::from_decoded_str(
-                    arena,
-                    self.clone(),
-                    s,
-                    invalid_utf8_lines,
-                    null_lines,
-                ));
-            }
+        if let Ok(s) = std::str::from_utf8(&bytes)
+            && !s.starts_with('\u{feff}')
+        {
+            return Ok(DecodedSource::from_decoded_str(
+                arena,
+                self.clone(),
+                s,
+                invalid_utf8_lines,
+                null_lines,
+            ));
         }
 
         let decoded = file_reader::decode_bytes(&bytes)?;
@@ -76,7 +76,7 @@ impl<'a> DecodedSource<'a> {
         invalid_utf8_lines_in: Vec<usize>,
         null_lines_in: Vec<usize>,
     ) -> Self {
-        let allocated_decoded = arena.alloc_str(&decoded);
+        let allocated_decoded = arena.alloc_str(decoded);
         let est_lines = allocated_decoded.bytes().filter(|&b| b == b'\n').count() + 1;
         let mut lines = BumpVec::with_capacity_in(est_lines, arena);
         let mut crlf_lines = BumpVec::new_in(arena);
