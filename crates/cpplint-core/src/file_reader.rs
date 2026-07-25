@@ -212,4 +212,3 @@ pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
         })
     })
 }
-

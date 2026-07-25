@@ -155,7 +155,10 @@ static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
 #[inline]
 fn is_prev_line_continuation(s: &str) -> bool {
     let trimmed = s.trim_end_matches(' ');
-    matches!(trimmed.bytes().last(), Some(b'"' | b',' | b'=' | b'>' | b'<'))
+    matches!(
+        trimmed.bytes().last(),
+        Some(b'"' | b',' | b'=' | b'>' | b'<')
+    )
 }
 static RANGE_FOR_COLON_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([

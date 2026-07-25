@@ -137,8 +137,6 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         notes: collected_notes,
     } = collect_files(files, config)?;
 
-
-
     let pool = if config.num_threads.get() > 1 {
         Some(
             ThreadPoolBuilder::new()
@@ -295,7 +293,8 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
 
             fn flush(&mut self) {
                 if !self.batch.is_empty() {
-                    let items = std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
+                    let items =
+                        std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
                     let _ = self.tx.send(items);
                 }
             }
@@ -341,7 +340,8 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         });
     } else {
         for (file_id, file) in collected_files {
-            let report = plan_and_process_file(&config_cache, config, session_settings, file_id, file);
+            let report =
+                plan_and_process_file(&config_cache, config, session_settings, file_id, file);
             process_report(report, &mut stdout, &mut stderr, &mut counter);
         }
     }
@@ -457,14 +457,21 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                             file_id,
                             order: 0,
                             stream: NoteStream::Stderr,
-                            text: format!("Skipping input '{}': Path not found.\n", file.display()).into(),
+                            text: format!("Skipping input '{}': Path not found.\n", file.display())
+                                .into(),
                         };
                         let _ = path_tx_clone.send((Some(note), None));
                         continue;
                     }
                     if config_clone.recursive && file.is_dir() {
-                        let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
-                        expand_directory_to_sender(&canonical, &config_clone.options, prod_thread_count, path_tx_clone.clone());
+                        let canonical =
+                            std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                        expand_directory_to_sender(
+                            &canonical,
+                            &config_clone.options,
+                            prod_thread_count,
+                            path_tx_clone.clone(),
+                        );
                     } else {
                         let _ = path_tx_clone.send((None, Some(file.clone())));
                     }
@@ -498,7 +505,12 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
             if let Some(pool) = &pool {
                 pool.install(|| {
                     work_rx.into_iter().par_bridge().for_each_init(
-                        || (BatchSender::new(report_tx.clone(), 32), bumpalo::Bump::new()),
+                        || {
+                            (
+                                BatchSender::new(report_tx.clone(), 32),
+                                bumpalo::Bump::new(),
+                            )
+                        },
                         |(sender, arena), (file_id, file)| {
                             let report = plan_and_process_file_with_arena(
                                 config_cache_ref,
@@ -596,7 +608,6 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
         error_count: final_error_count,
     })
 }
-
 
 fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFiles> {
     let cwd = std::env::current_dir()?;
@@ -762,7 +773,14 @@ fn plan_and_process_file(
     file: PathBuf,
 ) -> FileRunReport {
     let arena = bumpalo::Bump::new();
-    plan_and_process_file_with_arena(config_cache, config, session_settings, file_id, file, &arena)
+    plan_and_process_file_with_arena(
+        config_cache,
+        config,
+        session_settings,
+        file_id,
+        file,
+        &arena,
+    )
 }
 
 fn plan_and_process_file_with_arena(
@@ -774,7 +792,9 @@ fn plan_and_process_file_with_arena(
     arena: &bumpalo::Bump,
 ) -> FileRunReport {
     match plan_single_file(config_cache, config, file_id, file) {
-        PlannedEntry::LintJob(job) => process_file_with_arena(job, session_settings, config.fix, arena),
+        PlannedEntry::LintJob(job) => {
+            process_file_with_arena(job, session_settings, config.fix, arena)
+        }
         PlannedEntry::Report(report) => report,
     }
 }
@@ -908,7 +928,6 @@ fn expand_directory_to_sender(
         });
     }
 }
-
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn process_file(

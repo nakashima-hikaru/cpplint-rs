@@ -77,7 +77,6 @@ impl ThreadSafeFileTable {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub file_id: FileId,

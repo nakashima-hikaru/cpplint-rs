@@ -300,7 +300,9 @@ impl<'a> FileFacts<'a> {
 
     #[inline]
     pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroU8> {
-        self.line_facts.get(linenum).and_then(|f| f.namespace_top_level_depth)
+        self.line_facts
+            .get(linenum)
+            .and_then(|f| f.namespace_top_level_depth)
     }
 
     #[inline]
@@ -324,12 +326,16 @@ impl<'a> FileFacts<'a> {
 
     #[inline]
     pub fn namespace_decl_line(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts.get(linenum).and_then(|f| f.namespace_decl_line)
+        self.line_facts
+            .get(linenum)
+            .and_then(|f| f.namespace_decl_line)
     }
 
     #[inline]
     pub fn matching_block_start(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts.get(linenum).and_then(|f| f.matching_block_start)
+        self.line_facts
+            .get(linenum)
+            .and_then(|f| f.matching_block_start)
     }
 
     pub fn non_blank_elided_lines_between(

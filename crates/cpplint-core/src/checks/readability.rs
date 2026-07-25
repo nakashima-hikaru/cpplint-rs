@@ -1110,7 +1110,8 @@ fn check_multiline_if_else_bodies(
 
     let endline = &clean_lines.elided[endlinenum];
     let endline_sub = endline.get(endpos..).unwrap_or("");
-    let opens_brace = (endline_sub.contains('{') && MULTILINE_IF_OPEN_BRACE_RE.is_match(endline_sub))
+    let opens_brace = (endline_sub.contains('{')
+        && MULTILINE_IF_OPEN_BRACE_RE.is_match(endline_sub))
         || (endline_sub.trim().is_empty()
             && endlinenum + 1 < clean_lines.elided.len()
             && clean_lines.elided[endlinenum + 1]
@@ -1200,7 +1201,9 @@ fn check_namespace_termination_comment(
         return;
     };
     let has_ns_term_keywords = raw_line.contains("namespace") && raw_line.contains('}');
-    if linenum.saturating_sub(namespace_line) < 10 && (!has_ns_term_keywords || !NAMESPACE_TERMINATION_RE.is_match(raw_line)) {
+    if linenum.saturating_sub(namespace_line) < 10
+        && (!has_ns_term_keywords || !NAMESPACE_TERMINATION_RE.is_match(raw_line))
+    {
         return;
     }
 

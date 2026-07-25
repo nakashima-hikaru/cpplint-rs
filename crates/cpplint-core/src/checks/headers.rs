@@ -1038,9 +1038,15 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             }
 
             let canonical_include = include_state.canonicalize_alphabetical_order(include);
-            let prev_elided = if linenum > 0 { clean_lines.elided[linenum - 1].trim() } else { "" };
-            let previous_line_is_include =
-                linenum > 0 && prev_elided.starts_with('#') && prev_elided.contains("include") && string_utils::parse_include_directive(prev_elided).is_some();
+            let prev_elided = if linenum > 0 {
+                clean_lines.elided[linenum - 1].trim()
+            } else {
+                ""
+            };
+            let previous_line_is_include = linenum > 0
+                && prev_elided.starts_with('#')
+                && prev_elided.contains("include")
+                && string_utils::parse_include_directive(prev_elided).is_some();
             if !include_state.is_in_alphabetical_order(previous_line_is_include, &canonical_include)
             {
                 linter.error(

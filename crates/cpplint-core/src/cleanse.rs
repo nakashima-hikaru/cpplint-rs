@@ -1153,7 +1153,9 @@ fn strip_escape_sequences_in<'a>(arena: &'a Bump, s: &'a str) -> &'a str {
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn collapse_strings_in<'a>(arena: &'a Bump, elided: &'a str) -> &'a str {
-    if elided.trim_start().starts_with('#') && string_utils::parse_include_directive(elided).is_some() {
+    if elided.trim_start().starts_with('#')
+        && string_utils::parse_include_directive(elided).is_some()
+    {
         return elided;
     }
 
