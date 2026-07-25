@@ -2377,10 +2377,9 @@ fn classify_include(
     let include_ext = include
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| format!(".{}", ext))
         .unwrap_or_default();
     let is_system =
-        used_angle_brackets && !matches!(include_ext.as_str(), ".hh" | ".hpp" | ".hxx" | ".h++");
+        used_angle_brackets && !matches!(include_ext, "hh" | "hpp" | "hxx" | "h++");
     let is_std_c_header = include_order == IncludeOrder::Default
         || c_headers::C_HEADERS
             .binary_search(&include_str.as_str())
