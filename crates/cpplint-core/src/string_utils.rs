@@ -1,4 +1,4 @@
-use fxhash::FxHashSet;
+use rustc_hash::FxHashSet;
 use unicode_normalization::UnicodeNormalization;
 use unicode_width::UnicodeWidthChar;
 

@@ -1,6 +1,6 @@
 use crate::options::{Filter, IncludeOrder, Options, parse_filters};
 use crate::string_utils::parse_comma_separated_list;
-use fxhash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use parking_lot::RwLock;
 use regex::Regex;
 use std::cell::RefCell;

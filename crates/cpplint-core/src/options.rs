@@ -1,5 +1,5 @@
 use crate::string_utils::parse_comma_separated_list;
-use fxhash::FxHashSet;
+use rustc_hash::FxHashSet;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 

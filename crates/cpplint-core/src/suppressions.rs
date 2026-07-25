@@ -1,5 +1,5 @@
 use crate::categories::Category;
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineRange {

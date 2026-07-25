@@ -7,7 +7,7 @@ use crate::options::IncludeOrder;
 use crate::state::{IncludeKind, IncludeState};
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
-use fxhash::FxHashSet;
+use rustc_hash::FxHashSet;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;

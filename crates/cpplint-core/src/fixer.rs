@@ -13,7 +13,7 @@ use crate::state::IncludeKind;
 use crate::string_utils;
 use crate::syntax::{ParsedLine, base_name};
 use bumpalo::Bump;
-use fxhash::{FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use regex::Regex;
 use std::cell::{RefCell, UnsafeCell};
 use std::hash::{Hash, Hasher};

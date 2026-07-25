@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::hash::BuildHasher;
 use std::ops::Range;
 use std::sync::Arc;
 use tree_sitter::{Node, Parser, Tree};
@@ -116,7 +117,7 @@ impl ParsedLine {
             return None;
         }
 
-        let line_hash = fxhash::hash64(line.as_bytes());
+        let line_hash = rustc_hash::FxBuildHasher.hash_one(line.as_bytes());
         if let Some((source, tree)) =
             PARSED_LINE_CACHE.with_borrow(|cache| cache.get(line_hash, line))
         {

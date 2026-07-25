@@ -1,4 +1,4 @@
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use regex::Regex;
 use std::cell::RefCell;
 use std::sync::Arc;
