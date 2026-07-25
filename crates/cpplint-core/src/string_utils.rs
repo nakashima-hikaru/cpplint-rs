@@ -163,9 +163,10 @@ pub fn parse_include_directive(line: &str) -> Option<(&str, &str)> {
     let rest = rest.strip_prefix("include")?;
 
     if let Some(&first_b) = rest.as_bytes().first()
-        && is_word_char(first_b) {
-            return None;
-        }
+        && is_word_char(first_b)
+    {
+        return None;
+    }
 
     let rest = rest.trim_start();
     let delim_char = rest.chars().next()?;

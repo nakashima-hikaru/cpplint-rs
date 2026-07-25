@@ -72,9 +72,10 @@ pub(crate) fn read_raw_bytes(path: &Path) -> Result<FileBytes> {
     let len = metadata.len();
 
     if len >= 16384
-        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
-            return Ok(FileBytes::Mmap(mmap));
-        }
+        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) }
+    {
+        return Ok(FileBytes::Mmap(mmap));
+    }
 
     let mut bytes = Vec::with_capacity(len as usize);
     file.take(len).read_to_end(&mut bytes)?;
@@ -96,9 +97,10 @@ where
     let len = metadata.len();
 
     if len >= 16384
-        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
-            return f(&mmap);
-        }
+        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) }
+    {
+        return f(&mmap);
+    }
 
     READ_BUF.with(|buf_cell| {
         let mut bytes = buf_cell.borrow_mut();
@@ -145,9 +147,10 @@ use std::borrow::Cow;
 pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
     // Fast path: Pure UTF-8 without BOM
     if !bytes.starts_with(&[0xEF, 0xBB, 0xBF])
-        && let Ok(s) = std::str::from_utf8(bytes) {
-            return Ok(Cow::Borrowed(s));
-        }
+        && let Ok(s) = std::str::from_utf8(bytes)
+    {
+        return Ok(Cow::Borrowed(s));
+    }
 
     DECODE_BUF.with(|buf_cell| {
         let mut decoded_bytes = buf_cell.borrow_mut();

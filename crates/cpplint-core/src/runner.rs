@@ -487,12 +487,13 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                     let _ = report_tx_prod.send(vec![report]);
                 }
                 if let Some(file) = path
-                    && !should_exclude(&file, &excludes_clone) {
-                        let file_id = file_table_prod.intern(&file.to_string_lossy());
-                        if seen.insert(file_id) {
-                            let _ = work_tx.send((file_id, file));
-                        }
+                    && !should_exclude(&file, &excludes_clone)
+                {
+                    let file_id = file_table_prod.intern(&file.to_string_lossy());
+                    if seen.insert(file_id) {
+                        let _ = work_tx.send((file_id, file));
                     }
+                }
             }
         });
 
@@ -864,12 +865,12 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
                     && entry
                         .file_type()
                         .is_some_and(|file_type| file_type.is_file())
-                    {
-                        let path = entry.into_path();
-                        if options.is_valid_file(&path) {
-                            let _ = tx.send(path);
-                        }
+                {
+                    let path = entry.into_path();
+                    if options.is_valid_file(&path) {
+                        let _ = tx.send(path);
                     }
+                }
                 ignore::WalkState::Continue
             })
         });
@@ -914,12 +915,12 @@ fn expand_directory_to_sender(
                     && entry
                         .file_type()
                         .is_some_and(|file_type| file_type.is_file())
-                    {
-                        let path = entry.into_path();
-                        if options.is_valid_file(&path) {
-                            let _ = tx.send((None, Some(path)));
-                        }
+                {
+                    let path = entry.into_path();
+                    if options.is_valid_file(&path) {
+                        let _ = tx.send((None, Some(path)));
                     }
+                }
                 ignore::WalkState::Continue
             })
         });
