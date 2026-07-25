@@ -71,11 +71,10 @@ pub(crate) fn read_raw_bytes(path: &Path) -> Result<FileBytes> {
     let metadata = file.metadata()?;
     let len = metadata.len();
 
-    if len >= 16384 {
-        if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
+    if len >= 16384
+        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
             return Ok(FileBytes::Mmap(mmap));
         }
-    }
 
     let mut bytes = Vec::with_capacity(len as usize);
     file.take(len).read_to_end(&mut bytes)?;
@@ -96,11 +95,10 @@ where
     let metadata = file.metadata()?;
     let len = metadata.len();
 
-    if len >= 16384 {
-        if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
+    if len >= 16384
+        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
             return f(&mmap);
         }
-    }
 
     READ_BUF.with(|buf_cell| {
         let mut bytes = buf_cell.borrow_mut();
@@ -109,7 +107,7 @@ where
         if cap < len as usize {
             bytes.reserve(len as usize - cap);
         }
-        file.take(len).read_to_end(&mut *bytes)?;
+        file.take(len).read_to_end(&mut bytes)?;
         f(&bytes)
     })
 }
@@ -146,11 +144,10 @@ use std::borrow::Cow;
 
 pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
     // Fast path: Pure UTF-8 without BOM
-    if !bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        if let Ok(s) = std::str::from_utf8(bytes) {
+    if !bytes.starts_with(&[0xEF, 0xBB, 0xBF])
+        && let Ok(s) = std::str::from_utf8(bytes) {
             return Ok(Cow::Borrowed(s));
         }
-    }
 
     DECODE_BUF.with(|buf_cell| {
         let mut decoded_bytes = buf_cell.borrow_mut();
@@ -158,7 +155,7 @@ pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
         DecodeReaderBytesBuilder::new()
             .bom_sniffing(true)
             .build(Cursor::new(bytes))
-            .read_to_end(&mut *decoded_bytes)?;
+            .read_to_end(&mut decoded_bytes)?;
         Ok(Cow::Owned(
             String::from_utf8_lossy(&decoded_bytes).into_owned(),
         ))

@@ -46,11 +46,10 @@ impl ParsedLineCache {
     fn get(&self, hash: u64, line: &str) -> Option<(Arc<str>, Tree)> {
         let set_idx = (hash as usize) & (NUM_SETS - 1);
         for entry in &self.sets[set_idx] {
-            if let Some(entry) = entry {
-                if entry.hash == hash && entry.source.as_ref() == line {
+            if let Some(entry) = entry
+                && entry.hash == hash && entry.source.as_ref() == line {
                     return Some((entry.source.clone(), entry.tree.clone()));
                 }
-            }
         }
         None
     }

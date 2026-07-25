@@ -486,14 +486,13 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                     report.notes.push(note);
                     let _ = report_tx_prod.send(vec![report]);
                 }
-                if let Some(file) = path {
-                    if !should_exclude(&file, &excludes_clone) {
+                if let Some(file) = path
+                    && !should_exclude(&file, &excludes_clone) {
                         let file_id = file_table_prod.intern(&file.to_string_lossy());
                         if seen.insert(file_id) {
                             let _ = work_tx.send((file_id, file));
                         }
                     }
-                }
             }
         });
 
@@ -861,8 +860,8 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
         walker.run(|| {
             let tx = tx.clone();
             Box::new(move |result| {
-                if let Ok(entry) = result {
-                    if entry
+                if let Ok(entry) = result
+                    && entry
                         .file_type()
                         .is_some_and(|file_type| file_type.is_file())
                     {
@@ -871,7 +870,6 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
                             let _ = tx.send(path);
                         }
                     }
-                }
                 ignore::WalkState::Continue
             })
         });
@@ -912,8 +910,8 @@ fn expand_directory_to_sender(
         walker.run(|| {
             let tx = tx.clone();
             Box::new(move |result| {
-                if let Ok(entry) = result {
-                    if entry
+                if let Ok(entry) = result
+                    && entry
                         .file_type()
                         .is_some_and(|file_type| file_type.is_file())
                     {
@@ -922,7 +920,6 @@ fn expand_directory_to_sender(
                             let _ = tx.send((None, Some(path)));
                         }
                     }
-                }
                 ignore::WalkState::Continue
             })
         });

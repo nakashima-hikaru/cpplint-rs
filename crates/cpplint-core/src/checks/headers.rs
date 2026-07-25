@@ -897,11 +897,10 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
         }
 
         if !trimmed.starts_with('#') || !trimmed.contains("include") {
-            if trimmed.starts_with('#') {
-                if let Some(directive) = preprocessor_directive(trimmed) {
+            if trimmed.starts_with('#')
+                && let Some(directive) = preprocessor_directive(trimmed) {
                     include_state.reset_section(directive);
                 }
-            }
             continue;
         }
 

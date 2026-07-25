@@ -379,7 +379,7 @@ fn fix_include_block(
                 delimiter == "<",
                 options.include_order,
             ),
-            alpha_key: canonicalize_alpha(&include),
+            alpha_key: canonicalize_alpha(include),
         });
     }
 
