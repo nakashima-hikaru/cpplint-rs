@@ -562,11 +562,13 @@ mod tests {
     }
 
     fn unique_temp_dir() -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("cpplint-rs-config-{}", unique))
+        std::env::temp_dir().join(format!("cpplint-rs-config-{}-{}", unique, id))
     }
 
     #[test]

@@ -30,30 +30,31 @@ impl SourceFile {
 
     pub fn read_into<'a>(&self, arena: &'a Bump) -> Result<DecodedSource<'a>> {
         let bytes = file_reader::read_raw_bytes(&self.path)?;
+        let owned_bytes = arena.alloc(bytes);
+
         let RawLineScan {
             invalid_utf8_lines,
             null_lines,
-        } = file_reader::scan_raw_lines(&bytes);
+        } = file_reader::scan_raw_lines(owned_bytes);
+        let decoded = file_reader::decode_bytes(owned_bytes)?;
 
-        if let Ok(s) = std::str::from_utf8(&bytes) {
-            if !s.starts_with('\u{feff}') {
-                return Ok(DecodedSource::from_decoded_str(
-                    arena,
-                    self.clone(),
-                    s,
-                    invalid_utf8_lines,
-                    null_lines,
-                ));
-            }
-        }
+        let allocated: &'a str = match decoded {
+            std::borrow::Cow::Borrowed(s) => s,
+            std::borrow::Cow::Owned(s) => arena.alloc_str(&s),
+        };
 
-        let decoded = file_reader::decode_bytes(&bytes)?;
-        Ok(DecodedSource::from_decoded_str(
+        let mut invalid_utf8_vec = BumpVec::with_capacity_in(invalid_utf8_lines.len(), arena);
+        invalid_utf8_vec.extend_from_slice(&invalid_utf8_lines);
+
+        let mut null_vec = BumpVec::with_capacity_in(null_lines.len(), arena);
+        null_vec.extend_from_slice(&null_lines);
+
+        Ok(DecodedSource::from_allocated_str(
             arena,
             self.clone(),
-            &decoded,
-            invalid_utf8_lines,
-            null_lines,
+            allocated,
+            invalid_utf8_vec,
+            null_vec,
         ))
     }
 }
@@ -69,14 +70,13 @@ pub struct DecodedSource<'a> {
 }
 
 impl<'a> DecodedSource<'a> {
-    fn from_decoded_str(
+    fn from_allocated_str(
         arena: &'a Bump,
         source_file: SourceFile,
-        decoded: &str,
-        invalid_utf8_lines_in: Vec<usize>,
-        null_lines_in: Vec<usize>,
+        allocated_decoded: &'a str,
+        invalid_utf8_lines: BumpVec<'a, usize>,
+        null_lines: BumpVec<'a, usize>,
     ) -> Self {
-        let allocated_decoded = arena.alloc_str(&decoded);
         let est_lines = allocated_decoded.bytes().filter(|&b| b == b'\n').count() + 1;
         let mut lines = BumpVec::with_capacity_in(est_lines, arena);
         let mut crlf_lines = BumpVec::new_in(arena);
@@ -98,12 +98,6 @@ impl<'a> DecodedSource<'a> {
             lf_lines_count = 1;
         }
 
-        let mut invalid_utf8_lines = BumpVec::with_capacity_in(invalid_utf8_lines_in.len(), arena);
-        invalid_utf8_lines.extend_from_slice(&invalid_utf8_lines_in);
-
-        let mut null_lines = BumpVec::with_capacity_in(null_lines_in.len(), arena);
-        null_lines.extend_from_slice(&null_lines_in);
-
         Self {
             source_file,
             lines,
@@ -119,9 +113,10 @@ impl<'a> DecodedSource<'a> {
         source_file: SourceFile,
         read_result: ReadFileResult,
     ) -> Self {
-        let mut lines = BumpVec::with_capacity_in(read_result.lines.len(), arena);
-        for line in read_result.lines {
-            lines.push(arena.alloc_str(&line) as &str);
+        let allocated_str = arena.alloc_str(&read_result.content);
+        let mut lines = BumpVec::with_capacity_in(read_result.line_ranges.len(), arena);
+        for range in read_result.line_ranges {
+            lines.push(&allocated_str[range]);
         }
 
         let mut crlf_lines = BumpVec::with_capacity_in(read_result.crlf_lines.len(), arena);
@@ -246,7 +241,8 @@ mod tests {
             &arena,
             SourceFile::new(PathBuf::from("sample.cc")),
             ReadFileResult {
-                lines: vec!["alpha".to_string(), "beta".to_string()],
+                content: "alpha\r\nbeta".to_string(),
+                line_ranges: vec![0..5, 7..11],
                 crlf_lines: vec![0],
                 lf_lines_count: 2,
                 invalid_utf8_lines: vec![2],

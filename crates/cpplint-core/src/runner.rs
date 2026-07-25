@@ -1,5 +1,7 @@
 use crate::config::{ConfigMessage, ConfigMessageKind, ConfigResolution, DirectoryConfigCache};
-use crate::diagnostics::{Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile};
+use crate::diagnostics::{
+    Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile, ThreadSafeFileTable,
+};
 use crate::file_linter::FileLinter;
 use crate::fixer::fix_file_in_place;
 use crate::glob::GlobPattern;
@@ -108,9 +110,11 @@ impl From<SessionSnapshot> for FileRunReport {
 pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     files: &[PathBuf],
     config: &RunnerConfig,
-    mut stdout: W1,
-    mut stderr: W2,
+    stdout: W1,
+    stderr: W2,
 ) -> Result<LintRunResult> {
+    let mut stdout = std::io::BufWriter::new(stdout);
+    let mut stderr = std::io::BufWriter::new(stderr);
     let session_settings = SessionSettings {
         verbose_level: config.verbose_level,
         counting_style: config.counting_style,
@@ -120,14 +124,20 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     };
 
     let started_at = config.options.timing.then(Instant::now);
+    // Handle JUnit or other formats that require full collection
+    let is_buffered_format = matches!(config.output_format, OutputFormat::JUnit);
+
+    if !is_buffered_format {
+        return stream_pipeline_lint(files, config, session_settings, started_at, stdout, stderr);
+    }
+
     let CollectedFiles {
         file_names,
         files: collected_files,
         notes: collected_notes,
     } = collect_files(files, config)?;
 
-    // Handle JUnit or other formats that require full collection
-    let is_buffered_format = matches!(config.output_format, OutputFormat::JUnit);
+
 
     let pool = if config.num_threads.get() > 1 {
         Some(
@@ -139,16 +149,16 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         None
     };
 
-    let PlannedRun {
-        lint_jobs,
-        reports: planned_reports,
-    } = if let Some(pool) = &pool {
-        pool.install(|| plan_files(collected_files, config))
-    } else {
-        plan_files(collected_files, config)
-    };
-
     if is_buffered_format {
+        let PlannedRun {
+            lint_jobs,
+            reports: planned_reports,
+        } = if let Some(pool) = &pool {
+            pool.install(|| plan_files(collected_files, config))
+        } else {
+            plan_files(collected_files, config)
+        };
+
         let reports = if let Some(pool) = &pool {
             pool.install(|| {
                 lint_jobs
@@ -205,20 +215,6 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     // Streaming mode for human-readable formats
     let mut counter = DiagnosticCounter::new(config.counting_style);
 
-    // Process planned reports (errors during discovery)
-    for report in planned_reports {
-        for note in report.notes {
-            match note.stream {
-                NoteStream::Stdout => {
-                    let _ = write!(stdout, "{}", format_note(&note));
-                }
-                NoteStream::Stderr => {
-                    let _ = write!(stderr, "{}", format_note(&note));
-                }
-            }
-        }
-    }
-
     // Process initial notes
     for note in collected_notes {
         match note.stream {
@@ -232,8 +228,8 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     }
 
     let process_report = |report: FileRunReport,
-                          stdout: &mut W1,
-                          stderr: &mut W2,
+                          stdout: &mut dyn Write,
+                          stderr: &mut dyn Write,
                           counter: &mut DiagnosticCounter| {
         for note in &report.notes {
             match note.stream {
@@ -272,22 +268,80 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         }
     };
 
-    if let Some(pool) = &pool {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let fix = config.fix;
-        pool.spawn(move || {
-            lint_jobs.into_par_iter().for_each_with(tx, |tx, job| {
-                let report = process_file(job, session_settings, fix);
-                let _ = tx.send(report);
-            });
-        });
+    let config_cache = DirectoryConfigCache::new(&config.options);
 
-        for report in rx {
-            process_report(report, &mut stdout, &mut stderr, &mut counter);
+    if let Some(pool) = &pool {
+        struct BatchSender<T> {
+            tx: std::sync::mpsc::Sender<Vec<T>>,
+            batch: Vec<T>,
+            capacity: usize,
         }
+
+        impl<T> BatchSender<T> {
+            fn new(tx: std::sync::mpsc::Sender<Vec<T>>, capacity: usize) -> Self {
+                Self {
+                    tx,
+                    batch: Vec::with_capacity(capacity),
+                    capacity,
+                }
+            }
+
+            fn push(&mut self, item: T) {
+                self.batch.push(item);
+                if self.batch.len() >= self.capacity {
+                    self.flush();
+                }
+            }
+
+            fn flush(&mut self) {
+                if !self.batch.is_empty() {
+                    let items = std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
+                    let _ = self.tx.send(items);
+                }
+            }
+        }
+
+        impl<T> Drop for BatchSender<T> {
+            fn drop(&mut self) {
+                self.flush();
+            }
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let config_cache_ref = &config_cache;
+        let config_ref = config;
+
+        std::thread::scope(|s| {
+            s.spawn(move || {
+                pool.install(|| {
+                    collected_files.into_par_iter().for_each_init(
+                        || (BatchSender::new(tx.clone(), 32), bumpalo::Bump::new()),
+                        |(sender, arena), (file_id, file)| {
+                            let report = plan_and_process_file_with_arena(
+                                config_cache_ref,
+                                config_ref,
+                                session_settings,
+                                file_id,
+                                file,
+                                arena,
+                            );
+                            sender.push(report);
+                            arena.reset();
+                        },
+                    );
+                });
+                drop(tx);
+            });
+
+            for batch in rx {
+                for report in batch {
+                    process_report(report, &mut stdout, &mut stderr, &mut counter);
+                }
+            }
+        });
     } else {
-        for job in lint_jobs {
-            let report = process_file(job, session_settings, config.fix);
+        for (file_id, file) in collected_files {
+            let report = plan_and_process_file(&config_cache, config, session_settings, file_id, file);
             process_report(report, &mut stdout, &mut stderr, &mut counter);
         }
     }
@@ -304,12 +358,245 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         let _ = writeln!(stdout, "Runtime: {:.3}(s)", start.elapsed().as_secs_f64());
     }
 
+    let _ = stdout.flush();
+    let _ = stderr.flush();
+
     Ok(LintRunResult {
         stdout: String::new(),
         stderr: String::new(),
         error_count: final_error_count,
     })
 }
+
+fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
+    files: &[PathBuf],
+    config: &RunnerConfig,
+    session_settings: SessionSettings,
+    started_at: Option<Instant>,
+    stdout: W1,
+    stderr: W2,
+) -> Result<LintRunResult> {
+    let mut stdout = std::io::BufWriter::new(stdout);
+    let mut stderr = std::io::BufWriter::new(stderr);
+    struct BatchSender<T> {
+        tx: std::sync::mpsc::Sender<Vec<T>>,
+        batch: Vec<T>,
+        capacity: usize,
+    }
+
+    impl<T> BatchSender<T> {
+        fn new(tx: std::sync::mpsc::Sender<Vec<T>>, capacity: usize) -> Self {
+            Self {
+                tx,
+                batch: Vec::with_capacity(capacity),
+                capacity,
+            }
+        }
+
+        fn push(&mut self, item: T) {
+            self.batch.push(item);
+            if self.batch.len() >= self.capacity {
+                self.flush();
+            }
+        }
+
+        fn flush(&mut self) {
+            if !self.batch.is_empty() {
+                let items = std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
+                let _ = self.tx.send(items);
+            }
+        }
+    }
+
+    impl<T> Drop for BatchSender<T> {
+        fn drop(&mut self) {
+            self.flush();
+        }
+    }
+
+    let thread_safe_file_table = Arc::new(ThreadSafeFileTable::new());
+    let (work_tx, work_rx) = std::sync::mpsc::channel::<(FileId, PathBuf)>();
+    let (report_tx, report_rx) = std::sync::mpsc::channel::<Vec<FileRunReport>>();
+
+    let config_cache = DirectoryConfigCache::new(&config.options);
+    let mut counter = DiagnosticCounter::new(config.counting_style);
+
+    let cwd = std::env::current_dir()?;
+    let excludes = compile_excludes(&cwd, &config.excludes)?;
+
+    let num_threads = config.num_threads.get();
+    let pool = if num_threads > 1 {
+        Some(ThreadPoolBuilder::new().num_threads(num_threads).build()?)
+    } else {
+        None
+    };
+
+    std::thread::scope(|s| {
+        // 1. Producer: ディレクトリ探索しながら見つかったファイルをチャネルへ送信
+        let file_table_prod = Arc::clone(&thread_safe_file_table);
+        let files_vec = files.to_vec();
+        let config_clone = config.clone();
+        let excludes_clone = excludes.clone();
+        let report_tx_prod = report_tx.clone();
+
+        s.spawn(move || {
+            let (path_tx, path_rx) = std::sync::mpsc::channel::<(Option<Note>, Option<PathBuf>)>();
+
+            let prod_thread_count = if num_threads > 1 { num_threads / 2 } else { 1 };
+            let path_tx_clone = path_tx.clone();
+            let file_table_prod_inner = Arc::clone(&file_table_prod);
+            std::thread::spawn(move || {
+                for file in &files_vec {
+                    if file == Path::new("-") {
+                        let _ = path_tx_clone.send((None, Some(PathBuf::from("-"))));
+                        continue;
+                    }
+                    if !file.exists() {
+                        let file_id = file_table_prod_inner.intern(&file.to_string_lossy());
+                        let note = Note {
+                            file_id,
+                            order: 0,
+                            stream: NoteStream::Stderr,
+                            text: format!("Skipping input '{}': Path not found.\n", file.display()).into(),
+                        };
+                        let _ = path_tx_clone.send((Some(note), None));
+                        continue;
+                    }
+                    if config_clone.recursive && file.is_dir() {
+                        let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+                        expand_directory_to_sender(&canonical, &config_clone.options, prod_thread_count, path_tx_clone.clone());
+                    } else {
+                        let _ = path_tx_clone.send((None, Some(file.clone())));
+                    }
+                }
+            });
+            drop(path_tx);
+
+            let mut seen = std::collections::HashSet::new();
+            for (note, path) in path_rx {
+                if let Some(note) = note {
+                    let mut report = FileRunReport::default();
+                    report.notes.push(note);
+                    let _ = report_tx_prod.send(vec![report]);
+                }
+                if let Some(file) = path {
+                    if !should_exclude(&file, &excludes_clone) {
+                        let file_id = file_table_prod.intern(&file.to_string_lossy());
+                        if seen.insert(file_id) {
+                            let _ = work_tx.send((file_id, file));
+                        }
+                    }
+                }
+            }
+        });
+
+        // 2. Consumer: チャネルから受信したファイルを即座にパース・検証
+        let config_cache_ref = &config_cache;
+        let config_ref = config;
+
+        s.spawn(move || {
+            if let Some(pool) = &pool {
+                pool.install(|| {
+                    work_rx.into_iter().par_bridge().for_each_init(
+                        || (BatchSender::new(report_tx.clone(), 32), bumpalo::Bump::new()),
+                        |(sender, arena), (file_id, file)| {
+                            let report = plan_and_process_file_with_arena(
+                                config_cache_ref,
+                                config_ref,
+                                session_settings,
+                                file_id,
+                                file,
+                                arena,
+                            );
+                            sender.push(report);
+                            arena.reset();
+                        },
+                    );
+                });
+            } else {
+                let mut sender = BatchSender::new(report_tx.clone(), 32);
+                let mut arena = bumpalo::Bump::new();
+                for (file_id, file) in work_rx {
+                    let report = plan_and_process_file_with_arena(
+                        config_cache_ref,
+                        config_ref,
+                        session_settings,
+                        file_id,
+                        file,
+                        &arena,
+                    );
+                    sender.push(report);
+                    arena.reset();
+                }
+            }
+            drop(report_tx);
+        });
+
+        // 3. Main Renderer Loop: 受信した結果を逐次画面に出力
+        for batch in report_rx {
+            let current_table = thread_safe_file_table.snapshot();
+            for report in batch {
+                for note in &report.notes {
+                    match note.stream {
+                        NoteStream::Stdout => {
+                            let _ = write!(stdout, "{}", format_note(note));
+                        }
+                        NoteStream::Stderr => {
+                            let _ = write!(stderr, "{}", format_note(note));
+                        }
+                    }
+                }
+
+                for diag in &report.diagnostics {
+                    match config.output_format {
+                        OutputFormat::Sed | OutputFormat::Gsed => {
+                            let (is_fixable, text) =
+                                format_sed_diagnostic(config.output_format, &current_table, diag);
+                            if is_fixable {
+                                let _ = write!(stdout, "{}", text);
+                            } else {
+                                let _ = write!(stderr, "{}", text);
+                            }
+                        }
+                        _ => {
+                            let _ = write!(
+                                stderr,
+                                "{}",
+                                format_diagnostic(config.output_format, &current_table, diag)
+                            );
+                        }
+                    }
+                }
+
+                for diag in &report.diagnostics {
+                    counter.add(diag);
+                }
+            }
+        }
+    });
+
+    let final_error_count = counter.total();
+
+    if !config.quiet || final_error_count > 0 {
+        let _ = write!(stdout, "{}", counter.render_summary());
+    }
+
+    if let Some(start) = started_at
+        && !config.quiet
+    {
+        let _ = writeln!(stdout, "Runtime: {:.3}(s)", start.elapsed().as_secs_f64());
+    }
+
+    let _ = stdout.flush();
+    let _ = stderr.flush();
+
+    Ok(LintRunResult {
+        stdout: String::new(),
+        stderr: String::new(),
+        error_count: final_error_count,
+    })
+}
+
 
 fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFiles> {
     let cwd = std::env::current_dir()?;
@@ -335,15 +622,15 @@ fn collect_files(files: &[PathBuf], config: &RunnerConfig) -> Result<CollectedFi
             continue;
         }
 
-        let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
-        if config.recursive && canonical.is_dir() {
+        if config.recursive && file.is_dir() {
+            let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
             collected.extend(expand_directory(
                 &canonical,
                 &config.options,
                 config.num_threads.get(),
             ));
         } else {
-            collected.push(canonical);
+            collected.push(file.clone());
         }
     }
 
@@ -467,6 +754,31 @@ fn plan_single_file(
     })
 }
 
+fn plan_and_process_file(
+    config_cache: &DirectoryConfigCache,
+    config: &RunnerConfig,
+    session_settings: SessionSettings,
+    file_id: FileId,
+    file: PathBuf,
+) -> FileRunReport {
+    let arena = bumpalo::Bump::new();
+    plan_and_process_file_with_arena(config_cache, config, session_settings, file_id, file, &arena)
+}
+
+fn plan_and_process_file_with_arena(
+    config_cache: &DirectoryConfigCache,
+    config: &RunnerConfig,
+    session_settings: SessionSettings,
+    file_id: FileId,
+    file: PathBuf,
+    arena: &bumpalo::Bump,
+) -> FileRunReport {
+    match plan_single_file(config_cache, config, file_id, file) {
+        PlannedEntry::LintJob(job) => process_file_with_arena(job, session_settings, config.fix, arena),
+        PlannedEntry::Report(report) => report,
+    }
+}
+
 fn note_from_config_message(file_id: FileId, order: usize, message: &ConfigMessage) -> Note {
     Note {
         file_id,
@@ -548,11 +860,72 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
     }
 }
 
+fn expand_directory_to_sender(
+    directory: &Path,
+    options: &Options,
+    threads: usize,
+    tx: std::sync::mpsc::Sender<(Option<Note>, Option<PathBuf>)>,
+) {
+    let mut walk = WalkBuilder::new(directory);
+    walk.hidden(false)
+        .git_ignore(false)
+        .git_exclude(false)
+        .parents(false)
+        .ignore(false);
+
+    if threads <= 1 {
+        for entry in walk.build().flatten() {
+            if !entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
+            {
+                continue;
+            }
+            let path = entry.into_path();
+            if options.is_valid_file(&path) {
+                let _ = tx.send((None, Some(path)));
+            }
+        }
+    } else {
+        walk.threads(threads);
+        let walker = walk.build_parallel();
+        walker.run(|| {
+            let tx = tx.clone();
+            Box::new(move |result| {
+                if let Ok(entry) = result {
+                    if entry
+                        .file_type()
+                        .is_some_and(|file_type| file_type.is_file())
+                    {
+                        let path = entry.into_path();
+                        if options.is_valid_file(&path) {
+                            let _ = tx.send((None, Some(path)));
+                        }
+                    }
+                }
+                ignore::WalkState::Continue
+            })
+        });
+    }
+}
+
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn process_file(
     job: PlannedLintJob,
     session_settings: SessionSettings,
     fix: bool,
+) -> FileRunReport {
+    let arena = bumpalo::Bump::new();
+    process_file_with_arena(job, session_settings, fix, &arena)
+}
+
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+fn process_file_with_arena(
+    job: PlannedLintJob,
+    session_settings: SessionSettings,
+    fix: bool,
+    arena: &bumpalo::Bump,
 ) -> FileRunReport {
     let PlannedLintJob {
         file_id,
@@ -584,7 +957,7 @@ fn process_file(
             return state.into_snapshot().into();
         }
         let mut linter = FileLinter::with_file_id(file, &state, options, file_id);
-        match linter.process_file() {
+        match linter.process_file_with_arena(arena) {
             Ok(()) => Some(linter.has_error()),
             Err(_) => None,
         }

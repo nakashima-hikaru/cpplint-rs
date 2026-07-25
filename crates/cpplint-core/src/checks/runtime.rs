@@ -140,9 +140,25 @@ static NON_CONST_REF_CHECK_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     ])
     .unwrap()
 });
-static SIZEOF_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"sizeof\(.+\)"#).unwrap());
-static ARRAYSIZE_TOKEN_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"arraysize\(\w+\)"#).unwrap());
+#[inline]
+fn is_sizeof_or_arraysize_token(token: &str) -> bool {
+    if let Some(idx) = token.find("sizeof(") {
+        let rest = &token[idx + 7..];
+        if rest.contains(')') {
+            return true;
+        }
+    }
+    if let Some(idx) = token.find("arraysize(") {
+        let rest = &token[idx + 10..];
+        if let Some(end_idx) = rest.find(')') {
+            let inner = &rest[..end_idx];
+            if !inner.is_empty() && inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                return true;
+            }
+        }
+    }
+    false
+}
 static CONSTANT_MATCH_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"^0[xX][0-9A-Fa-f]+$"#,        // 0: HEX_LITERAL
@@ -315,7 +331,7 @@ fn check_casts(
         if let Some(captures) = DEPRECATED_CAST_STYLE_RE.captures(elided_line) {
             let matched_funcptr = captures.get(3).map(|m| m.as_str()).unwrap_or("");
             if !expecting_function {
-                if ARRAY_CAST_RE.is_match(matched_funcptr) {
+                if matched_funcptr.contains('[') && ARRAY_CAST_RE.is_match(matched_funcptr) {
                     return;
                 }
 
@@ -445,7 +461,7 @@ fn check_explicit_constructors(
     }
 
     let first_arg = constructor_args.first().copied().unwrap_or("");
-    if INITIALIZER_LIST_RE.is_match(first_arg) {
+    if first_arg.contains("initializer_list") && INITIALIZER_LIST_RE.is_match(first_arg) {
         return;
     }
     if is_copy_constructor_arg(first_arg, class_name)
@@ -654,6 +670,9 @@ fn split_args(args: &str) -> Vec<&str> {
 
 fn normalize_template_spacing(arg: &str) -> Option<String> {
     let trimmed = arg.trim();
+    if !trimmed.contains('<') {
+        return None;
+    }
     match REF_TEMPLATE_SPACE_RE.replace_all(trimmed, "<") {
         Cow::Borrowed(_) => None,
         Cow::Owned(owned) => Some(owned),
@@ -813,7 +832,7 @@ fn check_deprecated_min_max_operators(linter: &mut FileLinter, elided_line: &str
     if !elided_line.contains('?') || (!elided_line.contains('<') && !elided_line.contains('>')) {
         return;
     }
-    if MIN_MAX_RE.is_match(elided_line) {
+    if elided_line.contains('?') && MIN_MAX_RE.is_match(elided_line) {
         linter.error(
             linenum,
             Category::BuildDeprecated,
@@ -1166,7 +1185,9 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
     }
 
     if line.contains("printf") {
-        if let Some(captures) = SNPRINTF_RE.captures(line) {
+        if line.contains("snprintf")
+            && let Some(captures) = SNPRINTF_RE.captures(line)
+        {
             let buffer = captures.get(1).map(|m| m.as_str()).unwrap_or("").trim();
             let size = captures.get(2).map(|m| m.as_str()).unwrap_or("").trim();
             if size != "0" && !size.is_empty() {
@@ -1182,7 +1203,7 @@ fn check_printf(linter: &mut FileLinter, line: &str, linenum: usize) {
             }
         }
 
-        if SPRINTF_RE.is_match(line) {
+        if line.contains("sprintf") && SPRINTF_RE.is_match(line) {
             linter.error(
                 linenum,
                 Category::RuntimePrintf,
@@ -1497,7 +1518,7 @@ fn check_variable_length_arrays(linter: &mut FileLinter, line: &str, linenum: us
         if token.is_empty() {
             continue;
         }
-        if SIZEOF_TOKEN_RE.is_match(token) || ARRAYSIZE_TOKEN_RE.is_match(token) {
+        if is_sizeof_or_arraysize_token(token) {
             continue;
         }
 

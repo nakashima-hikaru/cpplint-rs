@@ -115,8 +115,13 @@ impl<'a> FileLinter<'a> {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn process_file(&mut self) -> Result<()> {
         let arena = Bump::new();
-        let decoded = self.source_file.read_into(&arena)?;
-        self.process_decoded_source(decoded, &arena, ProcessMode::Full);
+        self.process_file_with_arena(&arena)
+    }
+
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
+    pub fn process_file_with_arena(&mut self, arena: &Bump) -> Result<()> {
+        let decoded = self.source_file.read_into(arena)?;
+        self.process_decoded_source(decoded, arena, ProcessMode::Full);
         Ok(())
     }
 

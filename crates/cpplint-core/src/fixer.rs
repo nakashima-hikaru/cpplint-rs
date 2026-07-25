@@ -8,6 +8,7 @@ use crate::file_linter::FileLinter;
 use crate::file_reader;
 use crate::line_utils;
 use crate::options::{IncludeOrder, Options};
+use crate::string_utils;
 use crate::state::CppLintState;
 use crate::state::IncludeKind;
 use crate::syntax::{ParsedLine, base_name};
@@ -28,8 +29,6 @@ use std::sync::LazyLock;
 
 const MAX_FIX_PASSES: usize = 8;
 
-static INCLUDE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\s*#\s*include\s*([<"])([^>"]+)[>"]\s*$"#).unwrap());
 static COMMENT_SPLIT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^(?P<code>.*?)(?P<comment>//.*)$"#).unwrap());
 static TODO_FIX_RE: LazyLock<Regex> =
@@ -133,12 +132,13 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<bool> {
         return Ok(false);
     }
 
+    let lines_vec = read_result.to_lines_vec();
     let mixed_line_endings = has_mixed_line_endings(
-        &read_result.lines,
+        &lines_vec,
         read_result.lf_lines_count,
         &read_result.crlf_lines,
     );
-    let mut lines = read_result.lines;
+    let mut lines = lines_vec;
     let original_lines = lines.clone();
     let newline_style = if mixed_line_endings || read_result.crlf_lines.is_empty() {
         NewlineStyle::Lf
@@ -359,20 +359,14 @@ fn fix_include_block(
         if trimmed.is_empty() {
             continue;
         }
-        let Some(captures) = INCLUDE_RE.captures(trimmed) else {
+        let Some((delimiter, include)) = string_utils::parse_include_directive(trimmed) else {
             continue;
         };
-        let delimiter = captures.get(1).map(|m| m.as_str()).unwrap_or("");
-        let include = captures
-            .get(2)
-            .map(|m| m.as_str())
-            .unwrap_or("")
-            .to_string();
-        if !seen.insert(include.clone()) {
+        if !seen.insert(include.to_string()) {
             continue;
         }
         entries.push(IncludeEntry {
-            include: include.clone(),
+            include: include.to_string(),
             raw_line: format!(
                 "#include {}{}{}",
                 delimiter,
@@ -424,7 +418,7 @@ fn top_level_include_block(lines: &[String]) -> Option<(usize, usize)> {
     let mut start = None;
     for (idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
-        if INCLUDE_RE.is_match(trimmed) {
+        if string_utils::parse_include_directive(trimmed).is_some() {
             start = Some(idx);
             break;
         }
@@ -445,7 +439,7 @@ fn top_level_include_block(lines: &[String]) -> Option<(usize, usize)> {
     let mut end = start;
     while end < lines.len() {
         let trimmed = lines[end].trim();
-        if trimmed.is_empty() || INCLUDE_RE.is_match(trimmed) {
+        if trimmed.is_empty() || string_utils::parse_include_directive(trimmed).is_some() {
             end += 1;
             continue;
         }

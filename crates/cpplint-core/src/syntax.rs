@@ -18,35 +18,56 @@ const STRING_NODE_KINDS: &[&str] = &[
     "raw_string_literal",
 ];
 
+const NUM_SETS: usize = 256;
+const WAYS: usize = 4;
+
+struct CacheEntry {
+    hash: u64,
+    source: Arc<str>,
+    tree: Tree,
+}
+
 struct ParsedLineCache {
-    slots: [(u64, Option<(Arc<str>, Tree)>); 4],
-    next_idx: usize,
+    sets: [[Option<CacheEntry>; WAYS]; NUM_SETS],
+    clock: [u8; NUM_SETS],
 }
 
 impl ParsedLineCache {
     const fn new() -> Self {
+        const EMPTY_ENTRY: Option<CacheEntry> = None;
+        const EMPTY_SET: [Option<CacheEntry>; WAYS] = [EMPTY_ENTRY; WAYS];
         Self {
-            slots: [(0, None), (0, None), (0, None), (0, None)],
-            next_idx: 0,
+            sets: [EMPTY_SET; NUM_SETS],
+            clock: [0; NUM_SETS],
         }
     }
 
+    #[inline]
     fn get(&self, hash: u64, line: &str) -> Option<(Arc<str>, Tree)> {
-        for (h, slot) in &self.slots {
-            if *h == hash
-                && let Some((source, tree)) = slot
-                && source.as_ref() == line
-            {
-                return Some((source.clone(), tree.clone()));
+        let set_idx = (hash as usize) & (NUM_SETS - 1);
+        for entry in &self.sets[set_idx] {
+            if let Some(entry) = entry {
+                if entry.hash == hash && entry.source.as_ref() == line {
+                    return Some((entry.source.clone(), entry.tree.clone()));
+                }
             }
         }
         None
     }
 
+    #[inline]
     fn insert(&mut self, hash: u64, source: Arc<str>, tree: Tree) {
-        let idx = self.next_idx;
-        self.slots[idx] = (hash, Some((source, tree)));
-        self.next_idx = (idx + 1) % 4;
+        let set_idx = (hash as usize) & (NUM_SETS - 1);
+        let set = &mut self.sets[set_idx];
+        for entry in set.iter_mut() {
+            if entry.is_none() {
+                *entry = Some(CacheEntry { hash, source, tree });
+                return;
+            }
+        }
+        let way = (self.clock[set_idx] as usize) & (WAYS - 1);
+        self.clock[set_idx] = self.clock[set_idx].wrapping_add(1);
+        set[way] = Some(CacheEntry { hash, source, tree });
     }
 }
 
@@ -89,6 +110,11 @@ pub(crate) struct InvalidIncrementExpression<'tree> {
 
 impl ParsedLine {
     pub(crate) fn parse(line: &str) -> Option<Self> {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
         let line_hash = fxhash::hash64(line.as_bytes());
         if let Some((source, tree)) =
             PARSED_LINE_CACHE.with_borrow(|cache| cache.get(line_hash, line))
@@ -446,4 +472,16 @@ pub(crate) fn base_name(function_text: &str) -> &str {
         .next()
         .unwrap_or(without_template)
         .trim()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parsed_line_parse_fast_path() {
+        assert!(ParsedLine::parse("").is_none());
+        assert!(ParsedLine::parse("   \t  ").is_none());
+        assert!(ParsedLine::parse("int x = 0;").is_some());
+    }
 }

@@ -152,8 +152,11 @@ static COMMENT_SPACING_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     ])
     .unwrap()
 });
-static PREV_LINE_CONTINUATION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"[\",=><] *$"#).unwrap());
+#[inline]
+fn is_prev_line_continuation(s: &str) -> bool {
+    let trimmed = s.trim_end_matches(' ');
+    matches!(trimmed.bytes().last(), Some(b'"' | b',' | b'=' | b'>' | b'<'))
+}
 static RANGE_FOR_COLON_SET: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r#"for\s*\(.*[^:]:[^: ]"#, // 0: LEFT
@@ -337,7 +340,14 @@ static QUALIFIED_BRACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 fn should_skip_line_length(raw_line: &str) -> bool {
-    raw_line.starts_with("#include") || SKIP_LINE_LENGTH_SET.is_match(raw_line)
+    if raw_line.starts_with("#include") {
+        return true;
+    }
+    let bytes = raw_line.as_bytes();
+    if !bytes.contains(&b'#') && !bytes.contains(&b'/') {
+        return false;
+    }
+    SKIP_LINE_LENGTH_SET.is_match(raw_line)
 }
 
 // Optimized string search using memchr + starts_with instead of AhoCorasick
@@ -389,7 +399,9 @@ fn check_comment_spacing(linter: &mut FileLinter, clean_lines: &CleansedLines<'_
     }
 
     let comment = &line[comment_pos..];
-    if let Some(captures) = TODO_COMMENT_RE.captures(comment) {
+    if comment.contains("TODO")
+        && let Some(captures) = TODO_COMMENT_RE.captures(comment)
+    {
         let leading_spaces = captures.get(1).map(|m| m.as_str().len()).unwrap_or(0);
         if leading_spaces > 1 {
             linter.error(
@@ -1659,7 +1671,7 @@ fn check_indentation(
     let comment_only_line = clean_lines.has_comment[linenum] && line.trim().is_empty();
     let indent_line = if comment_only_line { raw_line } else { line };
     let prev_line_allows_continuation = linenum > 0
-        && PREV_LINE_CONTINUATION_RE.is_match(clean_lines.lines_without_raw_strings[linenum - 1]);
+        && is_prev_line_continuation(clean_lines.lines_without_raw_strings[linenum - 1]);
     let is_scope_or_label = keywords.has_access() && SCOPE_OR_LABEL_RE.is_match(indent_line);
     let is_raw_string_line =
         clean_lines.raw_lines[linenum] != line && line.trim_start().starts_with("\"\"");
@@ -1908,10 +1920,15 @@ pub fn check(
         if let Some(c) = last_char
             && !matches!(c, ' ' | '(' | '{' | '>')
         {
-            let missing_space_before_qualified_brace = QUALIFIED_BRACE_RE.is_match(elided_line);
+            let missing_space_before_qualified_brace = elided_line.contains(')')
+                && elided_line.contains('{')
+                && QUALIFIED_BRACE_RE.is_match(elided_line);
+            let is_fixed_width_int = elided_line.contains("int")
+                && elided_line.contains('{')
+                && FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line);
             if (!is_braced_initialization(clean_lines, elided_line, prefix, brace_pos, linenum)
                 || missing_space_before_qualified_brace)
-                && !FIXED_WIDTH_BRACED_INT_RE.is_match(elided_line)
+                && !is_fixed_width_int
             {
                 linter.error(
                     linenum,

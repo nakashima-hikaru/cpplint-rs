@@ -1,6 +1,7 @@
 use crate::errors::Result;
 use globset::{GlobBuilder, GlobMatcher};
 
+#[derive(Clone)]
 pub struct GlobPattern {
     matcher: GlobMatcher,
 }

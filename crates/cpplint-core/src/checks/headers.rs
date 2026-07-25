@@ -5,14 +5,12 @@ use crate::file_linter::FileLinter;
 use crate::iwyu::IwyuHeader;
 use crate::options::IncludeOrder;
 use crate::state::{IncludeKind, IncludeState};
+use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use fxhash::FxHashSet;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
-
-static INCLUDE_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r#"^\s*#\s*include\s*([<"])([^>"]+)[>"]"#).unwrap());
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum IwyuToken {
@@ -775,14 +773,14 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
 
     // Respect the documented file-level suppression for synthetic guard errors.
     for line in raw_lines {
-        if NOLINT_HEADER_GUARD_RE.is_match(line) {
+        if line.contains("NOLINT") && NOLINT_HEADER_GUARD_RE.is_match(line) {
             return;
         }
     }
 
     // 1. Check for #pragma once
     for line in raw_lines {
-        if PRAGMA_ONCE_RE.is_match(line) {
+        if line.contains("pragma") && PRAGMA_ONCE_RE.is_match(line) {
             return;
         }
     }
@@ -907,15 +905,13 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             continue;
         }
 
-        let Some(captures) = INCLUDE_RE.captures(trimmed) else {
+        let Some((delim, include)) = string_utils::parse_include_directive(trimmed) else {
             if let Some(directive) = preprocessor_directive(trimmed) {
                 include_state.reset_section(directive);
             }
             continue;
         };
 
-        let delim = captures.get(1).map(|m| m.as_str()).unwrap_or("");
-        let include = captures.get(2).map(|m| m.as_str()).unwrap_or("");
         let used_angle_brackets = delim == "<";
         let kind = classify_include(
             &file_from_repo,
@@ -1042,8 +1038,9 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             }
 
             let canonical_include = include_state.canonicalize_alphabetical_order(include);
+            let prev_elided = if linenum > 0 { clean_lines.elided[linenum - 1].trim() } else { "" };
             let previous_line_is_include =
-                linenum > 0 && INCLUDE_RE.is_match(clean_lines.elided[linenum - 1].trim());
+                linenum > 0 && prev_elided.starts_with('#') && prev_elided.contains("include") && string_utils::parse_include_directive(prev_elided).is_some();
             if !include_state.is_in_alphabetical_order(previous_line_is_include, &canonical_include)
             {
                 linter.error(
@@ -1206,14 +1203,13 @@ fn preprocessor_directive(trimmed: &str) -> Option<&str> {
         .find(|candidate| directive.starts_with(candidate))
 }
 
-static SPECIAL_HEADER_NAME_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r#"^[^/]*[A-Z][^/]*\.h$"#).unwrap());
-
 fn is_special_include_name(include: &str) -> bool {
     if SPECIAL_INCLUDE_AC.is_match(include) {
         return true;
     }
-    SPECIAL_HEADER_NAME_RE.is_match(include)
+    include.ends_with(".h")
+        && !include.contains('/')
+        && include.bytes().any(|b| b.is_ascii_uppercase())
 }
 
 fn drop_common_suffixes(path: &Path) -> PathBuf {

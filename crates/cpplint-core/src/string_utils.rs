@@ -153,6 +153,38 @@ pub fn get_line_width(line: &str) -> usize {
         .sum()
 }
 
+/// Fast zero-allocation parser for C/C++ include directives.
+/// Equivalent to regex `^\s*#\s*include\s*([<"])([^>"]+)[>"]`.
+/// Returns `Some((delim, path))` where `delim` is `"<"` or `"`"`, and `path` is the included file path.
+#[inline]
+pub fn parse_include_directive(line: &str) -> Option<(&str, &str)> {
+    let s = line.trim_start();
+    let rest = s.strip_prefix('#')?.trim_start();
+    let rest = rest.strip_prefix("include")?;
+
+    if let Some(&first_b) = rest.as_bytes().first() {
+        if is_word_char(first_b) {
+            return None;
+        }
+    }
+
+    let rest = rest.trim_start();
+    let delim_char = rest.chars().next()?;
+    let (delim_str, close_char) = match delim_char {
+        '<' => ("<", '>'),
+        '"' => ("\"", '"'),
+        _ => return None,
+    };
+
+    let path_and_rest = &rest[delim_char.len_utf8()..];
+    let end_idx = path_and_rest.find(close_char)?;
+    let path = &path_and_rest[..end_idx];
+    if path.is_empty() {
+        return None;
+    }
+    Some((delim_str, path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +255,21 @@ mod tests {
             "my_decltype",
             "decltype"
         ));
+    }
+
+    #[test]
+    fn test_parse_include_directive() {
+        assert_eq!(
+            parse_include_directive("#include <foo.h>"),
+            Some(("<", "foo.h"))
+        );
+        assert_eq!(
+            parse_include_directive("  #  include   \"bar/baz.hpp\" // trailing comment"),
+            Some(("\"", "bar/baz.hpp"))
+        );
+        assert_eq!(parse_include_directive("#include_foo <bar>"), None);
+        assert_eq!(parse_include_directive("#include \"\""), None);
+        assert_eq!(parse_include_directive("#define FOO 1"), None);
     }
 
     #[test]

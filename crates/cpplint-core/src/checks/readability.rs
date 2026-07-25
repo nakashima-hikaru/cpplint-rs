@@ -35,10 +35,19 @@ static REDUNDANT_STRING_CTOR_RE: LazyLock<Regex> = LazyLock::new(|| {
 static NAMESPACE_START_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"^\s*namespace\b\s*([:\w]+)?(.*)$"#).unwrap());
 fn is_check_const(s: &str) -> bool {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
+    {
+        return true;
+    }
     static CHECK_CONST_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"^([-+]?(\d+|0[xX][0-9a-fA-F]+)[lLuU]{0,3}|".*"|'.*')$"#).unwrap()
     });
-    CHECK_CONST_RE.is_match(s.trim())
+    CHECK_CONST_RE.is_match(trimmed)
 }
 
 const CHECK_MACROS: [crate::messages::CheckMacroName; 6] = [
@@ -555,6 +564,9 @@ fn collect_function_signature(clean_lines: &CleansedLines<'_>, start_line: usize
 }
 
 fn parse_function_name(signature_line: &str) -> Option<&str> {
+    if !signature_line.contains('(') {
+        return None;
+    }
     let captures = FUNCTION_NAME_RE.captures(signature_line)?;
     let function_name = captures.get(1).map(|m| m.as_str()).unwrap_or("");
     if function_name.is_empty() {
@@ -761,6 +773,9 @@ fn check_multiline_comments(
 }
 
 fn check_redundant_string_ctor(linter: &mut FileLinter, raw_line: &str, linenum: usize) {
+    if !raw_line.contains("string") {
+        return;
+    }
     if REDUNDANT_STRING_CTOR_RE.is_match(raw_line) {
         linter.error(
             linenum,
@@ -1095,7 +1110,7 @@ fn check_multiline_if_else_bodies(
 
     let endline = &clean_lines.elided[endlinenum];
     let endline_sub = endline.get(endpos..).unwrap_or("");
-    let opens_brace = MULTILINE_IF_OPEN_BRACE_RE.is_match(endline_sub)
+    let opens_brace = (endline_sub.contains('{') && MULTILINE_IF_OPEN_BRACE_RE.is_match(endline_sub))
         || (endline_sub.trim().is_empty()
             && endlinenum + 1 < clean_lines.elided.len()
             && clean_lines.elided[endlinenum + 1]
@@ -1184,13 +1199,14 @@ fn check_namespace_termination_comment(
     let Some(captures) = NAMESPACE_START_RE.captures(start) else {
         return;
     };
-    if linenum.saturating_sub(namespace_line) < 10 && !NAMESPACE_TERMINATION_RE.is_match(raw_line) {
+    let has_ns_term_keywords = raw_line.contains("namespace") && raw_line.contains('}');
+    if linenum.saturating_sub(namespace_line) < 10 && (!has_ns_term_keywords || !NAMESPACE_TERMINATION_RE.is_match(raw_line)) {
         return;
     }
 
     let name = captures.get(1).map(|m| m.as_str()).unwrap_or("");
     if name.is_empty() {
-        if ANONYMOUS_NAMESPACE_TERMINATION_RE.is_match(raw_line) {
+        if has_ns_term_keywords && ANONYMOUS_NAMESPACE_TERMINATION_RE.is_match(raw_line) {
             return;
         }
         linter.error(

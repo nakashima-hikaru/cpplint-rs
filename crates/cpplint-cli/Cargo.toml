@@ -22,4 +22,5 @@ hotpath = ["cpplint-core/hotpath", "dep:hotpath"]
 cpplint-core = { version = "0.0.0-alpha.1", path = "../cpplint-core" }
 clap.workspace = true
 rayon.workspace = true
+mimalloc.workspace = true
 hotpath = { workspace = true, optional = true }

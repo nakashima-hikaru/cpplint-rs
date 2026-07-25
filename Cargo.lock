@@ -233,6 +233,7 @@ dependencies = [
  "clap",
  "cpplint-core",
  "hotpath",
+ "mimalloc",
  "rayon",
 ]
 
@@ -652,6 +653,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7743783ea728ef5c31194c6590797eed286449b4a4e87d626d8a51f0a94e732"
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a45a52f43e1c16f667ccfe4dd8c85b7f7c204fd5e3bf46c5b0db9a5c3c0b8e9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -688,6 +698,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d4139bb28d14ad1facf21d5eb8825051b326e172d216b39f6d31df53cc97862"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]

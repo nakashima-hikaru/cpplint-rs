@@ -5,6 +5,9 @@ use commands::{run_check_command, run_rule_command};
 use options::{ParsedCommand, parse_cli};
 use std::process::ExitCode;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> ExitCode {
     match parse_cli() {
         ParsedCommand::Check(args) => run_check_command(&args),

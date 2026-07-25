@@ -1,8 +1,17 @@
-use crate::errors::Result;
-use encoding_rs_io::DecodeReaderBytesBuilder;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{self, Cursor, Read};
+use std::ops::Range;
 use std::path::Path;
+
+use encoding_rs_io::DecodeReaderBytesBuilder;
+
+use crate::errors::Result;
+
+thread_local! {
+    static READ_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(16384));
+    static DECODE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(16384));
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RawLineScan {
@@ -12,11 +21,27 @@ pub(crate) struct RawLineScan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadFileResult {
-    pub lines: Vec<String>,
+    pub content: String,
+    pub line_ranges: Vec<Range<usize>>,
     pub crlf_lines: Vec<usize>,
     pub lf_lines_count: usize,
     pub invalid_utf8_lines: Vec<usize>,
     pub null_lines: Vec<usize>,
+}
+
+impl ReadFileResult {
+    pub fn lines(&self) -> impl Iterator<Item = &str> {
+        self.line_ranges
+            .iter()
+            .map(move |r| &self.content[r.clone()])
+    }
+
+    pub fn to_lines_vec(&self) -> Vec<String> {
+        self.line_ranges
+            .iter()
+            .map(|r| self.content[r.clone()].to_string())
+            .collect()
+    }
 }
 
 pub(crate) enum FileBytes {
@@ -57,6 +82,38 @@ pub(crate) fn read_raw_bytes(path: &Path) -> Result<FileBytes> {
     Ok(FileBytes::Heap(bytes))
 }
 
+pub(crate) fn read_raw_bytes_with_buffer<F, R>(path: &Path, f: F) -> Result<R>
+where
+    F: FnOnce(&[u8]) -> Result<R>,
+{
+    if path == Path::new("-") {
+        let mut bytes = Vec::new();
+        io::stdin().read_to_end(&mut bytes)?;
+        return f(&bytes);
+    }
+
+    let file = File::open(path)?;
+    let metadata = file.metadata()?;
+    let len = metadata.len();
+
+    if len >= 16384 {
+        if let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) } {
+            return f(&mmap);
+        }
+    }
+
+    READ_BUF.with(|buf_cell| {
+        let mut bytes = buf_cell.borrow_mut();
+        bytes.clear();
+        let cap = bytes.capacity();
+        if cap < len as usize {
+            bytes.reserve(len as usize - cap);
+        }
+        file.take(len).read_to_end(&mut *bytes)?;
+        f(&bytes)
+    })
+}
+
 pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     let mut invalid_utf8_lines = Vec::new();
     let mut null_lines = Vec::new();
@@ -85,49 +142,74 @@ pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     }
 }
 
-pub(crate) fn decode_bytes(bytes: &[u8]) -> Result<String> {
-    let mut decoded_bytes = Vec::new();
-    DecodeReaderBytesBuilder::new()
-        .bom_sniffing(true)
-        .build(Cursor::new(bytes))
-        .read_to_end(&mut decoded_bytes)?;
-    Ok(String::from_utf8_lossy(&decoded_bytes).into_owned())
+use std::borrow::Cow;
+
+pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
+    // Fast path: Pure UTF-8 without BOM
+    if !bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        if let Ok(s) = std::str::from_utf8(bytes) {
+            return Ok(Cow::Borrowed(s));
+        }
+    }
+
+    DECODE_BUF.with(|buf_cell| {
+        let mut decoded_bytes = buf_cell.borrow_mut();
+        decoded_bytes.clear();
+        DecodeReaderBytesBuilder::new()
+            .bom_sniffing(true)
+            .build(Cursor::new(bytes))
+            .read_to_end(&mut *decoded_bytes)?;
+        Ok(Cow::Owned(
+            String::from_utf8_lossy(&decoded_bytes).into_owned(),
+        ))
+    })
 }
 
 pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
-    let bytes = read_raw_bytes(path)?;
-    let RawLineScan {
-        invalid_utf8_lines,
-        null_lines,
-    } = scan_raw_lines(&bytes);
-    let decoded = decode_bytes(&bytes)?;
+    read_raw_bytes_with_buffer(path, |bytes| {
+        let RawLineScan {
+            invalid_utf8_lines,
+            null_lines,
+        } = scan_raw_lines(bytes);
+        let decoded = decode_bytes(bytes)?;
 
-    let mut lines = Vec::new();
-    let mut crlf_lines = Vec::new();
-    let mut lf_lines_count = 0usize;
+        let est_lines = decoded.bytes().filter(|&b| b == b'\n').count() + 1;
+        let mut line_ranges = Vec::with_capacity(est_lines);
+        let mut crlf_lines = Vec::new();
+        let mut lf_lines_count = 0usize;
 
-    for (linenum, raw_line) in decoded.split('\n').enumerate() {
-        let mut line = raw_line.to_string();
-        if line.ends_with('\r') {
-            line.pop();
-            crlf_lines.push(linenum);
-        } else {
-            lf_lines_count += 1;
+        let mut offset = 0;
+        for (linenum, raw_line) in decoded.split('\n').enumerate() {
+            let line_len = raw_line.len();
+            let (end, has_crlf) = if let Some(stripped) = raw_line.strip_suffix('\r') {
+                (offset + stripped.len(), true)
+            } else {
+                (offset + line_len, false)
+            };
+
+            if has_crlf {
+                crlf_lines.push(linenum);
+            } else {
+                lf_lines_count += 1;
+            }
+
+            line_ranges.push(offset..end);
+            offset += line_len + 1;
         }
 
-        lines.push(line);
-    }
+        if line_ranges.is_empty() {
+            line_ranges.push(0..0);
+            lf_lines_count = 1;
+        }
 
-    if lines.is_empty() {
-        lines.push(String::new());
-        lf_lines_count = 1;
-    }
-
-    Ok(ReadFileResult {
-        lines,
-        crlf_lines,
-        lf_lines_count,
-        invalid_utf8_lines,
-        null_lines,
+        Ok(ReadFileResult {
+            content: decoded.into_owned(),
+            line_ranges,
+            crlf_lines,
+            lf_lines_count,
+            invalid_utf8_lines,
+            null_lines,
+        })
     })
 }
+

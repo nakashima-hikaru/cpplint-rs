@@ -54,6 +54,30 @@ impl FileTable {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct ThreadSafeFileTable {
+    inner: parking_lot::RwLock<FileTable>,
+}
+
+impl ThreadSafeFileTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn intern(&self, filename: &str) -> FileId {
+        self.inner.write().intern(filename)
+    }
+
+    pub fn snapshot(&self) -> FileTable {
+        self.inner.read().clone()
+    }
+
+    pub fn into_inner(self) -> FileTable {
+        self.inner.into_inner()
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub file_id: FileId,

@@ -1,4 +1,5 @@
 use crate::options::Options;
+use crate::string_utils;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use bitflags::bitflags;
 use bumpalo::Bump;
@@ -8,9 +9,6 @@ use std::borrow::Cow;
 use std::simd::cmp::SimdPartialEq;
 use std::simd::u8x32;
 use std::sync::LazyLock;
-
-static INCLUDE_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r#"^\s*#\s*include\s*([<"])([^>"]*)[>"].*$"#).unwrap());
 
 const ALT_TOKEN_REPLACEMENT: &[(&str, &str)] = &[
     ("and", "&&"),
@@ -672,7 +670,11 @@ impl<'a> CleansedLines<'a> {
             let has_alt = has_alternate_tokens(line_collapsed_ref);
 
             if let Some(lines_without_alt_tokens) = &mut elided_without_alternate_tokens {
-                let line_elided_ref = replace_alternate_tokens_in(arena, line_collapsed_ref);
+                let line_elided_ref = if has_alt {
+                    replace_alternate_tokens_in(arena, line_collapsed_ref)
+                } else {
+                    line_collapsed_ref
+                };
                 lines_without_alt_tokens.push(line_collapsed_ref);
 
                 let mut bits = MatchedKeywords::from_line(line_elided_ref);
@@ -1149,19 +1151,9 @@ fn strip_escape_sequences_in<'a>(arena: &'a Bump, s: &'a str) -> &'a str {
     result.into_bump_str()
 }
 
-fn strip_escape_sequences(s: &str) -> Cow<'_, str> {
-    let arena = Bump::new();
-    let stripped = strip_escape_sequences_in(&arena, s);
-    if stripped == s {
-        Cow::Borrowed(s)
-    } else {
-        Cow::Owned(stripped.to_string())
-    }
-}
-
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn collapse_strings_in<'a>(arena: &'a Bump, elided: &'a str) -> &'a str {
-    if elided.trim_start().starts_with('#') && INCLUDE_RE.is_match(elided) {
+    if elided.trim_start().starts_with('#') && string_utils::parse_include_directive(elided).is_some() {
         return elided;
     }
 
@@ -1320,11 +1312,6 @@ fn collapse_quotes_and_separators_in<'a>(arena: &'a Bump, elided: &'a str) -> &'
     } else {
         result.into_bump_str()
     }
-}
-
-fn collapse_quotes_and_separators(elided: &str) -> String {
-    let arena = Bump::new();
-    collapse_quotes_and_separators_in(&arena, elided).to_string()
 }
 
 #[cfg(test)]
@@ -1579,14 +1566,16 @@ mod tests {
         assert!(is_cpp_string(r#""unterminated"#));
         assert!(!is_cpp_string(r#"\"quoted\""#));
 
+        let arena = Bump::new();
         assert_eq!(
-            strip_escape_sequences(r#"\n\x41\101\z\\"#).as_ref(),
+            strip_escape_sequences_in(&arena, r#"\n\x41\101\z\\"#),
             r#"\z"#
         );
     }
 
     #[test]
     fn helper_functions_cover_line_features_and_collapse_paths() {
+        let arena = Bump::new();
         assert_eq!(
             collapse_strings(r#"printf("%s", name)"#).as_ref(),
             r#"printf("", name)"#
@@ -1596,7 +1585,7 @@ mod tests {
             "#include <string>"
         );
         assert_eq!(
-            collapse_quotes_and_separators(r#"g'x' b"yy"c"#),
+            collapse_quotes_and_separators_in(&arena, r#"g'x' b"yy"c"#),
             "g'' b\"\"c"
         );
 
