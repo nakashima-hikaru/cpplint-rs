@@ -3,10 +3,9 @@ use crate::string_utils::parse_comma_separated_list;
 use parking_lot::RwLock;
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigMessageKind {
@@ -31,33 +30,17 @@ pub enum ConfigResolution {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 struct ConfigFile {
-    noparent: bool,
+    headers: Option<FxHashSet<String>>,
+    extensions: Option<FxHashSet<String>>,
+    line_length: Option<NonZeroUsize>,
+    include_order: Option<IncludeOrder>,
+    root: Option<PathBuf>,
     filters: Vec<Filter>,
     exclude_files: Vec<ExcludePattern>,
-    line_length: Option<NonZeroUsize>,
-    root: Option<PathBuf>,
-    extensions: Option<FxHashSet<String>>,
-    headers: Option<FxHashSet<String>>,
-    include_order: Option<IncludeOrder>,
-    messages: Arc<[ConfigMessage]>,
-}
-
-impl Default for ConfigFile {
-    fn default() -> Self {
-        Self {
-            noparent: false,
-            filters: Vec::new(),
-            exclude_files: Vec::new(),
-            line_length: None,
-            root: None,
-            extensions: None,
-            headers: None,
-            include_order: None,
-            messages: Vec::new().into(),
-        }
-    }
+    noparent: bool,
+    messages: Vec<ConfigMessage>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +63,7 @@ struct PreparedExcludeMatch {
     component: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct PreparedLocalPlan {
     messages: Arc<[ConfigMessage]>,
     excludes: Arc<[PreparedExcludePattern]>,
@@ -108,12 +91,8 @@ struct PreparedDirectoryPlan {
 pub(crate) struct DirectoryConfigCache {
     base_options: Arc<Options>,
     config_filename: String,
-    plans: RwLock<FxHashMap<PathBuf, Arc<PreparedDirectoryPlan>>>,
-}
-
-thread_local! {
-    static CONFIG_FILE_CACHE: RefCell<FxHashMap<PathBuf, Option<Arc<ConfigFile>>>> =
-        RefCell::new(FxHashMap::default());
+    plans: RwLock<FxHashMap<PathBuf, Arc<OnceLock<Arc<PreparedDirectoryPlan>>>>>,
+    file_cache: RwLock<FxHashMap<PathBuf, Arc<OnceLock<Option<Arc<ConfigFile>>>>>>,
 }
 
 impl DirectoryConfigCache {
@@ -122,7 +101,20 @@ impl DirectoryConfigCache {
             base_options: Arc::new(base_options.clone()),
             config_filename: base_options.config_filename.clone(),
             plans: RwLock::new(FxHashMap::default()),
+            file_cache: RwLock::new(FxHashMap::default()),
         }
+    }
+
+    fn read_config_file(&self, path: &Path) -> Option<Arc<ConfigFile>> {
+        let lock = {
+            let mut cache = self.file_cache.write();
+            cache
+                .entry(path.to_path_buf())
+                .or_insert_with(|| Arc::new(OnceLock::new()))
+                .clone()
+        };
+
+        lock.get_or_init(|| read_config_file_uncached(path)).clone()
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -135,21 +127,23 @@ impl DirectoryConfigCache {
         }
 
         let directory = filename.parent().unwrap_or_else(|| Path::new(""));
-        let cached_plan = self.plans.read().get(directory).cloned();
-        let plan = if let Some(plan) = cached_plan {
-            plan
-        } else {
-            let built = Arc::new(build_directory_plan(
-                self.base_options.as_ref(),
-                &self.config_filename,
-                directory,
-            ));
+        let plan_lock = {
             let mut plans = self.plans.write();
             plans
                 .entry(directory.to_path_buf())
-                .or_insert(built)
+                .or_insert_with(|| Arc::new(OnceLock::new()))
                 .clone()
         };
+
+        let plan = plan_lock.get_or_init(|| {
+            Arc::new(build_directory_plan(
+                self.base_options.as_ref(),
+                &self.config_filename,
+                directory,
+                self,
+            ))
+        });
+
         plan.resolve_for_file(filename, quiet)
     }
 }
@@ -205,12 +199,13 @@ fn build_directory_plan(
     base_options: &Options,
     config_filename: &str,
     directory: &Path,
+    cache: &DirectoryConfigCache,
 ) -> PreparedDirectoryPlan {
     let mut options = base_options.clone();
     let mut local_messages = Vec::new();
     let mut local_excludes = Vec::new();
     let local_cfg_path = directory.join(config_filename);
-    if let Some(config) = read_config_file(&local_cfg_path) {
+    if let Some(config) = cache.read_config_file(&local_cfg_path) {
         apply_config_layer(
             &mut options,
             &mut local_messages,
@@ -245,7 +240,7 @@ fn build_directory_plan(
         }
 
         let cfg_path = parent.join(config_filename);
-        if let Some(config) = read_config_file(&cfg_path) {
+        if let Some(config) = cache.read_config_file(&cfg_path) {
             let component = path
                 .file_name()
                 .and_then(|value| value.to_str())
@@ -373,148 +368,126 @@ fn first_matching_exclude_raw(config: &ConfigFile, component: &str) -> Option<St
     })
 }
 
-fn read_config_file(path: &Path) -> Option<Arc<ConfigFile>> {
-    CONFIG_FILE_CACHE.with(|cache_cell| {
-        if let Some(opt) = cache_cell.borrow().get(path) {
-            return opt.clone();
+fn read_config_file_uncached(path: &Path) -> Option<Arc<ConfigFile>> {
+    if !path.is_file() {
+        return None;
+    }
+
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        let config = ConfigFile {
+            messages: vec![ConfigMessage {
+                kind: ConfigMessageKind::Error,
+                text: format!(
+                    "Skipping config file '{}': Can't open for reading\n",
+                    path.display()
+                ),
+            }]
+            .into(),
+            ..Default::default()
+        };
+        return Some(Arc::new(config));
+    };
+
+    let mut config = ConfigFile::default();
+    let mut messages = Vec::new();
+    for raw_line in contents.lines() {
+        let line = raw_line
+            .split_once('#')
+            .map(|(prefix, _)| prefix)
+            .unwrap_or(raw_line)
+            .trim();
+        if line.is_empty() {
+            continue;
         }
 
-        if !path.is_file() {
-            cache_cell.borrow_mut().insert(path.to_path_buf(), None);
-            return None;
+        if line == "set noparent" {
+            config.noparent = true;
+            continue;
         }
 
-        let Ok(contents) = std::fs::read_to_string(path) else {
-            let config = ConfigFile {
-                messages: vec![ConfigMessage {
-                    kind: ConfigMessageKind::Error,
-                    text: format!(
-                        "Skipping config file '{}': Can't open for reading\n",
-                        path.display()
-                    ),
-                }]
-                .into(),
-                ..Default::default()
-            };
-            let config = Arc::new(config);
-            cache_cell
-                .borrow_mut()
-                .insert(path.to_path_buf(), Some(Arc::clone(&config)));
-            return Some(config);
+        let Some((name, value)) = line.split_once('=') else {
+            messages.push(ConfigMessage {
+                kind: ConfigMessageKind::Error,
+                text: format!(
+                    "Invalid configuration option ({}) in file {}\n",
+                    line,
+                    path.display()
+                ),
+            });
+            continue;
         };
 
-        let mut config = ConfigFile::default();
-        let mut messages = Vec::new();
-        for raw_line in contents.lines() {
-            let line = raw_line
-                .split_once('#')
-                .map(|(prefix, _)| prefix)
-                .unwrap_or(raw_line)
-                .trim();
-            if line.is_empty() {
-                continue;
+        let name = name.trim();
+        let value = value.trim();
+        match name {
+            "filter" => {
+                if let Some(parsed) = parse_filters(value) {
+                    config.filters.extend(parsed);
+                } else {
+                    messages.push(ConfigMessage {
+                        kind: ConfigMessageKind::Error,
+                        text: format!(
+                            "{}: Every filter must start with + or - ({})\n",
+                            path.display(),
+                            value
+                        ),
+                    });
+                }
             }
-
-            if line == "set noparent" {
-                config.noparent = true;
-                continue;
-            }
-
-            let Some((name, value)) = line.split_once('=') else {
-                messages.push(ConfigMessage {
-                    kind: ConfigMessageKind::Error,
-                    text: format!(
-                        "Invalid configuration option ({}) in file {}\n",
-                        line,
-                        path.display()
-                    ),
-                });
-                continue;
-            };
-
-            let name = name.trim();
-            let value = value.trim();
-            match name {
-                "filter" => {
-                    if let Some(parsed) = parse_filters(value) {
-                        config.filters.extend(parsed);
-                    } else {
+            "exclude_files" => {
+                let regex = match Regex::new(value) {
+                    Ok(regex) => Some(regex),
+                    Err(error) => {
                         messages.push(ConfigMessage {
                             kind: ConfigMessageKind::Error,
                             text: format!(
-                                "{}: Every filter must start with + or - ({})\n",
+                                "Invalid exclude_files regex ({}) in file {}: {}\n",
+                                value,
                                 path.display(),
-                                value
+                                error
                             ),
                         });
+                        None
                     }
-                }
-                "exclude_files" => {
-                    let regex = match Regex::new(value) {
-                        Ok(regex) => Some(regex),
-                        Err(error) => {
-                            messages.push(ConfigMessage {
-                                kind: ConfigMessageKind::Error,
-                                text: format!(
-                                    "Invalid exclude_files regex ({}) in file {}: {}\n",
-                                    value,
-                                    path.display(),
-                                    error
-                                ),
-                            });
-                            None
-                        }
-                    };
-                    config.exclude_files.push(ExcludePattern {
-                        raw: value.to_string(),
-                        regex,
-                    });
-                }
-                "linelength" => match value.parse::<usize>().ok().and_then(NonZeroUsize::new) {
-                    Some(line_length) => config.line_length = Some(line_length),
-                    None => messages.push(ConfigMessage {
-                        kind: ConfigMessageKind::Error,
-                        text: format!("Line length must be numeric in file ({})\n", path.display()),
-                    }),
-                },
-                "root" => config.root = Some(PathBuf::from(value)),
-                "extensions" => config.extensions = Some(parse_comma_separated_list(value)),
-                "headers" => config.headers = Some(parse_comma_separated_list(value)),
-                "includeorder" => {
-                    config.include_order = match value {
-                        "" | "default" => Some(IncludeOrder::Default),
-                        "standardcfirst" => Some(IncludeOrder::StandardCFirst),
-                        _ => {
-                            messages.push(ConfigMessage {
-                                kind: ConfigMessageKind::Error,
-                                text: format!(
-                                    "Invalid includeorder value {} in file {}\n",
-                                    value,
-                                    path.display()
-                                ),
-                            });
-                            None
-                        }
-                    }
-                }
+                };
+                config.exclude_files.push(ExcludePattern {
+                    raw: value.to_string(),
+                    regex,
+                });
+            }
+            "linelength" => match value.parse::<usize>().ok().and_then(NonZeroUsize::new) {
+                Some(line_length) => config.line_length = Some(line_length),
+                None => messages.push(ConfigMessage {
+                    kind: ConfigMessageKind::Error,
+                    text: format!("Line length must be a positive integer, not \"{}\"\n", value),
+                }),
+            },
+            "root" => config.root = Some(PathBuf::from(value)),
+            "extensions" => {
+                let set = parse_comma_separated_list(value);
+                config.extensions = Some(set);
+            }
+            "headers" => {
+                let set = parse_comma_separated_list(value);
+                config.headers = Some(set);
+            }
+            "includeorder" => match value {
+                "default" => config.include_order = Some(IncludeOrder::Default),
+                "standardcfirst" => config.include_order = Some(IncludeOrder::StandardCFirst),
                 _ => messages.push(ConfigMessage {
                     kind: ConfigMessageKind::Error,
-                    text: format!(
-                        "Invalid configuration option ({}) in file {}\n",
-                        name,
-                        path.display()
-                    ),
+                    text: format!("Invalid includeorder option \"{}\"\n", value),
                 }),
-            }
+            },
+            _ => messages.push(ConfigMessage {
+                kind: ConfigMessageKind::Error,
+                text: format!("Invalid option ({}) in file {}\n", name, path.display()),
+            }),
         }
+    }
 
-        config.messages = messages.into();
-        let config = Arc::new(config);
-        cache_cell
-            .borrow_mut()
-            .insert(path.to_path_buf(), Some(Arc::clone(&config)));
-        Some(config)
-    })
+    config.messages = messages;
+    Some(Arc::new(config))
 }
 
 #[cfg(test)]
@@ -668,7 +641,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = read_config_file(&cfg).unwrap();
+        let config = read_config_file_uncached(&cfg).unwrap();
         assert!(
             config
                 .messages

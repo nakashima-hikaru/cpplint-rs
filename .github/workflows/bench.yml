@@ -43,6 +43,9 @@ jobs:
                   pip install meson ninja
                   choco install hyperfine
 
+            - name: Run Criterion Benchmark Checks
+              run: cargo bench --no-run
+
             - name: Run Benchmarks
               shell: bash
               run: ./scripts/benchmark.sh

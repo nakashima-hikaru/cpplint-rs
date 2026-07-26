@@ -39,7 +39,7 @@ pub struct FileLinter<'a> {
     source_file: SourceFile,
     registry: &'static RuleRegistry,
     has_error: bool,
-    diagnostics: Vec<Diagnostic>,
+    verbose_level: i32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -76,6 +76,7 @@ impl<'a> FileLinter<'a> {
     ) -> Self {
         let options = options.into();
         let registry = rule_registry();
+        let verbose_level = state.verbose_level();
         Self {
             session: state,
             active_rules: registry.active_rule_plan(options.as_ref(), source_file.display_name()),
@@ -85,7 +86,7 @@ impl<'a> FileLinter<'a> {
             source_file,
             registry,
             has_error: false,
-            diagnostics: Vec::new(),
+            verbose_level,
         }
     }
 
@@ -123,10 +124,12 @@ impl<'a> FileLinter<'a> {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn process_file_with_arena(&mut self, arena: &Bump) -> Result<()> {
         let source_file = self.source_file.clone();
-        source_file.with_decoded_source(arena, |decoded| {
+        let res = source_file.with_decoded_source(arena, |decoded| {
             self.process_decoded_source(decoded, arena, ProcessMode::Full);
             Ok(())
-        })
+        });
+        self.session.record_processed_file(self.file_id, self.has_error);
+        res
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -139,6 +142,7 @@ impl<'a> FileLinter<'a> {
         let arena = Bump::new();
         let decoded = DecodedSource::from_lines(&arena, self.source_file.clone(), lines);
         self.process_decoded_source(decoded, &arena, ProcessMode::Full);
+        self.session.record_processed_file(self.file_id, self.has_error);
     }
 
     pub fn process_language_rules_data<I, S>(&mut self, lines: I)
@@ -185,7 +189,8 @@ impl<'a> FileLinter<'a> {
         } else {
             Vec::new()
         };
-        self.process_source_lines(decoded.into_lines(), arena, mode);
+        let has_suppression_hints = decoded.has_global_suppression_hints();
+        self.process_source_lines(decoded.into_lines(), arena, mode, has_suppression_hints);
 
         if mixed_line_endings {
             for linenum in crlf_lines {
@@ -205,13 +210,14 @@ impl<'a> FileLinter<'a> {
         mut lines: BumpVec<'b, &'b str>,
         arena: &'b Bump,
         mode: ProcessMode,
+        has_suppression_hints: bool,
     ) {
         let registry = self.registry;
         let active_rules = self.active_rules;
         if matches!(mode, ProcessMode::Full) {
             registry.run_raw_source(self, &lines, active_rules);
 
-            if active_rules.needs_global_suppressions() {
+            if active_rules.needs_global_suppressions() && has_suppression_hints {
                 for &line in &lines {
                     if line.contains("LINT") || line.contains("filetype") {
                         self.process_global_suppressions(line);
@@ -437,7 +443,7 @@ impl<'a> FileLinter<'a> {
             || !self
                 .options
                 .should_print_error(category, self.filename(), linenum)
-            || confidence < self.session.verbose_level()
+            || confidence < self.verbose_level
         {
             return;
         }
@@ -450,7 +456,6 @@ impl<'a> FileLinter<'a> {
             confidence,
             message,
         };
-        self.diagnostics.push(diag.clone());
         self.session.record_diagnostic_object(diag);
     }
 
@@ -468,7 +473,7 @@ impl<'a> FileLinter<'a> {
             || !self
                 .options
                 .should_print_error(category, self.filename(), filter_linenum)
-            || confidence < self.session.verbose_level()
+            || confidence < self.verbose_level
         {
             return;
         }
@@ -481,12 +486,11 @@ impl<'a> FileLinter<'a> {
             confidence,
             message,
         };
-        self.diagnostics.push(diag.clone());
         self.session.record_diagnostic_object(diag);
     }
 
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
-        std::mem::take(&mut self.diagnostics)
+        self.session.diagnostics()
     }
 }
 

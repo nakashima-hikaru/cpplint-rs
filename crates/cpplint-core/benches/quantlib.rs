@@ -52,43 +52,40 @@ class SyntheticClass {
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(5));
 
-    let single_thread_config = RunnerConfig {
-        recursive: false,
-        quiet: true,
-        num_threads: std::num::NonZeroUsize::new(1).unwrap(),
-        ..RunnerConfig::default()
-    };
+    let thread_counts = [1, 2, 4, 8];
+    for &threads in &thread_counts {
+        let num_threads = std::num::NonZeroUsize::new(threads).unwrap();
+        let config = RunnerConfig {
+            recursive: false,
+            quiet: true,
+            num_threads,
+            ..RunnerConfig::default()
+        };
 
-    group.bench_function("synthetic_1_thread", |b| {
-        b.iter(|| {
-            let _ = run_lint(
-                &file_paths,
-                &single_thread_config,
-                std::io::sink(),
-                std::io::sink(),
-            )
-            .unwrap();
-        })
-    });
+        // Cold benchmark (creates new thread pool each iteration)
+        group.bench_function(format!("synthetic_cold_{}_threads", threads), |b| {
+            b.iter(|| {
+                let _ = run_lint(
+                    &file_paths,
+                    &config,
+                    std::io::sink(),
+                    std::io::sink(),
+                )
+                .unwrap();
+            })
+        });
 
-    let multi_thread_config = RunnerConfig {
-        recursive: false,
-        quiet: true,
-        num_threads: std::thread::available_parallelism().unwrap_or(std::num::NonZeroUsize::MIN),
-        ..RunnerConfig::default()
-    };
-
-    group.bench_function("synthetic_multi_thread", |b| {
-        b.iter(|| {
-            let _ = run_lint(
-                &file_paths,
-                &multi_thread_config,
-                std::io::sink(),
-                std::io::sink(),
-            )
-            .unwrap();
-        })
-    });
+        // Reusable Runner benchmark (reuses thread pool across iterations)
+        if let Ok(runner) = cpplint_core::runner::Runner::new(num_threads) {
+            group.bench_function(format!("synthetic_reusable_{}_threads", threads), |b| {
+                b.iter(|| {
+                    let _ = runner
+                        .lint(&file_paths, &config, std::io::sink(), std::io::sink())
+                        .unwrap();
+                })
+            });
+        }
+    }
 
     group.finish();
     let _ = std::fs::remove_dir_all(&temp_dir);

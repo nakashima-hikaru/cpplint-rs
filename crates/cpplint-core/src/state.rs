@@ -1,6 +1,4 @@
 use crate::diagnostics::{Diagnostic, FileId, FileTable, Note, NoteStream, ProcessedFile};
-use parking_lot::Mutex;
-use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -253,14 +251,13 @@ impl Default for SessionSettings {
 
 #[derive(Debug)]
 pub struct LintSession {
-    inner: Mutex<SessionInner>,
+    inner: std::cell::RefCell<SessionInner>,
 }
 
 #[derive(Debug)]
 struct SessionInner {
     settings: SessionSettings,
     error_count: usize,
-    errors_by_category: BTreeMap<String, usize>,
     file_names: FileTable,
     diagnostics: Vec<Diagnostic>,
     notes: Vec<Note>,
@@ -279,10 +276,9 @@ pub struct SessionSnapshot {
 impl LintSession {
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(SessionInner {
+            inner: std::cell::RefCell::new(SessionInner {
                 settings: SessionSettings::default(),
                 error_count: 0,
-                errors_by_category: BTreeMap::new(),
                 file_names: FileTable::new(),
                 diagnostics: Vec::new(),
                 notes: Vec::new(),
@@ -298,16 +294,16 @@ impl LintSession {
     }
 
     pub fn register_file(&self, filename: &str) -> FileId {
-        self.inner.lock().file_names.intern(filename)
+        self.inner.borrow_mut().file_names.intern(filename)
     }
 
     pub fn apply_settings(&self, settings: SessionSettings) {
-        self.inner.lock().settings = settings;
+        self.inner.borrow_mut().settings = settings;
     }
 
     #[inline]
     pub fn settings(&self) -> SessionSettings {
-        self.inner.lock().settings
+        self.inner.borrow().settings
     }
 
     #[inline]
@@ -316,7 +312,7 @@ impl LintSession {
     }
 
     pub fn set_verbose_level(&self, level: i32) -> i32 {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         let last = inner.settings.verbose_level;
         inner.settings.verbose_level = level;
         last
@@ -328,7 +324,7 @@ impl LintSession {
     }
 
     pub fn set_quiet(&self, quiet: bool) -> bool {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         let last = inner.settings.quiet;
         inner.settings.quiet = quiet;
         last
@@ -340,7 +336,7 @@ impl LintSession {
     }
 
     pub fn set_output_format(&self, output_format: OutputFormat) -> OutputFormat {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         let last = inner.settings.output_format;
         inner.settings.output_format = output_format;
         last
@@ -352,7 +348,7 @@ impl LintSession {
     }
 
     pub fn set_counting_style(&self, counting_style: CountingStyle) -> CountingStyle {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         let last = inner.settings.counting_style;
         inner.settings.counting_style = counting_style;
         last
@@ -364,7 +360,7 @@ impl LintSession {
     }
 
     pub fn set_num_threads(&self, num_threads: NonZeroUsize) -> NonZeroUsize {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         let last = inner.settings.num_threads;
         inner.settings.num_threads = num_threads;
         last
@@ -372,16 +368,12 @@ impl LintSession {
 
     #[inline]
     pub fn error_count(&self) -> usize {
-        self.inner.lock().error_count
+        self.inner.borrow().error_count
     }
 
-    pub fn increment_error_count(&self, category: crate::categories::Category) {
-        let mut inner = self.inner.lock();
+    pub fn increment_error_count(&self, _category: crate::categories::Category) {
+        let mut inner = self.inner.borrow_mut();
         inner.error_count += 1;
-        *inner
-            .errors_by_category
-            .entry(category.to_string())
-            .or_insert(0) += 1;
     }
 
     pub fn record_diagnostic(
@@ -392,12 +384,8 @@ impl LintSession {
         confidence: i32,
         message: crate::messages::LintMessage,
     ) {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         inner.error_count += 1;
-        *inner
-            .errors_by_category
-            .entry(category.to_string())
-            .or_insert(0) += 1;
         inner.diagnostics.push(Diagnostic {
             file_id,
             linenum: linenum + 1,
@@ -408,12 +396,8 @@ impl LintSession {
     }
 
     pub fn record_diagnostic_object(&self, diagnostic: Diagnostic) {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         inner.error_count += 1;
-        *inner
-            .errors_by_category
-            .entry(diagnostic.category.to_string())
-            .or_insert(0) += 1;
         inner.diagnostics.push(diagnostic);
     }
 
@@ -425,12 +409,8 @@ impl LintSession {
         confidence: i32,
         message: crate::messages::LintMessage,
     ) {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         inner.error_count += 1;
-        *inner
-            .errors_by_category
-            .entry(category.to_string())
-            .or_insert(0) += 1;
         inner.diagnostics.push(Diagnostic {
             file_id,
             linenum: display_linenum,
@@ -459,7 +439,7 @@ impl LintSession {
     }
 
     fn record_note(&self, file_id: FileId, order: usize, stream: NoteStream, text: Arc<str>) {
-        self.inner.lock().notes.push(Note {
+        self.inner.borrow_mut().notes.push(Note {
             file_id,
             order,
             stream,
@@ -468,16 +448,15 @@ impl LintSession {
     }
 
     pub fn record_processed_file(&self, file_id: FileId, had_error: bool) {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         inner
             .processed_files
             .push(ProcessedFile { file_id, had_error });
     }
 
     pub fn reset_error_counts(&self) {
-        let mut inner = self.inner.lock();
+        let mut inner = self.inner.borrow_mut();
         inner.error_count = 0;
-        inner.errors_by_category.clear();
         inner.file_names = FileTable::new();
         inner.diagnostics.clear();
         inner.notes.clear();
@@ -487,13 +466,14 @@ impl LintSession {
     #[inline]
     pub fn has_error(&self, category: crate::categories::Category) -> bool {
         self.inner
-            .lock()
-            .errors_by_category
-            .contains_key(category.as_str())
+            .borrow()
+            .diagnostics
+            .iter()
+            .any(|d| d.category == category)
     }
 
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        let mut diagnostics = self.inner.lock().diagnostics.clone();
+        let mut diagnostics = self.inner.borrow().diagnostics.clone();
         diagnostics.sort_by(|lhs, rhs| {
             lhs.file_id
                 .cmp(&rhs.file_id)
@@ -505,7 +485,7 @@ impl LintSession {
     }
 
     pub fn notes(&self) -> Vec<Note> {
-        let mut notes = self.inner.lock().notes.clone();
+        let mut notes = self.inner.borrow().notes.clone();
         notes.sort_by(|lhs, rhs| {
             lhs.file_id
                 .cmp(&rhs.file_id)
@@ -516,7 +496,7 @@ impl LintSession {
     }
 
     pub fn processed_files(&self) -> Vec<ProcessedFile> {
-        let mut processed_files = self.inner.lock().processed_files.clone();
+        let mut processed_files = self.inner.borrow().processed_files.clone();
         processed_files.sort_by_key(|file| file.file_id);
         processed_files
     }

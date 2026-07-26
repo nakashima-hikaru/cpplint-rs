@@ -72,6 +72,7 @@ pub struct DecodedSource<'a> {
     lf_lines_count: usize,
     invalid_utf8_lines: BumpVec<'a, usize>,
     null_lines: BumpVec<'a, usize>,
+    has_global_suppression_hints: bool,
 }
 
 impl<'a> DecodedSource<'a> {
@@ -86,6 +87,8 @@ impl<'a> DecodedSource<'a> {
         let mut lines = BumpVec::with_capacity_in(est_lines, arena);
         let mut crlf_lines = BumpVec::new_in(arena);
         let mut lf_lines_count = 0usize;
+        let has_global_suppression_hints =
+            allocated_decoded.contains("LINT") || allocated_decoded.contains("filetype");
 
         for (linenum, raw_line) in allocated_decoded.split('\n').enumerate() {
             let line = if let Some(line) = raw_line.strip_suffix('\r') {
@@ -110,6 +113,7 @@ impl<'a> DecodedSource<'a> {
             lf_lines_count,
             invalid_utf8_lines,
             null_lines,
+            has_global_suppression_hints,
         }
     }
 
@@ -120,6 +124,9 @@ impl<'a> DecodedSource<'a> {
     ) -> Self {
         let allocated_str = arena.alloc_str(&read_result.content);
         let mut lines = BumpVec::with_capacity_in(read_result.line_ranges.len(), arena);
+        let has_global_suppression_hints =
+            allocated_str.contains("LINT") || allocated_str.contains("filetype");
+
         for range in read_result.line_ranges {
             lines.push(&allocated_str[range]);
         }
@@ -141,6 +148,7 @@ impl<'a> DecodedSource<'a> {
             lf_lines_count: read_result.lf_lines_count,
             invalid_utf8_lines,
             null_lines,
+            has_global_suppression_hints,
         }
     }
 
@@ -153,11 +161,16 @@ impl<'a> DecodedSource<'a> {
         let input = lines_in.into_iter();
         let mut lines = BumpVec::with_capacity_in(input.len().max(1), arena);
         let mut null_lines = BumpVec::new_in(arena);
+        let mut has_global_suppression_hints = false;
 
         for (linenum, line) in input.enumerate() {
             let line = line.as_ref();
             if line.contains('\0') {
                 null_lines.push(linenum);
+            }
+            if !has_global_suppression_hints && (line.contains("LINT") || line.contains("filetype"))
+            {
+                has_global_suppression_hints = true;
             }
             lines.push(arena.alloc_str(line) as &str);
         }
@@ -174,6 +187,7 @@ impl<'a> DecodedSource<'a> {
             lf_lines_count,
             invalid_utf8_lines: BumpVec::new_in(arena),
             null_lines,
+            has_global_suppression_hints,
         }
     }
 
@@ -190,6 +204,11 @@ impl<'a> DecodedSource<'a> {
     #[inline]
     pub fn null_lines(&self) -> &[usize] {
         &self.null_lines
+    }
+
+    #[inline]
+    pub fn has_global_suppression_hints(&self) -> bool {
+        self.has_global_suppression_hints
     }
 
     #[inline]

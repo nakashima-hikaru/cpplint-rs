@@ -16,7 +16,6 @@ use bumpalo::Bump;
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::{RefCell, UnsafeCell};
-use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
@@ -183,25 +182,29 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<FixResult> {
 
     for _ in 0..MAX_FIX_PASSES {
         let diagnostics = lint_lines(path, options, &lines);
-        last_diagnostics = diagnostics.clone();
         if diagnostics.is_empty() {
             last_pass_modified = false;
+            last_diagnostics = diagnostics;
             break;
         }
 
-        let mut pass_changed = false;
-        pass_changed |= fix_header_guard(path, options, &diagnostics, &mut lines);
-        pass_changed |= fix_include_block(path, options, &diagnostics, &mut lines);
-        pass_changed |= fix_namespace_comments(&diagnostics, &mut lines);
-        pass_changed |= fix_brace_placement(&diagnostics, &mut lines);
-        if pass_changed {
+        let mut struct_changed = false;
+        struct_changed |= fix_header_guard(path, options, &diagnostics, &mut lines);
+        struct_changed |= fix_include_block(path, options, &diagnostics, &mut lines);
+        struct_changed |= fix_namespace_comments(&diagnostics, &mut lines);
+        struct_changed |= fix_brace_placement(&diagnostics, &mut lines);
+
+        if struct_changed {
             any_changed = true;
             last_pass_modified = true;
+            last_diagnostics = diagnostics;
             continue;
         }
 
-        pass_changed |= apply_line_fixes(path, options, &diagnostics, &mut lines);
-        if pass_changed {
+        let line_changed = apply_line_fixes(path, options, &diagnostics, &mut lines);
+        last_diagnostics = diagnostics;
+
+        if line_changed {
             any_changed = true;
             last_pass_modified = true;
         } else {

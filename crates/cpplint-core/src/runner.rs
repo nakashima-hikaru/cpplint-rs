@@ -108,14 +108,59 @@ impl From<SessionSnapshot> for FileRunReport {
 }
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
+#[derive(Debug)]
+pub struct Runner {
+    pool: Option<rayon::ThreadPool>,
+}
+
+impl Runner {
+    pub fn new(num_threads: NonZeroUsize) -> Result<Self> {
+        let threads = num_threads.get();
+        let pool = if threads > 1 {
+            Some(ThreadPoolBuilder::new().num_threads(threads).build()?)
+        } else {
+            None
+        };
+        Ok(Self { pool })
+    }
+
+    pub fn lint<W1: Write + Send, W2: Write + Send>(
+        &self,
+        files: &[PathBuf],
+        config: &RunnerConfig,
+        stdout: W1,
+        stderr: W2,
+    ) -> Result<LintRunResult> {
+        run_lint_with_runner(self, files, config, stdout, stderr)
+    }
+}
+
 pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     files: &[PathBuf],
     config: &RunnerConfig,
     stdout: W1,
     stderr: W2,
 ) -> Result<LintRunResult> {
-    let mut stdout = std::io::BufWriter::new(stdout);
-    let mut stderr = std::io::BufWriter::new(stderr);
+    let runner = Runner::new(config.num_threads)?;
+    runner.lint(files, config, stdout, stderr)
+}
+
+pub fn run_lint_with_streams<W1: Write + Send, W2: Write + Send>(
+    files: &[PathBuf],
+    config: &RunnerConfig,
+    stdout: W1,
+    stderr: W2,
+) -> Result<LintRunResult> {
+    run_lint(files, config, stdout, stderr)
+}
+
+fn run_lint_with_runner<W1: Write + Send, W2: Write + Send>(
+    runner: &Runner,
+    files: &[PathBuf],
+    config: &RunnerConfig,
+    mut stdout: W1,
+    mut stderr: W2,
+) -> Result<LintRunResult> {
     let session_settings = SessionSettings {
         verbose_level: config.verbose_level,
         counting_style: config.counting_style,
@@ -125,11 +170,18 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     };
 
     let started_at = config.options.timing.then(Instant::now);
-    // Handle JUnit or other formats that require full collection
     let is_buffered_format = matches!(config.output_format, OutputFormat::JUnit);
 
     if !is_buffered_format {
-        return stream_pipeline_lint(files, config, session_settings, started_at, stdout, stderr);
+        return stream_pipeline_lint_with_pool(
+            runner.pool.as_ref(),
+            files,
+            config,
+            session_settings,
+            started_at,
+            stdout,
+            stderr,
+        );
     }
 
     let CollectedFiles {
@@ -138,15 +190,7 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
         notes: collected_notes,
     } = collect_files(files, config)?;
 
-    let pool = if config.num_threads.get() > 1 {
-        Some(
-            ThreadPoolBuilder::new()
-                .num_threads(config.num_threads.get())
-                .build()?,
-        )
-    } else {
-        None
-    };
+    let pool = runner.pool.as_ref();
 
     if is_buffered_format {
         let PlannedRun {
@@ -369,7 +413,8 @@ pub fn run_lint<W1: Write + Send, W2: Write + Send>(
     })
 }
 
-fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
+fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
+    pool: Option<&rayon::ThreadPool>,
     files: &[PathBuf],
     config: &RunnerConfig,
     session_settings: SessionSettings,
@@ -438,13 +483,6 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
 
     let total_threads = config.num_threads.get();
     let walker_threads = if total_threads >= 8 { 2 } else { 1 };
-    let lint_threads = total_threads.saturating_sub(walker_threads).max(1);
-
-    let pool = if lint_threads > 1 {
-        Some(ThreadPoolBuilder::new().num_threads(lint_threads).build()?)
-    } else {
-        None
-    };
 
     std::thread::scope(|s| {
         // 1. Producer: ディレクトリ探索しながら見つかったファイルをチャネルへ送信
@@ -495,7 +533,7 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
             });
             drop(path_tx);
 
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = rustc_hash::FxHashSet::<PathBuf>::default();
             for (note, path) in path_rx {
                 if let Some(note) = note {
                     let mut report = FileRunReport::default();
@@ -504,11 +542,10 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                 }
                 if let Some(file) = path
                     && !should_exclude(&file, &excludes_clone)
+                    && seen.insert(file.clone())
                 {
                     let file_id = file_table_prod.intern(&file.to_string_lossy());
-                    if seen.insert(file_id) {
-                        let _ = work_tx.send((file_id, file));
-                    }
+                    let _ = work_tx.send((file_id, file));
                 }
             }
         });

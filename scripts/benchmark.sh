@@ -126,10 +126,28 @@ run_bench() {
     # and return non-zero exit codes, which hyperfine would otherwise treat as an error.
     # Note: we do not add inner quotes around variables here because cmd.exe handles quotes poorly.
     # GitHub Action paths (/d/a/...) generally do not contain spaces.
+    local py_lint=""
+    if command -v cpplint &> /dev/null; then
+        py_lint="cpplint"
+    elif command -v python3 &> /dev/null && python3 -m cpplint --help &> /dev/null; then
+        py_lint="python3 -m cpplint"
+    fi
+
+    local bench_cmds=(
+        -n "cpplint-rs (j1)" "$rs_bin --j 1 --recursive $run_path"
+        -n "cpplint-rs (j2)" "$rs_bin --j 2 --recursive $run_path"
+        -n "cpplint-rs (j4)" "$rs_bin --j 4 --recursive $run_path"
+        -n "cpplint-rs (j8)" "$rs_bin --j 8 --recursive $run_path"
+    )
+
+    if [ -n "$py_lint" ]; then
+        bench_cmds+=(-n "cpplint-py" "$py_lint --recursive $run_path")
+    fi
+
     hyperfine --warmup 3 \
         --ignore-failure \
         --export-markdown "$BENCH_DIR/results_${target_name}.md" \
-        -n "cpplint-rs" "$rs_bin --recursive $run_path"
+        "${bench_cmds[@]}"
 
     echo ""
     cat "$BENCH_DIR/results_${target_name}.md"
