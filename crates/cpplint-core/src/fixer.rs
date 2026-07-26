@@ -14,9 +14,9 @@ use crate::string_utils;
 use crate::syntax::{ParsedLine, base_name};
 use bumpalo::Bump;
 use regex::Regex;
-use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::{RefCell, UnsafeCell};
-use std::hash::{Hash, Hasher};
+use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 

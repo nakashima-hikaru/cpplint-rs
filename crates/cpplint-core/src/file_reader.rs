@@ -12,7 +12,7 @@ use crate::errors::Result;
 thread_local! {
     static READ_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(16384));
     static DECODE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(16384));
-    static MMAP_BUF: RefCell<Option<memmap2::Mmap>> = RefCell::new(None);
+    static MMAP_BUF: RefCell<Option<memmap2::Mmap>> = const { RefCell::new(None) };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
