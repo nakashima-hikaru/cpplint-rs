@@ -54,7 +54,8 @@ impl<'a> FileLinter<'a> {
         state: &'a CppLintState,
         options: impl Into<Arc<Options>>,
     ) -> Self {
-        let source_file = SourceFile::new(file_path);
+        let options = options.into();
+        let source_file = SourceFile::with_options(file_path, options.as_ref());
         let file_id = state.register_file(source_file.display_name());
         Self::with_source_file(source_file, state, options, file_id)
     }
@@ -65,10 +66,12 @@ impl<'a> FileLinter<'a> {
         options: impl Into<Arc<Options>>,
         file_id: FileId,
     ) -> Self {
-        Self::with_source_file(SourceFile::new(file_path), state, options, file_id)
+        let options = options.into();
+        let source_file = SourceFile::with_options(file_path, options.as_ref());
+        Self::with_source_file(source_file, state, options, file_id)
     }
 
-    fn with_source_file(
+    pub(crate) fn with_source_file(
         source_file: SourceFile,
         state: &'a CppLintState,
         options: impl Into<Arc<Options>>,
@@ -88,6 +91,22 @@ impl<'a> FileLinter<'a> {
             has_error: false,
             verbose_level,
         }
+    }
+
+    pub fn relative_from_repository(&self) -> &Path {
+        &self.source_file.path_context().repository_relative
+    }
+
+    pub fn relative_from_repository_arc(&self) -> std::sync::Arc<Path> {
+        std::sync::Arc::clone(&self.source_file.path_context().repository_relative)
+    }
+
+    pub fn relative_from_root(&self) -> &Path {
+        &self.source_file.path_context().root_relative
+    }
+
+    pub fn relative_from_root_arc(&self) -> std::sync::Arc<Path> {
+        std::sync::Arc::clone(&self.source_file.path_context().root_relative)
     }
 
     #[inline]
@@ -289,13 +308,7 @@ impl<'a> FileLinter<'a> {
         }
     }
 
-    pub fn relative_from_repository(&self) -> PathBuf {
-        relative_from_repository(self.file_path(), &self.options.repository)
-    }
 
-    pub fn relative_from_root(&self) -> PathBuf {
-        relative_from_subdir(&self.relative_from_repository(), &self.options.root)
-    }
 
     pub fn header_guard_path(&self) -> PathBuf {
         let normalized = self

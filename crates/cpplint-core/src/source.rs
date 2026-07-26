@@ -6,34 +6,69 @@ use std::borrow::Cow;
 use std::iter::ExactSizeIterator;
 use std::path::{Path, PathBuf};
 
+use crate::path_context::PathContext;
+use std::sync::Arc;
+
 /// A source file handle that decouples lint orchestration from file-system access.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
-    path: PathBuf,
-    display_name: String,
+    path_context: PathContext,
 }
 
 impl SourceFile {
     pub fn new(path: PathBuf) -> Self {
-        let display_name = path.to_string_lossy().to_string();
-        Self { path, display_name }
+        let path_context = PathContext::new(&path, Path::new(""), Path::new(""));
+        Self { path_context }
+    }
+
+    pub fn with_context(path_context: PathContext) -> Self {
+        Self { path_context }
+    }
+
+    pub fn with_options(path: PathBuf, options: &crate::options::Options) -> Self {
+        let path_context = PathContext::new(&path, &options.repository, &options.root);
+        Self { path_context }
+    }
+
+    pub fn with_options_and_display_name(
+        path: PathBuf,
+        options: &crate::options::Options,
+        display_name: Arc<str>,
+    ) -> Self {
+        let path_context = PathContext::new_with_display_name(
+            &path,
+            &options.repository,
+            &options.root,
+            display_name,
+        );
+        Self { path_context }
     }
 
     #[inline]
     pub fn path(&self) -> &Path {
-        &self.path
+        &self.path_context.absolute
     }
 
     #[inline]
     pub fn display_name(&self) -> &str {
-        &self.display_name
+        &self.path_context.display_name
+    }
+
+    #[inline]
+    pub fn display_name_arc(&self) -> Arc<str> {
+        Arc::clone(&self.path_context.display_name)
+    }
+
+    #[inline]
+    pub fn path_context(&self) -> &PathContext {
+        &self.path_context
     }
 
     pub fn with_decoded_source<'a, F, R>(&self, arena: &'a Bump, f: F) -> Result<R>
     where
         F: FnOnce(DecodedSource<'a>) -> Result<R>,
     {
-        file_reader::read_raw_bytes_with_buffer(&self.path, |bytes| {
+        file_reader::read_raw_bytes_with_buffer(self.path(), |bytes| {
             let file_reader::RawScanResult {
                 decoded,
                 invalid_utf8_lines,

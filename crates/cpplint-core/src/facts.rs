@@ -61,9 +61,12 @@ pub struct LineFact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileFacts<'a> {
-    class_facts: BumpVec<'a, ClassFact<'a>>,
-    line_facts: BumpVec<'a, LineFact>,
+pub enum FileFacts<'a> {
+    Empty,
+    Collected {
+        class_facts: BumpVec<'a, ClassFact<'a>>,
+        line_facts: BumpVec<'a, LineFact>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,11 +77,8 @@ pub enum ScopeKind {
 }
 
 impl<'a> FileFacts<'a> {
-    pub fn empty(arena: &'a Bump, n: usize) -> Self {
-        Self {
-            class_facts: BumpVec::new_in(arena),
-            line_facts: bumpalo::vec![in arena; LineFact::default(); n],
-        }
+    pub fn empty(_arena: &'a Bump, _n: usize) -> Self {
+        Self::Empty
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -276,84 +276,85 @@ impl<'a> FileFacts<'a> {
             }
         }
 
-        Self {
+        Self::Collected {
             class_facts,
             line_facts,
         }
     }
 
     #[inline]
+    fn line_fact(&self, linenum: usize) -> Option<&LineFact> {
+        match self {
+            FileFacts::Empty => None,
+            FileFacts::Collected { line_facts, .. } => line_facts.get(linenum),
+        }
+    }
+
+    #[inline]
     pub fn enclosing_class_range(&self, linenum: usize) -> Option<ClassRange> {
-        self.line_facts
+        let FileFacts::Collected { class_facts, line_facts } = self else { return None; };
+        line_facts
             .get(linenum)
             .and_then(|f| f.class_fact_index)
-            .map(|nz| self.class_facts[nz.get() as usize - 1].range)
+            .map(|nz| class_facts[nz.get() as usize - 1].range)
     }
 
     #[inline]
     pub fn nearest_class_name(&self, linenum: usize) -> Option<&str> {
-        self.line_facts
+        let FileFacts::Collected { class_facts, line_facts } = self else { return None; };
+        line_facts
             .get(linenum)
             .and_then(|f| f.class_fact_index)
             .and_then(|nz| {
-                let name = self.class_facts[nz.get() as usize - 1].name;
+                let name = class_facts[nz.get() as usize - 1].name;
                 (!name.is_empty()).then_some(name)
             })
     }
 
     #[inline]
     pub fn enclosing_class_kind(&self, linenum: usize) -> Option<ClassKind> {
-        self.line_facts
+        let FileFacts::Collected { class_facts, line_facts } = self else { return None; };
+        line_facts
             .get(linenum)
             .and_then(|f| f.class_fact_index)
-            .map(|nz| self.class_facts[nz.get() as usize - 1].kind)
+            .map(|nz| class_facts[nz.get() as usize - 1].kind)
     }
 
     #[inline]
     pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroU8> {
-        self.line_facts
-            .get(linenum)
-            .and_then(|f| f.namespace_top_level_depth)
+        self.line_fact(linenum).and_then(|f| f.namespace_top_level_depth)
     }
 
     #[inline]
     pub fn non_namespace_indent_depth_before(&self, linenum: usize) -> usize {
-        self.line_facts
-            .get(linenum)
+        self.line_fact(linenum)
             .map_or(0, |f| f.non_namespace_indent_depth_before as usize)
     }
 
     #[inline]
     pub fn non_namespace_indent_depth(&self, linenum: usize) -> usize {
-        self.line_facts
-            .get(linenum)
+        self.line_fact(linenum)
             .map_or(0, |f| f.non_namespace_indent_depth as usize)
     }
 
     #[inline]
     pub fn block_kind(&self, linenum: usize) -> Option<ScopeKind> {
-        self.line_facts.get(linenum).and_then(|f| f.block_kind)
+        self.line_fact(linenum).and_then(|f| f.block_kind)
     }
 
     #[inline]
     pub fn namespace_decl_line(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts
-            .get(linenum)
-            .and_then(|f| f.namespace_decl_line)
+        self.line_fact(linenum).and_then(|f| f.namespace_decl_line)
     }
 
     #[inline]
     pub fn matching_block_start(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts
-            .get(linenum)
-            .and_then(|f| f.matching_block_start)
+        self.line_fact(linenum).and_then(|f| f.matching_block_start)
     }
 
     #[inline]
     pub fn matching_block_end(&self, linenum: usize) -> Option<NonZeroU32> {
-        self.line_facts
-            .get(linenum)
-            .and_then(|f| f.matching_block_end)
+        self.line_fact(linenum).and_then(|f| f.matching_block_end)
     }
 
     pub fn non_blank_elided_lines_between(
@@ -361,14 +362,15 @@ impl<'a> FileFacts<'a> {
         start_exclusive: usize,
         end_exclusive: usize,
     ) -> usize {
+        let FileFacts::Collected { line_facts, .. } = self else { return 0; };
         if end_exclusive <= start_exclusive.saturating_add(1)
-            || end_exclusive > self.line_facts.len()
+            || end_exclusive > line_facts.len()
         {
             return 0;
         }
 
-        let end_val = self.line_facts[end_exclusive - 1].non_blank_prefix;
-        let start_val = self.line_facts[start_exclusive].non_blank_prefix;
+        let end_val = line_facts[end_exclusive - 1].non_blank_prefix;
+        let start_val = line_facts[start_exclusive].non_blank_prefix;
         end_val.saturating_sub(start_val) as usize
     }
 }

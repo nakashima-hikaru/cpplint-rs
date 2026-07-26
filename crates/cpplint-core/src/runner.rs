@@ -6,6 +6,7 @@ use crate::file_linter::FileLinter;
 use crate::fixer::fix_file_in_place;
 use crate::glob::GlobSetMatcher;
 use crate::options::Options;
+use crate::source::SourceFile;
 use crate::output::{
     DiagnosticCounter, format_diagnostic, format_diagnostic_with_name, format_note,
     format_sed_diagnostic, format_sed_diagnostic_with_name, render_owned,
@@ -77,8 +78,7 @@ struct FileRunReport {
 #[derive(Debug, Clone)]
 struct PlannedLintJob {
     file_id: FileId,
-    file: PathBuf,
-    display_name: String,
+    source_file: SourceFile,
     options: Arc<Options>,
     initial_notes: Vec<Note>,
     failure_note_order: usize,
@@ -916,7 +916,7 @@ fn plan_single_file(
     file_id: FileId,
     file: PathBuf,
 ) -> PlannedEntry {
-    let display_name = file.to_string_lossy().to_string();
+    let display_name_arc: Arc<str> = Arc::from(file.to_string_lossy());
     let mut note_order = 0usize;
     let mut initial_notes = Vec::new();
 
@@ -948,8 +948,8 @@ fn plan_single_file(
             stream: NoteStream::Stderr,
             text: format!(
                 "Ignoring {}; not a valid file name ({})\n",
-                display_name,
-                set_to_str(&options.all_extensions(), "[", ", ", "]")
+                display_name_arc,
+                set_to_str(options.all_extensions(), "[", ", ", "]")
             )
             .into(),
         });
@@ -962,16 +962,17 @@ fn plan_single_file(
                 file_id,
                 order: note_order + 1,
                 stream: NoteStream::Stdout,
-                text: format!("Done processing {}\n", display_name).into(),
+                text: format!("Done processing {}\n", display_name_arc).into(),
             });
         }
         return PlannedEntry::Report(report);
     }
 
+    let source_file = SourceFile::with_options_and_display_name(file, options.as_ref(), display_name_arc);
+
     PlannedEntry::LintJob(PlannedLintJob {
         file_id,
-        file,
-        display_name,
+        source_file,
         options,
         initial_notes,
         failure_note_order: note_order,
@@ -1160,13 +1161,13 @@ fn process_file_with_arena(
 ) -> FileRunReport {
     let PlannedLintJob {
         file_id,
-        file,
-        display_name,
+        source_file,
         options,
         initial_notes,
         failure_note_order,
         done_note_order,
     } = job;
+    let display_name = source_file.display_name_arc();
     let state = CppLintState::with_settings(session_settings);
     for note in initial_notes {
         match note.stream {
@@ -1177,7 +1178,7 @@ fn process_file_with_arena(
 
     let has_error = {
         if fix {
-            match fix_file_in_place(&file, options.as_ref()) {
+            match fix_file_in_place(source_file.path(), options.as_ref()) {
                 Ok(fix_res) => {
                     let mut has_err = false;
                     for diag in fix_res.diagnostics {
@@ -1201,7 +1202,7 @@ fn process_file_with_arena(
                 }
             }
         } else {
-            let mut linter = FileLinter::with_file_id(file, &state, options, file_id);
+            let mut linter = FileLinter::with_source_file(source_file, &state, options, file_id);
             match linter.process_file_with_arena(arena) {
                 Ok(()) => Some(linter.has_error()),
                 Err(_) => None,
@@ -1426,8 +1427,7 @@ mod tests {
         let missing = root.join("missing.cc");
         let missing_job = PlannedLintJob {
             file_id: FileId::from_index(0),
-            file: missing.clone(),
-            display_name: missing.to_string_lossy().to_string(),
+            source_file: SourceFile::new(missing.clone()),
             options: Arc::new(Options::new()),
             initial_notes: vec![],
             failure_note_order: 0,
@@ -1455,8 +1455,7 @@ mod tests {
 
         let fix_job = PlannedLintJob {
             file_id: FileId::from_index(1),
-            file: file.clone(),
-            display_name: file.to_string_lossy().to_string(),
+            source_file: SourceFile::new(file.clone()),
             options: Arc::new(Options::new()),
             initial_notes: vec![],
             failure_note_order: 0,

@@ -878,7 +878,7 @@ pub fn check_includes(
     let options = linter.options_arc();
     let header_extensions = options.header_extensions();
     let non_header_extensions = options.non_header_extensions();
-    let file_from_repo = linter.relative_from_repository();
+    let file_from_repo = linter.relative_from_repository_arc();
     let file_from_repo_dir = file_from_repo.parent().unwrap_or_else(|| Path::new(""));
     let file_from_repo_str = file_from_repo.to_string_lossy().replace('\\', "/");
     let basefilename_relative = file_from_repo_str
@@ -1499,7 +1499,7 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
     let Some(directory) = file_path.parent() else {
         return;
     };
-    let file_from_repo = linter.relative_from_repository();
+    let file_from_repo = linter.relative_from_repository_arc();
     let path_from_repo = file_from_repo.to_string_lossy().replace('\\', "/");
     let mut first_include_line = None;
     let mut includes_use_aliases = false;
@@ -1521,8 +1521,7 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
             continue;
         }
 
-        let mut header_name = linter
-            .relative_from_repository()
+        let mut header_name = file_from_repo
             .parent()
             .unwrap_or_else(|| Path::new(""))
             .join(format!("{}.{}", stem, header_ext))
