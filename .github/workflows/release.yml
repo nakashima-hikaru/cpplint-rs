@@ -36,7 +36,7 @@ jobs:
 
             - name: Install cross
               if: matrix.runner == 'ubuntu-latest'
-              run: cargo install cross --git https://github.com/cross-rs/cross --locked
+              uses: taiki-e/install-action@cross
 
             - name: Rust Cache
               uses: Swatinem/rust-cache@v2
