@@ -108,6 +108,60 @@ impl From<SessionSnapshot> for FileRunReport {
     }
 }
 
+trait ChannelSender<T> {
+    fn channel_send(&self, t: T) -> std::result::Result<(), std::sync::mpsc::SendError<T>>;
+}
+
+impl<T> ChannelSender<T> for std::sync::mpsc::Sender<T> {
+    fn channel_send(&self, t: T) -> std::result::Result<(), std::sync::mpsc::SendError<T>> {
+        self.send(t)
+    }
+}
+
+impl<T> ChannelSender<T> for std::sync::mpsc::SyncSender<T> {
+    fn channel_send(&self, t: T) -> std::result::Result<(), std::sync::mpsc::SendError<T>> {
+        self.send(t)
+    }
+}
+
+struct BatchSender<T, S: ChannelSender<Vec<T>>> {
+    tx: S,
+    batch: Vec<T>,
+    capacity: usize,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T, S: ChannelSender<Vec<T>>> BatchSender<T, S> {
+    fn new(tx: S, capacity: usize) -> Self {
+        Self {
+            tx,
+            batch: Vec::with_capacity(capacity),
+            capacity,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    fn push(&mut self, item: T) {
+        self.batch.push(item);
+        if self.batch.len() >= self.capacity {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        if !self.batch.is_empty() {
+            let items = std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
+            let _ = self.tx.channel_send(items);
+        }
+    }
+}
+
+impl<T, S: ChannelSender<Vec<T>>> Drop for BatchSender<T, S> {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 #[derive(Debug)]
 pub struct Runner {
@@ -315,43 +369,6 @@ fn run_lint_with_runner<W1: Write + Send, W2: Write + Send>(
     let config_cache = DirectoryConfigCache::new(&config.options);
 
     if let Some(pool) = &pool {
-        struct BatchSender<T> {
-            tx: std::sync::mpsc::Sender<Vec<T>>,
-            batch: Vec<T>,
-            capacity: usize,
-        }
-
-        impl<T> BatchSender<T> {
-            fn new(tx: std::sync::mpsc::Sender<Vec<T>>, capacity: usize) -> Self {
-                Self {
-                    tx,
-                    batch: Vec::with_capacity(capacity),
-                    capacity,
-                }
-            }
-
-            fn push(&mut self, item: T) {
-                self.batch.push(item);
-                if self.batch.len() >= self.capacity {
-                    self.flush();
-                }
-            }
-
-            fn flush(&mut self) {
-                if !self.batch.is_empty() {
-                    let items =
-                        std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
-                    let _ = self.tx.send(items);
-                }
-            }
-        }
-
-        impl<T> Drop for BatchSender<T> {
-            fn drop(&mut self) {
-                self.flush();
-            }
-        }
-
         let (tx, rx) = std::sync::mpsc::channel();
         let config_cache_ref = &config_cache;
         let config_ref = config;
@@ -425,41 +442,6 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
 ) -> Result<LintRunResult> {
     let mut stdout = std::io::BufWriter::new(stdout);
     let mut stderr = std::io::BufWriter::new(stderr);
-    struct BatchSender<T> {
-        tx: std::sync::mpsc::SyncSender<Vec<T>>,
-        batch: Vec<T>,
-        capacity: usize,
-    }
-
-    impl<T> BatchSender<T> {
-        fn new(tx: std::sync::mpsc::SyncSender<Vec<T>>, capacity: usize) -> Self {
-            Self {
-                tx,
-                batch: Vec::with_capacity(capacity),
-                capacity,
-            }
-        }
-
-        fn push(&mut self, item: T) {
-            self.batch.push(item);
-            if self.batch.len() >= self.capacity {
-                self.flush();
-            }
-        }
-
-        fn flush(&mut self) {
-            if !self.batch.is_empty() {
-                let items = std::mem::replace(&mut self.batch, Vec::with_capacity(self.capacity));
-                let _ = self.tx.send(items);
-            }
-        }
-    }
-
-    impl<T> Drop for BatchSender<T> {
-        fn drop(&mut self) {
-            self.flush();
-        }
-    }
 
     if config.num_threads.get() == 1 {
         return stream_single_threaded_lint(
@@ -472,145 +454,65 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
         );
     }
 
-    let thread_safe_file_table = Arc::new(ThreadSafeFileTable::new());
-    let (work_tx, work_rx) = std::sync::mpsc::sync_channel::<Vec<(FileId, PathBuf)>>(64);
-    let (report_tx, report_rx) = std::sync::mpsc::sync_channel::<Vec<FileRunReport>>(256);
+    // Phase A: 全ファイルパスを事前収集（sort + dedup で重複排除）
+    let CollectedFiles {
+        file_names,
+        files: collected_files,
+        notes: collected_notes,
+    } = collect_files(files, config)?;
 
     let config_cache = DirectoryConfigCache::new(&config.options);
     let mut counter = DiagnosticCounter::new(config.counting_style);
 
-    let cwd = std::env::current_dir()?;
-    let excludes = compile_excludes(&cwd, &config.excludes)?;
+    // 収集時に発生したnote（パス未発見など）を先に出力
+    for note in &collected_notes {
+        match note.stream {
+            NoteStream::Stdout => {
+                let _ = stdout.write_all(note.text.as_bytes());
+            }
+            NoteStream::Stderr => {
+                let _ = stderr.write_all(note.text.as_bytes());
+            }
+        }
+    }
 
-    let total_threads = config.num_threads.get();
-    let walker_threads = if total_threads >= 8 { 2 } else { 1 };
+    // Phase B: 単一 par_iter でフラットに並列処理
+    let (report_tx, report_rx) = std::sync::mpsc::sync_channel::<Vec<FileRunReport>>(256);
+    let config_cache_ref = &config_cache;
+    let config_ref = config;
+    let file_names_ref = &file_names;
 
     std::thread::scope(|s| {
-        // 1. Producer: ディレクトリ探索しながら見つかったファイルをチャネルへ送信
-        let file_table_prod = Arc::clone(&thread_safe_file_table);
-        let files_vec = files.to_vec();
-        let config_clone = config.clone();
-        let excludes_clone = excludes.clone();
-        let report_tx_prod = report_tx.clone();
-
-        s.spawn(move || {
-            let (path_tx, path_rx) =
-                std::sync::mpsc::sync_channel::<(Option<Note>, Option<PathBuf>)>(256);
-
-            let prod_thread_count = walker_threads;
-            let path_tx_clone = path_tx.clone();
-            let file_table_prod_inner = Arc::clone(&file_table_prod);
-            std::thread::spawn(move || {
-                for file in &files_vec {
-                    if file == Path::new("-") {
-                        let _ = path_tx_clone.send((None, Some(PathBuf::from("-"))));
-                        continue;
-                    }
-                    if !file.exists() {
-                        let file_id = file_table_prod_inner.intern(&file.to_string_lossy());
-                        let note = Note {
-                            file_id,
-                            order: 0,
-                            stream: NoteStream::Stderr,
-                            text: format!("Skipping input '{}': Path not found.\n", file.display())
-                                .into(),
-                        };
-                        let _ = path_tx_clone.send((Some(note), None));
-                        continue;
-                    }
-                    if config_clone.recursive && file.is_dir() {
-                        let canonical =
-                            std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
-                        expand_directory_to_sender(
-                            &canonical,
-                            &config_clone.options,
-                            prod_thread_count,
-                            path_tx_clone.clone(),
-                        );
-                    } else {
-                        let _ = path_tx_clone.send((None, Some(file.clone())));
-                    }
-                }
-            });
-            drop(path_tx);
-
-            let mut seen = rustc_hash::FxHashSet::<PathBuf>::default();
-            let mut work_batch = Vec::with_capacity(64);
-            for (note, path) in path_rx {
-                if let Some(note) = note {
-                    let mut report = FileRunReport::default();
-                    report.notes.push(note);
-                    let _ = report_tx_prod.send(vec![report]);
-                }
-                if let Some(file) = path
-                    && !should_exclude(&file, &excludes_clone)
-                    && seen.insert(file.clone())
-                {
-                    let file_id = file_table_prod.intern(&file.to_string_lossy());
-                    work_batch.push((file_id, file));
-                    if work_batch.len() >= 64 {
-                        let _ = work_tx
-                            .send(std::mem::replace(&mut work_batch, Vec::with_capacity(64)));
-                    }
-                }
-            }
-            if !work_batch.is_empty() {
-                let _ = work_tx.send(work_batch);
-            }
-        });
-
-        // 2. Consumer: チャネルから受信したファイルを即座にパース・検証
-        let config_cache_ref = &config_cache;
-        let config_ref = config;
-
+        // Worker スレッド: Rayon プール内で par_iter を一段だけ実行
         s.spawn(move || {
             if let Some(pool) = &pool {
                 pool.install(|| {
-                    work_rx.into_iter().par_bridge().for_each(|batch| {
-                        batch.into_par_iter().for_each_init(
-                            || {
-                                (
-                                    BatchSender::new(report_tx.clone(), 32),
-                                    bumpalo::Bump::new(),
-                                )
-                            },
-                            |(sender, arena), (file_id, file)| {
-                                let report = plan_and_process_file_with_arena(
-                                    config_cache_ref,
-                                    config_ref,
-                                    session_settings,
-                                    file_id,
-                                    file,
-                                    arena,
-                                );
-                                sender.push(report);
-                                arena.reset();
-                            },
-                        );
-                    });
+                    collected_files.into_par_iter().for_each_init(
+                        || {
+                            (
+                                BatchSender::new(report_tx.clone(), 32),
+                                bumpalo::Bump::new(),
+                            )
+                        },
+                        |(sender, arena), (file_id, file)| {
+                            let report = plan_and_process_file_with_arena(
+                                config_cache_ref,
+                                config_ref,
+                                session_settings,
+                                file_id,
+                                file,
+                                arena,
+                            );
+                            sender.push(report);
+                            arena.reset();
+                        },
+                    );
                 });
-            } else {
-                let mut sender = BatchSender::new(report_tx.clone(), 32);
-                let mut arena = bumpalo::Bump::new();
-                for batch in work_rx {
-                    for (file_id, file) in batch {
-                        let report = plan_and_process_file_with_arena(
-                            config_cache_ref,
-                            config_ref,
-                            session_settings,
-                            file_id,
-                            file,
-                            &arena,
-                        );
-                        sender.push(report);
-                        arena.reset();
-                    }
-                }
             }
             drop(report_tx);
         });
 
-        // 3. Main Renderer Loop: 受信した結果を逐次画面に出力
+        // Main Renderer Loop: 受信した結果を逐次画面に出力
         for batch in report_rx {
             for report in batch {
                 for note in &report.notes {
@@ -626,29 +528,28 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
 
                 if !report.diagnostics.is_empty() {
                     let file_id = report.diagnostics[0].file_id;
-                    thread_safe_file_table.get_name(file_id, |filename| {
-                        for diag in &report.diagnostics {
-                            match config.output_format {
-                                OutputFormat::Sed | OutputFormat::Gsed => {
-                                    let _ = write_sed_diagnostic_with_name(
-                                        &mut stdout,
-                                        config.output_format,
-                                        filename,
-                                        diag,
-                                    );
-                                }
-                                _ => {
-                                    let _ = write_diagnostic_with_name(
-                                        &mut stderr,
-                                        config.output_format,
-                                        filename,
-                                        diag,
-                                    );
-                                }
+                    let filename = file_names_ref.get(file_id);
+                    for diag in &report.diagnostics {
+                        match config.output_format {
+                            OutputFormat::Sed | OutputFormat::Gsed => {
+                                let _ = write_sed_diagnostic_with_name(
+                                    &mut stdout,
+                                    config.output_format,
+                                    filename,
+                                    diag,
+                                );
                             }
-                            counter.add(diag);
+                            _ => {
+                                let _ = write_diagnostic_with_name(
+                                    &mut stderr,
+                                    config.output_format,
+                                    filename,
+                                    diag,
+                                );
+                            }
                         }
-                    });
+                        counter.add(diag);
+                    }
                 }
             }
         }
@@ -1095,53 +996,7 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
     }
 }
 
-fn expand_directory_to_sender(
-    directory: &Path,
-    options: &Options,
-    threads: usize,
-    tx: std::sync::mpsc::SyncSender<(Option<Note>, Option<PathBuf>)>,
-) {
-    let mut walk = WalkBuilder::new(directory);
-    walk.hidden(false)
-        .git_ignore(false)
-        .git_exclude(false)
-        .parents(false)
-        .ignore(false);
 
-    if threads <= 1 {
-        for entry in walk.build().flatten() {
-            if !entry
-                .file_type()
-                .is_some_and(|file_type| file_type.is_file())
-            {
-                continue;
-            }
-            let path = entry.into_path();
-            if options.is_valid_file(&path) {
-                let _ = tx.send((None, Some(path)));
-            }
-        }
-    } else {
-        walk.threads(threads);
-        let walker = walk.build_parallel();
-        walker.run(|| {
-            let tx = tx.clone();
-            Box::new(move |result| {
-                if let Ok(entry) = result
-                    && entry
-                        .file_type()
-                        .is_some_and(|file_type| file_type.is_file())
-                {
-                    let path = entry.into_path();
-                    if options.is_valid_file(&path) {
-                        let _ = tx.send((None, Some(path)));
-                    }
-                }
-                ignore::WalkState::Continue
-            })
-        });
-    }
-}
 
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn process_file(
