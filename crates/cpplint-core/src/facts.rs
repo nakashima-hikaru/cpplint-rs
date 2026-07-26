@@ -292,7 +292,13 @@ impl<'a> FileFacts<'a> {
 
     #[inline]
     pub fn enclosing_class_range(&self, linenum: usize) -> Option<ClassRange> {
-        let FileFacts::Collected { class_facts, line_facts } = self else { return None; };
+        let FileFacts::Collected {
+            class_facts,
+            line_facts,
+        } = self
+        else {
+            return None;
+        };
         line_facts
             .get(linenum)
             .and_then(|f| f.class_fact_index)
@@ -301,7 +307,13 @@ impl<'a> FileFacts<'a> {
 
     #[inline]
     pub fn nearest_class_name(&self, linenum: usize) -> Option<&str> {
-        let FileFacts::Collected { class_facts, line_facts } = self else { return None; };
+        let FileFacts::Collected {
+            class_facts,
+            line_facts,
+        } = self
+        else {
+            return None;
+        };
         line_facts
             .get(linenum)
             .and_then(|f| f.class_fact_index)
@@ -313,7 +325,13 @@ impl<'a> FileFacts<'a> {
 
     #[inline]
     pub fn enclosing_class_kind(&self, linenum: usize) -> Option<ClassKind> {
-        let FileFacts::Collected { class_facts, line_facts } = self else { return None; };
+        let FileFacts::Collected {
+            class_facts,
+            line_facts,
+        } = self
+        else {
+            return None;
+        };
         line_facts
             .get(linenum)
             .and_then(|f| f.class_fact_index)
@@ -322,7 +340,8 @@ impl<'a> FileFacts<'a> {
 
     #[inline]
     pub fn namespace_top_level_depth(&self, linenum: usize) -> Option<NonZeroU8> {
-        self.line_fact(linenum).and_then(|f| f.namespace_top_level_depth)
+        self.line_fact(linenum)
+            .and_then(|f| f.namespace_top_level_depth)
     }
 
     #[inline]
@@ -362,10 +381,10 @@ impl<'a> FileFacts<'a> {
         start_exclusive: usize,
         end_exclusive: usize,
     ) -> usize {
-        let FileFacts::Collected { line_facts, .. } = self else { return 0; };
-        if end_exclusive <= start_exclusive.saturating_add(1)
-            || end_exclusive > line_facts.len()
-        {
+        let FileFacts::Collected { line_facts, .. } = self else {
+            return 0;
+        };
+        if end_exclusive <= start_exclusive.saturating_add(1) || end_exclusive > line_facts.len() {
             return 0;
         }
 

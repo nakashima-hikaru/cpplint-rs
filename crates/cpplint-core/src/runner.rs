@@ -6,12 +6,12 @@ use crate::file_linter::FileLinter;
 use crate::fixer::fix_file_in_place;
 use crate::glob::GlobSetMatcher;
 use crate::options::Options;
-use crate::source::SourceFile;
 use crate::output::{
     DiagnosticCounter, format_diagnostic, format_diagnostic_with_name, format_note,
     format_sed_diagnostic, format_sed_diagnostic_with_name, render_owned,
     write_diagnostic_with_name, write_sed_diagnostic_with_name,
 };
+use crate::source::SourceFile;
 use crate::state::{CountingStyle, CppLintState, OutputFormat, SessionSettings, SessionSnapshot};
 use crate::string_utils::set_to_str;
 use crate::{errors::Result, output::RenderedOutput};
@@ -968,7 +968,8 @@ fn plan_single_file(
         return PlannedEntry::Report(report);
     }
 
-    let source_file = SourceFile::with_options_and_display_name(file, options.as_ref(), display_name_arc);
+    let source_file =
+        SourceFile::with_options_and_display_name(file, options.as_ref(), display_name_arc);
 
     PlannedEntry::LintJob(PlannedLintJob {
         file_id,

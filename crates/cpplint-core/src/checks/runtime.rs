@@ -289,9 +289,7 @@ pub fn check(
     {
         check_threadsafe_functions(linter, elided_line, linenum);
     }
-    if keywords.contains(MatchedKeywords::VLOG)
-        && active_rules.is_enabled(Category::RuntimeVlog)
-    {
+    if keywords.contains(MatchedKeywords::VLOG) && active_rules.is_enabled(Category::RuntimeVlog) {
         check_vlog_arguments(linter, elided_line, linenum);
     }
     if keywords.contains(MatchedKeywords::MAKE_PAIR)

@@ -1033,22 +1033,22 @@ pub fn check_includes(
         };
         if third_src_header || !is_special_include_name(include) {
             include_state.push_include(include, linenum);
-            if let Some(message) = include_state.check_next_include_order(kind) {
-                if check_order {
-                    let basename = Path::new(linter.filename())
-                        .file_stem()
-                        .and_then(|stem| stem.to_str())
-                        .unwrap_or("");
-                    linter.error(
-                        linenum,
-                        Category::BuildIncludeOrder,
-                        4,
-                        crate::messages::LintMessage::IncludeOrder(
-                            message.to_string().into(),
-                            basename.to_string().into(),
-                        ),
-                    );
-                }
+            if let Some(message) = include_state.check_next_include_order(kind)
+                && check_order
+            {
+                let basename = Path::new(linter.filename())
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or("");
+                linter.error(
+                    linenum,
+                    Category::BuildIncludeOrder,
+                    4,
+                    crate::messages::LintMessage::IncludeOrder(
+                        message.to_string().into(),
+                        basename.to_string().into(),
+                    ),
+                );
             }
 
             let canonical_include = include_state.canonicalize_alphabetical_order(include);
@@ -1062,7 +1062,8 @@ pub fn check_includes(
                 && prev_elided.contains("include")
                 && string_utils::parse_include_directive(prev_elided).is_some();
             if check_alpha
-                && !include_state.is_in_alphabetical_order(previous_line_is_include, &canonical_include)
+                && !include_state
+                    .is_in_alphabetical_order(previous_line_is_include, &canonical_include)
             {
                 linter.error(
                     linenum,

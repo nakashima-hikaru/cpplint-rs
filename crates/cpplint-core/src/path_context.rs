@@ -69,8 +69,7 @@ impl PathContext {
         }
 
         let absolute_buf = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
-        let repository_relative_buf =
-            compute_repository_relative(&absolute_buf, file, repository);
+        let repository_relative_buf = compute_repository_relative(&absolute_buf, file, repository);
         let root_relative_buf = compute_root_relative(&repository_relative_buf, root);
 
         Self {

@@ -308,8 +308,6 @@ impl<'a> FileLinter<'a> {
         }
     }
 
-
-
     pub fn header_guard_path(&self) -> PathBuf {
         let normalized = self
             .relative_from_root()

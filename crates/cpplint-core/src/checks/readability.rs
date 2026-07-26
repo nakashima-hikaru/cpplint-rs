@@ -1599,13 +1599,7 @@ mod tests {
         let facts = crate::facts::FileFacts::new(&clean_lines, &arena);
 
         let active_rules = linter.active_rules();
-        check(
-            &mut linter,
-            &facts,
-            &clean_lines,
-            1,
-            active_rules,
-        );
+        check(&mut linter, &facts, &clean_lines, 1, active_rules);
 
         assert!(state.has_error(Category::BuildNamespacesHeaders));
     }
