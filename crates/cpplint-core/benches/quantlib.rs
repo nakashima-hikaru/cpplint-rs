@@ -3,9 +3,98 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use std::path::PathBuf;
 use std::time::Duration;
 
+fn bench_synthetic_corpus(c: &mut Criterion) {
+    let temp_dir = std::env::temp_dir().join("cpplint_bench_synthetic");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let sample_cpp = r#"// Copyright 2026 Test Project Authors. All rights reserved.
+#ifndef BENCH_SYNTHETIC_HEADER_H_
+#define BENCH_SYNTHETIC_HEADER_H_
+
+#include <vector>
+#include <string>
+#include <iostream>
+
+namespace bench::synthetic {
+
+class SyntheticClass {
+ public:
+    SyntheticClass() : count_(0) {}
+    explicit SyntheticClass(int val) : count_(val) {}
+    ~SyntheticClass() = default;
+
+    void DoWork(const std::vector<std::string>& inputs) {
+        for (const auto& item : inputs) {
+            std::cout << item << std::endl;
+        }
+    }
+
+    int GetCount() const { return count_; }
+
+ private:
+    int count_;
+};
+
+}  // namespace bench::synthetic
+
+#endif  // BENCH_SYNTHETIC_HEADER_H_
+"#;
+
+    let mut file_paths = Vec::new();
+    for i in 0..100 {
+        let file_path = temp_dir.join(format!("synthetic_{}.cc", i));
+        std::fs::write(&file_path, sample_cpp).unwrap();
+        file_paths.push(file_path);
+    }
+
+    let mut group = c.benchmark_group("synthetic");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(5));
+
+    let single_thread_config = RunnerConfig {
+        recursive: false,
+        quiet: true,
+        num_threads: std::num::NonZeroUsize::new(1).unwrap(),
+        ..RunnerConfig::default()
+    };
+
+    group.bench_function("synthetic_1_thread", |b| {
+        b.iter(|| {
+            let _ = run_lint(
+                &file_paths,
+                &single_thread_config,
+                std::io::sink(),
+                std::io::sink(),
+            )
+            .unwrap();
+        })
+    });
+
+    let multi_thread_config = RunnerConfig {
+        recursive: false,
+        quiet: true,
+        num_threads: std::thread::available_parallelism().unwrap_or(std::num::NonZeroUsize::MIN),
+        ..RunnerConfig::default()
+    };
+
+    group.bench_function("synthetic_multi_thread", |b| {
+        b.iter(|| {
+            let _ = run_lint(
+                &file_paths,
+                &multi_thread_config,
+                std::io::sink(),
+                std::io::sink(),
+            )
+            .unwrap();
+        })
+    });
+
+    group.finish();
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
 fn bench_quantlib(c: &mut Criterion) {
-    // ワークスぺースルートにある bench_data/QuantLib をターゲットにします
-    // crates/cpplint-core から見て2階層上
     let mut quantlib_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     quantlib_path.pop();
     quantlib_path.pop();
@@ -13,10 +102,7 @@ fn bench_quantlib(c: &mut Criterion) {
     quantlib_path.push("QuantLib");
 
     if !quantlib_path.exists() {
-        panic!(
-            "QuantLib benchmark directory not found at {:?}. Run `just setup-bench-data` or clone QuantLib to run benchmarks.",
-            quantlib_path
-        );
+        return;
     }
 
     let file_count = ignore::WalkBuilder::new(&quantlib_path)
@@ -29,12 +115,9 @@ fn bench_quantlib(c: &mut Criterion) {
         })
         .count();
 
-    assert!(
-        file_count >= 100,
-        "QuantLib benchmark corpus is missing or incomplete at {:?}. Found only {} C++ source files (expected >= 100).",
-        quantlib_path,
-        file_count
-    );
+    if file_count < 100 {
+        return;
+    }
 
     let config = RunnerConfig {
         recursive: true,
@@ -43,13 +126,11 @@ fn bench_quantlib(c: &mut Criterion) {
         ..RunnerConfig::default()
     };
 
-    let mut group = c.benchmark_group("macro");
-
-    // QuantLibは巨大なので、サンプル数と計測時間を調整します
+    let mut group = c.benchmark_group("quantlib");
     group.sample_size(10);
-    group.measurement_time(Duration::from_secs(30));
+    group.measurement_time(Duration::from_secs(20));
 
-    group.bench_function("quantlib", |b| {
+    group.bench_function("quantlib_full", |b| {
         b.iter(|| {
             let _ = run_lint(
                 &[quantlib_path.clone()],
@@ -64,5 +145,5 @@ fn bench_quantlib(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_quantlib);
+criterion_group!(benches, bench_synthetic_corpus, bench_quantlib);
 criterion_main!(benches);

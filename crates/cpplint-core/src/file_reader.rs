@@ -12,6 +12,7 @@ use crate::errors::Result;
 thread_local! {
     static READ_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(16384));
     static DECODE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(16384));
+    static MMAP_BUF: RefCell<Option<memmap2::Mmap>> = RefCell::new(None);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,14 +41,15 @@ impl ReadFileResult {
     }
 }
 
-pub(crate) fn read_raw_bytes_with_buffer<F, R>(path: &Path, f: F) -> Result<R>
+pub(crate) fn read_raw_bytes_with_buffer<'a, F, R>(path: &Path, f: F) -> Result<R>
 where
-    F: FnOnce(&[u8]) -> Result<R>,
+    F: FnOnce(&'a [u8]) -> Result<R>,
 {
     if path == Path::new("-") {
         let mut bytes = Vec::new();
         io::stdin().read_to_end(&mut bytes)?;
-        return f(&bytes);
+        let static_bytes: &'a [u8] = unsafe { std::mem::transmute(bytes.as_slice()) };
+        return f(static_bytes);
     }
 
     let file = File::open(path)?;
@@ -57,7 +59,13 @@ where
     if len >= 65536
         && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) }
     {
-        return f(&mmap);
+        return MMAP_BUF.with(|cell| {
+            *cell.borrow_mut() = Some(mmap);
+            let buf_ref = cell.borrow();
+            let mmap_ref = buf_ref.as_ref().unwrap();
+            let bytes: &'a [u8] = unsafe { std::mem::transmute(mmap_ref.as_ref()) };
+            f(bytes)
+        });
     }
 
     READ_BUF.with(|buf_cell| {
@@ -68,7 +76,8 @@ where
             bytes.reserve(len as usize - cap);
         }
         file.take(len).read_to_end(&mut bytes)?;
-        f(&bytes)
+        let slice: &'a [u8] = unsafe { std::mem::transmute(bytes.as_slice()) };
+        f(slice)
     })
 }
 

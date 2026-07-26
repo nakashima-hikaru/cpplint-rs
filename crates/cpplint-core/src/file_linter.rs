@@ -4,7 +4,7 @@ use crate::cleanse::{
     CleansedLines, find_next_multiline_comment_end, find_next_multiline_comment_start,
     remove_multiline_comments_from_range,
 };
-use crate::diagnostics::FileId;
+use crate::diagnostics::{Diagnostic, FileId};
 use crate::errors::Result;
 use crate::facts::FileFacts;
 use crate::options::Options;
@@ -39,6 +39,7 @@ pub struct FileLinter<'a> {
     source_file: SourceFile,
     registry: &'static RuleRegistry,
     has_error: bool,
+    diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -84,6 +85,7 @@ impl<'a> FileLinter<'a> {
             source_file,
             registry,
             has_error: false,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -151,7 +153,12 @@ impl<'a> FileLinter<'a> {
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    fn process_decoded_source(&mut self, decoded: DecodedSource, arena: &Bump, mode: ProcessMode) {
+    fn process_decoded_source<'b>(
+        &mut self,
+        decoded: DecodedSource<'b>,
+        arena: &'b Bump,
+        mode: ProcessMode,
+    ) {
         if self.active_rules.has_readability() {
             for &linenum in decoded.invalid_utf8_lines() {
                 self.error(
@@ -233,11 +240,12 @@ impl<'a> FileLinter<'a> {
 
         self.remove_multiline_comments(lines.as_mut_slice());
 
-        let clean_lines = CleansedLines::new_with_options(
+        let clean_lines = CleansedLines::new_with_plan(
             arena,
             lines.as_slice(),
             self.options.as_ref(),
             self.filename(),
+            active_rules,
         );
         match mode {
             ProcessMode::Full => registry.run_file_structure(self, &clean_lines, active_rules),
@@ -247,7 +255,11 @@ impl<'a> FileLinter<'a> {
         }
 
         if active_rules.has_line_checks() {
-            let facts = FileFacts::new(&clean_lines, arena);
+            let facts = if active_rules.needs_file_facts() {
+                FileFacts::new(&clean_lines, arena)
+            } else {
+                FileFacts::empty(arena, clean_lines.raw_lines.len())
+            };
             for linenum in 0..clean_lines.raw_lines.len() {
                 self.process_line(&clean_lines, &facts, linenum);
             }
@@ -431,8 +443,15 @@ impl<'a> FileLinter<'a> {
         }
 
         self.has_error = true;
-        self.session
-            .record_diagnostic(self.file_id, linenum, category, confidence, message);
+        let diag = Diagnostic {
+            file_id: self.file_id,
+            linenum: linenum + 1,
+            category,
+            confidence,
+            message,
+        };
+        self.diagnostics.push(diag.clone());
+        self.session.record_diagnostic_object(diag);
     }
 
     pub fn error_display_line(
@@ -455,13 +474,19 @@ impl<'a> FileLinter<'a> {
         }
 
         self.has_error = true;
-        self.session.record_diagnostic_display_line(
-            self.file_id,
-            display_linenum,
+        let diag = Diagnostic {
+            file_id: self.file_id,
+            linenum: display_linenum,
             category,
             confidence,
             message,
-        );
+        };
+        self.diagnostics.push(diag.clone());
+        self.session.record_diagnostic_object(diag);
+    }
+
+    pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.diagnostics)
     }
 }
 

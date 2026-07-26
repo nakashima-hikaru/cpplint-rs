@@ -380,13 +380,13 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
     let mut stdout = std::io::BufWriter::new(stdout);
     let mut stderr = std::io::BufWriter::new(stderr);
     struct BatchSender<T> {
-        tx: std::sync::mpsc::Sender<Vec<T>>,
+        tx: std::sync::mpsc::SyncSender<Vec<T>>,
         batch: Vec<T>,
         capacity: usize,
     }
 
     impl<T> BatchSender<T> {
-        fn new(tx: std::sync::mpsc::Sender<Vec<T>>, capacity: usize) -> Self {
+        fn new(tx: std::sync::mpsc::SyncSender<Vec<T>>, capacity: usize) -> Self {
             Self {
                 tx,
                 batch: Vec::with_capacity(capacity),
@@ -415,9 +415,13 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
         }
     }
 
+    if config.num_threads.get() == 1 {
+        return stream_single_threaded_lint(files, config, session_settings, started_at, stdout, stderr);
+    }
+
     let thread_safe_file_table = Arc::new(ThreadSafeFileTable::new());
-    let (work_tx, work_rx) = std::sync::mpsc::channel::<(FileId, PathBuf)>();
-    let (report_tx, report_rx) = std::sync::mpsc::channel::<Vec<FileRunReport>>();
+    let (work_tx, work_rx) = std::sync::mpsc::sync_channel::<(FileId, PathBuf)>(256);
+    let (report_tx, report_rx) = std::sync::mpsc::sync_channel::<Vec<FileRunReport>>(256);
 
     let config_cache = DirectoryConfigCache::new(&config.options);
     let mut counter = DiagnosticCounter::new(config.counting_style);
@@ -444,7 +448,8 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
         let report_tx_prod = report_tx.clone();
 
         s.spawn(move || {
-            let (path_tx, path_rx) = std::sync::mpsc::channel::<(Option<Note>, Option<PathBuf>)>();
+            let (path_tx, path_rx) =
+                std::sync::mpsc::sync_channel::<(Option<Note>, Option<PathBuf>)>(256);
 
             let prod_thread_count = walker_threads;
             let path_tx_clone = path_tx.clone();
@@ -591,6 +596,155 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
             }
         }
     });
+
+    let final_error_count = counter.total();
+
+    if !config.quiet || final_error_count > 0 {
+        let _ = write!(stdout, "{}", counter.render_summary());
+    }
+
+    if let Some(start) = started_at
+        && !config.quiet
+    {
+        let _ = writeln!(stdout, "Runtime: {:.3}(s)", start.elapsed().as_secs_f64());
+    }
+
+    let _ = stdout.flush();
+    let _ = stderr.flush();
+
+    Ok(LintRunResult {
+        stdout: String::new(),
+        stderr: String::new(),
+        error_count: final_error_count,
+    })
+}
+
+fn stream_single_threaded_lint<W1: Write, W2: Write>(
+    files: &[PathBuf],
+    config: &RunnerConfig,
+    session_settings: SessionSettings,
+    started_at: Option<Instant>,
+    mut stdout: W1,
+    mut stderr: W2,
+) -> Result<LintRunResult> {
+    let file_table = Arc::new(ThreadSafeFileTable::new());
+    let config_cache = DirectoryConfigCache::new(&config.options);
+    let mut counter = DiagnosticCounter::new(config.counting_style);
+
+    let cwd = std::env::current_dir()?;
+    let excludes = compile_excludes(&cwd, &config.excludes)?;
+    let mut arena = bumpalo::Bump::new();
+
+    let render_report = |report: &FileRunReport,
+                         stdout: &mut W1,
+                         stderr: &mut W2,
+                         counter: &mut DiagnosticCounter| {
+        for note in &report.notes {
+            match note.stream {
+                NoteStream::Stdout => {
+                    let _ = write!(stdout, "{}", format_note(note));
+                }
+                NoteStream::Stderr => {
+                    let _ = write!(stderr, "{}", format_note(note));
+                }
+            }
+        }
+
+        for diag in &report.diagnostics {
+            file_table.get_name(diag.file_id, |filename| {
+                match config.output_format {
+                    OutputFormat::Sed | OutputFormat::Gsed => {
+                        let (is_fixable, text) =
+                            format_sed_diagnostic_with_name(config.output_format, filename, diag);
+                        if is_fixable {
+                            let _ = write!(stdout, "{}", text);
+                        } else {
+                            let _ = write!(stderr, "{}", text);
+                        }
+                    }
+                    _ => {
+                        let _ = write!(
+                            stderr,
+                            "{}",
+                            format_diagnostic_with_name(config.output_format, filename, diag)
+                        );
+                    }
+                }
+            });
+            counter.add(diag);
+        }
+    };
+
+    let mut process_one_path = |file: &Path| {
+        if file == Path::new("-") {
+            let file_id = file_table.intern("-");
+            let report = plan_and_process_file_with_arena(
+                &config_cache,
+                config,
+                session_settings,
+                file_id,
+                file.to_path_buf(),
+                &arena,
+            );
+            render_report(&report, &mut stdout, &mut stderr, &mut counter);
+            arena.reset();
+            return;
+        }
+
+        if !file.exists() {
+            let file_id = file_table.intern(&file.to_string_lossy());
+            let note = Note {
+                file_id,
+                order: 0,
+                stream: NoteStream::Stderr,
+                text: format!("Skipping input '{}': Path not found.\n", file.display()).into(),
+            };
+            let mut report = FileRunReport::default();
+            report.notes.push(note);
+            render_report(&report, &mut stdout, &mut stderr, &mut counter);
+            return;
+        }
+
+        if should_exclude(file, &excludes) {
+            return;
+        }
+
+        if config.recursive && file.is_dir() {
+            let canonical = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+            let found_files = expand_directory(&canonical, &config.options, 1);
+            for found in found_files {
+                if !should_exclude(&found, &excludes) {
+                    let file_id = file_table.intern(&found.to_string_lossy());
+                    let report = plan_and_process_file_with_arena(
+                        &config_cache,
+                        config,
+                        session_settings,
+                        file_id,
+                        found,
+                        &arena,
+                    );
+                    render_report(&report, &mut stdout, &mut stderr, &mut counter);
+                    arena.reset();
+                }
+            }
+        } else {
+            let file_id = file_table.intern(&file.to_string_lossy());
+            let report = plan_and_process_file_with_arena(
+                &config_cache,
+                config,
+                session_settings,
+                file_id,
+                file.to_path_buf(),
+                &arena,
+            );
+            render_report(&report, &mut stdout, &mut stderr, &mut counter);
+            arena.reset();
+        }
+    };
+
+    for file in files {
+        process_one_path(file);
+    }
 
     let final_error_count = counter.total();
 
@@ -888,7 +1042,7 @@ fn expand_directory_to_sender(
     directory: &Path,
     options: &Options,
     threads: usize,
-    tx: std::sync::mpsc::Sender<(Option<Note>, Option<PathBuf>)>,
+    tx: std::sync::mpsc::SyncSender<(Option<Note>, Option<PathBuf>)>,
 ) {
     let mut walk = WalkBuilder::new(directory);
     walk.hidden(false)

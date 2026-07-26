@@ -215,12 +215,15 @@ const PRINTF_FORMAT_CANDIDATE: MatchedKeywords = MatchedKeywords::from_bits_trun
         | MatchedKeywords::THREADSAFE_FN.bits(),
 );
 
+use crate::registry::ActiveRulePlan;
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(
     linter: &mut FileLinter,
     facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
+    _active_rules: ActiveRulePlan,
 ) {
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];

@@ -1693,12 +1693,15 @@ fn check_indentation(
     }
 }
 
+use crate::registry::ActiveRulePlan;
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(
     linter: &mut FileLinter,
     facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
+    active_rules: ActiveRulePlan,
 ) {
     let raw_line = &clean_lines.raw_lines[linenum];
     let line_without_raw_strings = &clean_lines.lines_without_raw_strings[linenum];
@@ -1719,38 +1722,59 @@ pub fn check(
 
     let keywords = clean_lines.keywords(linenum);
 
-    if has_slash {
+    if has_slash
+        && (active_rules.is_enabled(Category::WhitespaceComments)
+            || active_rules.is_enabled(Category::WhitespaceTodo))
+    {
         check_comment_spacing(linter, clean_lines, linenum);
     }
 
-    if line_features.contains(LineFeatures::LINE_WITHOUT_RAW_STRINGS_BLANK) {
+    if line_features.contains(LineFeatures::LINE_WITHOUT_RAW_STRINGS_BLANK)
+        && active_rules.is_enabled(Category::WhitespaceBlankLine)
+    {
         check_blank_line_rules(linter, facts, clean_lines, linenum);
     }
 
-    if linenum > 0 {
+    if linenum > 0 && active_rules.is_enabled(Category::WhitespaceBlankLine) {
         check_section_spacing(linter, facts, clean_lines, linenum, &keywords);
     }
 
-    if has_colon || keywords.has_access() {
+    if (has_colon || keywords.has_access())
+        && active_rules.is_enabled(Category::WhitespaceIndent)
+    {
         check_access_specifier_indentation(linter, facts, clean_lines, linenum, &keywords);
     }
 
-    if has_brace {
+    if has_brace
+        && (active_rules.is_enabled(Category::WhitespaceBraces)
+            || active_rules.is_enabled(Category::WhitespaceIndent))
+    {
         check_class_closing_brace_alignment(linter, facts, clean_lines, linenum);
     }
 
-    check_tabs_and_line_length(linter, line_without_raw_strings, linenum, line_features);
-    check_indentation(
-        linter,
-        clean_lines,
-        raw_line,
-        line,
-        linenum,
-        &keywords,
-        line_features,
-    );
+    if active_rules.is_enabled(Category::WhitespaceTab)
+        || active_rules.is_enabled(Category::WhitespaceLineLength)
+    {
+        check_tabs_and_line_length(linter, line_without_raw_strings, linenum, line_features);
+    }
+    if active_rules.is_enabled(Category::WhitespaceIndent)
+        || active_rules.is_enabled(Category::WhitespaceIndentNamespace)
+    {
+        check_indentation(
+            linter,
+            clean_lines,
+            raw_line,
+            line,
+            linenum,
+            &keywords,
+            line_features,
+        );
+    }
 
-    if has_bracket && has_extra_space_before_bracket(elided_line) {
+    if has_bracket
+        && active_rules.is_enabled(Category::WhitespaceBraces)
+        && has_extra_space_before_bracket(elided_line)
+    {
         linter.error(
             linenum,
             Category::WhitespaceBraces,
@@ -1759,7 +1783,11 @@ pub fn check(
         );
     }
 
-    if keywords.has_for() && has_colon && RANGE_FOR_COLON_SET.is_match(elided_line) {
+    if keywords.has_for()
+        && has_colon
+        && active_rules.is_enabled(Category::WhitespaceForcolon)
+        && RANGE_FOR_COLON_SET.is_match(elided_line)
+    {
         linter.error(
             linenum,
             Category::WhitespaceForcolon,
@@ -1768,11 +1796,11 @@ pub fn check(
         );
     }
 
-    if has_operator {
+    if has_operator && active_rules.is_enabled(Category::WhitespaceOperators) {
         check_operator_spacing(linter, facts, clean_lines, elided_line, linenum, &keywords);
     }
 
-    if has_paren {
+    if has_paren && active_rules.is_enabled(Category::WhitespaceParens) {
         check_parenthesis_spacing(linter, elided_line, raw_line, linenum, &keywords);
         check_spacing_for_function_call(
             linter,

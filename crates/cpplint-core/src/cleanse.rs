@@ -568,7 +568,40 @@ impl<'a> CleansedLines<'a> {
         options: &Options,
         filename: &str,
     ) -> Self {
+        let registry = crate::registry::RuleRegistry::default();
+        let plan = registry.active_rule_plan(options, filename);
+        Self::new_with_plan(arena, raw_lines, options, filename, plan)
+    }
+
+    pub fn new_with_plan(
+        arena: &'a Bump,
+        raw_lines: &[&'a str],
+        options: &Options,
+        filename: &str,
+        plan: crate::registry::ActiveRulePlan,
+    ) -> Self {
         let n = raw_lines.len();
+        let mut raw_lines_arena = BumpVec::with_capacity_in(n, arena);
+        raw_lines_arena.extend_from_slice(raw_lines);
+
+        if !plan.needs_cleansed_lines(crate::registry::RulePhase::Line) {
+            let mut line_features = BumpVec::with_capacity_in(n, arena);
+            for &raw_line in raw_lines {
+                line_features.push(scan_line_features(raw_line, raw_line, raw_line));
+            }
+            return Self {
+                raw_lines: raw_lines_arena.clone(),
+                lines: raw_lines_arena.clone(),
+                elided: raw_lines_arena.clone(),
+                lines_without_raw_strings: raw_lines_arena.clone(),
+                has_comment: bumpalo::vec![in arena; false; n],
+                in_raw_string: bumpalo::vec![in arena; false; n],
+                line_features,
+                keywords: bumpalo::vec![in arena; MatchedKeywords::empty(); n],
+                elided_without_alternate_tokens: None,
+            };
+        }
+
         let mut lines = BumpVec::with_capacity_in(n, arena);
         let mut elided = BumpVec::with_capacity_in(n, arena);
         let mut has_comment = BumpVec::with_capacity_in(n, arena);
@@ -576,8 +609,6 @@ impl<'a> CleansedLines<'a> {
         let mut in_raw_string = BumpVec::with_capacity_in(n, arena);
         let mut line_features = BumpVec::with_capacity_in(n, arena);
         let mut keywords = BumpVec::with_capacity_in(n, arena);
-        let mut raw_lines_arena = BumpVec::with_capacity_in(n, arena);
-        raw_lines_arena.extend_from_slice(raw_lines);
 
         let mut in_block_comment = false;
         let mut raw_delimiter = String::new();

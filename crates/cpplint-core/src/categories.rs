@@ -78,6 +78,44 @@ impl Category {
     pub const fn index(self) -> usize {
         self as usize
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CategorySet {
+    bits: [u64; 2],
+}
+
+impl CategorySet {
+    pub const EMPTY: Self = Self { bits: [0, 0] };
+    pub const ALL: Self = Self {
+        bits: [u64::MAX, (1u64 << (Category::COUNT - 64)) - 1],
+    };
+
+    #[inline]
+    pub fn insert(&mut self, cat: Category) {
+        let idx = cat.index();
+        self.bits[idx / 64] |= 1u64 << (idx % 64);
+    }
+
+    #[inline]
+    pub fn contains(&self, cat: Category) -> bool {
+        let idx = cat.index();
+        (self.bits[idx / 64] & (1u64 << (idx % 64))) != 0
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bits[0] == 0 && self.bits[1] == 0
+    }
+
+    #[inline]
+    pub fn union(&mut self, other: CategorySet) {
+        self.bits[0] |= other.bits[0];
+        self.bits[1] |= other.bits[1];
+    }
+}
+
+impl Category {
 
     pub const ALL: &'static [Category] = &[
         Self::BuildCpp11,

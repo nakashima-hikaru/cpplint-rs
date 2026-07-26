@@ -135,7 +135,7 @@ impl DirectoryConfigCache {
         }
 
         let directory = filename.parent().unwrap_or_else(|| Path::new(""));
-        let cached_plan = { self.plans.read().get(directory).cloned() };
+        let cached_plan = self.plans.read().get(directory).cloned();
         let plan = if let Some(plan) = cached_plan {
             plan
         } else {
@@ -145,11 +145,10 @@ impl DirectoryConfigCache {
                 directory,
             ));
             let mut plans = self.plans.write();
-            Arc::clone(
-                plans
-                    .entry(directory.to_path_buf())
-                    .or_insert_with(|| Arc::clone(&built)),
-            )
+            plans
+                .entry(directory.to_path_buf())
+                .or_insert(built)
+                .clone()
         };
         plan.resolve_for_file(filename, quiet)
     }

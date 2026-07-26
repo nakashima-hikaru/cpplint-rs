@@ -179,11 +179,13 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<FixResult> {
 
     let mut last_diagnostics = Vec::new();
     let mut any_changed = false;
+    let mut last_pass_modified = false;
 
     for _ in 0..MAX_FIX_PASSES {
         let diagnostics = lint_lines(path, options, &lines);
         last_diagnostics = diagnostics.clone();
         if diagnostics.is_empty() {
+            last_pass_modified = false;
             break;
         }
 
@@ -194,13 +196,16 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<FixResult> {
         pass_changed |= fix_brace_placement(&diagnostics, &mut lines);
         if pass_changed {
             any_changed = true;
+            last_pass_modified = true;
             continue;
         }
 
         pass_changed |= apply_line_fixes(path, options, &diagnostics, &mut lines);
         if pass_changed {
             any_changed = true;
+            last_pass_modified = true;
         } else {
+            last_pass_modified = false;
             break;
         }
     }
@@ -213,7 +218,11 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<FixResult> {
     }
 
     write_lines(path, &lines, newline_style, had_utf8_bom)?;
-    let final_diagnostics = lint_lines(path, options, &lines);
+    let final_diagnostics = if last_pass_modified {
+        lint_lines(path, options, &lines)
+    } else {
+        last_diagnostics
+    };
     Ok(FixResult {
         changed: true,
         diagnostics: final_diagnostics,
@@ -224,7 +233,7 @@ fn lint_lines(path: &Path, options: &Options, lines: &[String]) -> Vec<Diagnosti
     let state = CppLintState::new();
     let mut linter = FileLinter::new(path.to_path_buf(), &state, options.clone());
     linter.process_file_data(lines);
-    state.diagnostics()
+    linter.take_diagnostics()
 }
 
 fn has_mixed_line_endings(lines: &[String], lf_lines_count: usize, crlf_lines: &[usize]) -> bool {
@@ -270,7 +279,7 @@ fn fix_header_guard(
         return false;
     }
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-    if !options.header_extensions().contains(extension) {
+    if !options.is_header_extension(extension) {
         return false;
     }
     if lines.iter().any(|line| line.trim() == "#pragma once") {
@@ -656,7 +665,9 @@ fn apply_line_fixes(
         let arena = unsafe { &mut *arena_cell.get() };
         let mut facts_cache = FactsCache::new(arena);
         let mut changed = false;
+        let mut revision = 0u64;
         for diagnostic in ordered {
+            let prev_changed = changed;
             match &diagnostic.message {
                 LintMessage::TabFound => {
                     let idx = diagnostic.linenum.saturating_sub(1);
@@ -771,7 +782,7 @@ fn apply_line_fixes(
                 LintMessage::ShouldBeIndented(msg) if msg.contains("+1 space inside") => {
                     let idx = diagnostic.linenum.saturating_sub(1);
                     if idx < lines.len() {
-                        let (clean_lines, facts) = facts_cache.get(path, options, lines);
+                        let (clean_lines, facts) = facts_cache.get(path, options, lines, revision);
                         changed |= fix_access_specifier_indentation_with_facts(
                             lines,
                             idx,
@@ -783,7 +794,7 @@ fn apply_line_fixes(
                 LintMessage::ClosingBraceAlignment(_) => {
                     let idx = diagnostic.linenum.saturating_sub(1);
                     if idx < lines.len() {
-                        let (clean_lines, facts) = facts_cache.get(path, options, lines);
+                        let (clean_lines, facts) = facts_cache.get(path, options, lines, revision);
                         changed |= fix_class_closing_brace_alignment_with_facts(
                             lines,
                             idx,
@@ -941,6 +952,9 @@ fn apply_line_fixes(
                         _ => {}
                     }
                 }
+            }
+            if changed != prev_changed {
+                revision += 1;
             }
         }
         changed
@@ -1779,7 +1793,7 @@ fn build_facts<'a>(
 
 struct FactsCache<'a> {
     arena: *mut Bump,
-    cached_fingerprint: Option<u64>,
+    cached_revision: Option<u64>,
     cached: Option<(CleansedLines<'a>, FileFacts<'a>)>,
     _marker: PhantomData<&'a mut Bump>,
 }
@@ -1789,7 +1803,7 @@ impl<'a> FactsCache<'a> {
         arena.reset();
         Self {
             arena,
-            cached_fingerprint: None,
+            cached_revision: None,
             cached: None,
             _marker: PhantomData,
         }
@@ -1800,16 +1814,16 @@ impl<'a> FactsCache<'a> {
         path: &Path,
         options: &Options,
         lines: &[String],
+        revision: u64,
     ) -> (&CleansedLines<'a>, &FileFacts<'a>) {
-        let fingerprint = fingerprint_lines(lines);
-        if self.cached_fingerprint != Some(fingerprint) {
+        if self.cached_revision != Some(revision) {
             self.cached = None;
             // SAFETY: arena points to the thread-local bump arena borrowed for the whole
             // apply_line_fixes call; the cache drops old references before reset/rebuild.
             let arena = unsafe { &mut *self.arena };
             arena.reset();
             self.cached = Some(build_facts(arena, path, options, lines));
-            self.cached_fingerprint = Some(fingerprint);
+            self.cached_revision = Some(revision);
         }
         let (clean_lines, facts) = self
             .cached
@@ -1819,14 +1833,7 @@ impl<'a> FactsCache<'a> {
     }
 }
 
-fn fingerprint_lines(lines: &[String]) -> u64 {
-    let mut hasher = FxHasher::default();
-    lines.len().hash(&mut hasher);
-    for line in lines {
-        line.hash(&mut hasher);
-    }
-    hasher.finish()
-}
+
 
 #[cfg(test)]
 fn fix_access_specifier_indentation(

@@ -160,11 +160,21 @@ impl Options {
         self.hpp_headers.clone()
     }
 
+    #[inline]
+    pub fn is_header_extension(&self, ext: &str) -> bool {
+        self.hpp_headers.contains(ext)
+    }
+
+    #[inline]
+    pub fn is_valid_extension(&self, ext: &str) -> bool {
+        self.valid_extensions.contains(ext) || self.hpp_headers.contains(ext)
+    }
+
     pub fn is_valid_file(&self, path: &Path) -> bool {
         let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
             return false;
         };
-        self.valid_extensions.contains(ext) || self.hpp_headers.contains(ext)
+        self.is_valid_extension(ext)
     }
 
     pub fn set_extensions_from_csv(&mut self, value: &str) {

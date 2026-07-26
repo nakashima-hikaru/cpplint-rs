@@ -69,12 +69,15 @@ fn is_test_like_function(name: &str) -> bool {
     name.starts_with("TEST") || name.starts_with("Test")
 }
 
+use crate::registry::ActiveRulePlan;
+
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check(
     linter: &mut FileLinter,
     facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
+    _active_rules: ActiveRulePlan,
 ) {
     let elided_line = &clean_lines.elided[linenum];
     let line_features = clean_lines.line_features[linenum];
@@ -1532,7 +1535,13 @@ mod tests {
         let clean_lines = CleansedLines::new(&arena, &lines);
         let facts = crate::facts::FileFacts::new(&clean_lines, &arena);
 
-        check(&mut linter, &facts, &clean_lines, 1);
+        check(
+            &mut linter,
+            &facts,
+            &clean_lines,
+            1,
+            ActiveRulePlan::default(),
+        );
 
         assert!(state.has_error(Category::BuildNamespacesHeaders));
     }

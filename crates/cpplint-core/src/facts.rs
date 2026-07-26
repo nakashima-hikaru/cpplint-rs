@@ -52,6 +52,7 @@ pub struct LineFact {
     pub class_fact_index: Option<NonZeroU32>,
     pub namespace_top_level_depth: Option<NonZeroU8>,
     pub matching_block_start: Option<NonZeroU32>,
+    pub matching_block_end: Option<NonZeroU32>,
     pub block_kind: Option<ScopeKind>,
     pub namespace_decl_line: Option<NonZeroU32>,
     pub non_namespace_indent_depth_before: u16,
@@ -73,6 +74,13 @@ pub enum ScopeKind {
 }
 
 impl<'a> FileFacts<'a> {
+    pub fn empty(arena: &'a Bump, n: usize) -> Self {
+        Self {
+            class_facts: BumpVec::new_in(arena),
+            line_facts: bumpalo::vec![in arena; LineFact::default(); n],
+        }
+    }
+
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn new(clean_lines: &CleansedLines<'a>, arena: &'a Bump) -> Self {
         let n = clean_lines.elided.len();
@@ -243,8 +251,11 @@ impl<'a> FileFacts<'a> {
             let mut last_popped = None;
             for _ in 0..r_braces {
                 if let Some(start) = matching_stack.pop() {
-                    matching_block_ends[start] =
-                        u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
+                    let end_nz = u32::try_from(linenum + 1).ok().and_then(NonZeroU32::new);
+                    matching_block_ends[start] = end_nz;
+                    if start < line_facts.len() {
+                        line_facts[start].matching_block_end = end_nz;
+                    }
                     last_popped = Some(start);
                 }
             }
@@ -336,6 +347,13 @@ impl<'a> FileFacts<'a> {
         self.line_facts
             .get(linenum)
             .and_then(|f| f.matching_block_start)
+    }
+
+    #[inline]
+    pub fn matching_block_end(&self, linenum: usize) -> Option<NonZeroU32> {
+        self.line_facts
+            .get(linenum)
+            .and_then(|f| f.matching_block_end)
     }
 
     pub fn non_blank_elided_lines_between(

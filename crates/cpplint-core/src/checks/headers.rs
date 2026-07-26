@@ -765,7 +765,7 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
-    if !linter.options().header_extensions().contains(extension) {
+    if !linter.options().is_header_extension(extension) {
         return;
     }
 
@@ -1465,7 +1465,7 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("");
-    if linter.options().header_extensions().contains(extension) {
+    if linter.options().is_header_extension(extension) {
         return;
     }
 

@@ -2,6 +2,7 @@ use crate::errors::Result;
 use crate::file_reader::{self, ReadFileResult};
 use bumpalo::Bump;
 use bumpalo::collections::Vec as BumpVec;
+use std::borrow::Cow;
 use std::iter::ExactSizeIterator;
 use std::path::{Path, PathBuf};
 
@@ -39,7 +40,10 @@ impl SourceFile {
                 null_lines,
             } = file_reader::scan_and_decode_bytes(bytes)?;
 
-            let allocated: &'a str = arena.alloc_str(&decoded);
+            let str_ref: &'a str = match decoded {
+                Cow::Borrowed(s) => s,
+                Cow::Owned(s) => arena.alloc_str(&s),
+            };
 
             let mut invalid_utf8_vec = BumpVec::with_capacity_in(invalid_utf8_lines.len(), arena);
             invalid_utf8_vec.extend_from_slice(&invalid_utf8_lines);
@@ -50,7 +54,7 @@ impl SourceFile {
             let decoded_source = DecodedSource::from_allocated_str(
                 arena,
                 self.clone(),
-                allocated,
+                str_ref,
                 invalid_utf8_vec,
                 null_vec,
             );

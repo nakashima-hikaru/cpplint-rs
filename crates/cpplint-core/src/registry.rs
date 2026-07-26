@@ -43,72 +43,165 @@ pub enum RuleSelection {
     },
 }
 
-const FAMILY_COPYRIGHT: u8 = 1 << 0;
-const FAMILY_HEADERS: u8 = 1 << 1;
-const FAMILY_WHITESPACE: u8 = 1 << 2;
-const FAMILY_RUNTIME: u8 = 1 << 3;
-const FAMILY_READABILITY: u8 = 1 << 4;
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct RuleRequirements: u8 {
+        const RAW_SOURCE     = 1 << 0;
+        const CLEANSED_LINES = 1 << 1;
+        const FILE_FACTS     = 1 << 2;
+        const HEADER_PATH    = 1 << 3;
+        const SYNTAX_TREE    = 1 << 4;
+    }
+}
+
+fn category_requirements(cat: Category) -> RuleRequirements {
+    match cat {
+        Category::LegalCopyright => RuleRequirements::RAW_SOURCE,
+        Category::WhitespaceLineLength
+        | Category::WhitespaceEndingNewline
+        | Category::WhitespaceTab
+        | Category::WhitespaceEndOfLine => RuleRequirements::RAW_SOURCE,
+
+        Category::BuildHeaderGuard
+        | Category::BuildInclude
+        | Category::BuildIncludeSubdir
+        | Category::BuildIncludeAlpha
+        | Category::BuildIncludeOrder
+        | Category::BuildIncludeWhatYouUse => {
+            RuleRequirements::RAW_SOURCE
+                | RuleRequirements::CLEANSED_LINES
+                | RuleRequirements::HEADER_PATH
+        }
+
+        Category::WhitespaceBlankLine
+        | Category::WhitespaceBraces
+        | Category::WhitespaceIndent
+        | Category::WhitespaceIndentNamespace
+        | Category::ReadabilityNamespace
+        | Category::ReadabilityFnSize
+        | Category::ReadabilityConstructors
+        | Category::ReadabilityBraces
+        | Category::RuntimeExplicit
+        | Category::RuntimeInit
+        | Category::BuildNamespaces
+        | Category::BuildNamespacesHeaders => {
+            RuleRequirements::RAW_SOURCE
+                | RuleRequirements::CLEANSED_LINES
+                | RuleRequirements::FILE_FACTS
+        }
+
+        _ => RuleRequirements::RAW_SOURCE | RuleRequirements::CLEANSED_LINES,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ActiveRulePlan {
-    enabled_families: u8,
+    pub categories: categories::CategorySet,
+    pub requirements: RuleRequirements,
 }
 
 impl ActiveRulePlan {
-    fn enable(&mut self, family: RuleFamily) {
-        self.enabled_families |= family_mask(family.name);
+    pub fn enable_category(&mut self, cat: Category) {
+        self.categories.insert(cat);
+        self.requirements |= category_requirements(cat);
     }
 
-    pub fn has_any(self) -> bool {
-        self.enabled_families != 0
+    #[inline]
+    pub fn is_enabled(&self, cat: Category) -> bool {
+        self.categories.contains(cat)
     }
 
-    pub fn has_copyright(self) -> bool {
-        self.enabled_families & FAMILY_COPYRIGHT != 0
+    #[inline]
+    pub fn has_any(&self) -> bool {
+        !self.categories.is_empty()
     }
 
-    pub fn has_headers(self) -> bool {
-        self.enabled_families & FAMILY_HEADERS != 0
+    #[inline]
+    pub fn has_copyright(&self) -> bool {
+        self.is_enabled(Category::LegalCopyright)
     }
 
-    pub fn has_whitespace(self) -> bool {
-        self.enabled_families & FAMILY_WHITESPACE != 0
+    pub fn has_headers(&self) -> bool {
+        self.is_enabled(Category::BuildHeaderGuard)
+            || self.is_enabled(Category::BuildInclude)
+            || self.is_enabled(Category::BuildIncludeSubdir)
+            || self.is_enabled(Category::BuildIncludeAlpha)
+            || self.is_enabled(Category::BuildIncludeOrder)
+            || self.is_enabled(Category::BuildIncludeWhatYouUse)
     }
 
-    pub fn has_runtime(self) -> bool {
-        self.enabled_families & FAMILY_RUNTIME != 0
+    pub fn has_whitespace(&self) -> bool {
+        self.categories.contains(Category::WhitespaceBlankLine)
+            || self.categories.contains(Category::WhitespaceBraces)
+            || self.categories.contains(Category::WhitespaceComma)
+            || self.categories.contains(Category::WhitespaceComments)
+            || self.categories.contains(Category::WhitespaceEmptyConditionalBody)
+            || self.categories.contains(Category::WhitespaceEmptyIfBody)
+            || self.categories.contains(Category::WhitespaceEmptyLoopBody)
+            || self.categories.contains(Category::WhitespaceEndOfLine)
+            || self.categories.contains(Category::WhitespaceEndingNewline)
+            || self.categories.contains(Category::WhitespaceForcolon)
+            || self.categories.contains(Category::WhitespaceIndent)
+            || self.categories.contains(Category::WhitespaceIndentNamespace)
+            || self.categories.contains(Category::WhitespaceLineLength)
+            || self.categories.contains(Category::WhitespaceNewline)
+            || self.categories.contains(Category::WhitespaceOperators)
+            || self.categories.contains(Category::WhitespaceParens)
+            || self.categories.contains(Category::WhitespaceSemicolon)
+            || self.categories.contains(Category::WhitespaceTab)
+            || self.categories.contains(Category::WhitespaceTodo)
     }
 
-    pub fn has_readability(self) -> bool {
-        self.enabled_families & FAMILY_READABILITY != 0
+    pub fn has_runtime(&self) -> bool {
+        self.categories.contains(Category::RuntimeArrays)
+            || self.categories.contains(Category::RuntimeCasting)
+            || self.categories.contains(Category::RuntimeExplicit)
+            || self.categories.contains(Category::RuntimeInt)
+            || self.categories.contains(Category::RuntimeInit)
+            || self.categories.contains(Category::RuntimeInvalidIncrement)
+            || self.categories.contains(Category::RuntimeMemberStringReferences)
+            || self.categories.contains(Category::RuntimeMemset)
+            || self.categories.contains(Category::RuntimeOperator)
+            || self.categories.contains(Category::RuntimePrintf)
+            || self.categories.contains(Category::RuntimePrintfFormat)
+            || self.categories.contains(Category::RuntimeReferences)
+            || self.categories.contains(Category::RuntimeString)
+            || self.categories.contains(Category::RuntimeThreadsafeFn)
+            || self.categories.contains(Category::RuntimeVlog)
     }
 
-    pub fn has_line_checks(self) -> bool {
-        self.has_whitespace() || self.has_runtime() || self.has_readability()
+    pub fn has_readability(&self) -> bool {
+        self.categories.contains(Category::ReadabilityAltTokens)
+            || self.categories.contains(Category::ReadabilityBraces)
+            || self.categories.contains(Category::ReadabilityCasting)
+            || self.categories.contains(Category::ReadabilityCheck)
+            || self.categories.contains(Category::ReadabilityConstructors)
+            || self.categories.contains(Category::ReadabilityFnSize)
+            || self.categories.contains(Category::ReadabilityInheritance)
+            || self.categories.contains(Category::ReadabilityMultilineComment)
+            || self.categories.contains(Category::ReadabilityMultilineString)
+            || self.categories.contains(Category::ReadabilityNamespace)
+            || self.categories.contains(Category::ReadabilityNolint)
+            || self.categories.contains(Category::ReadabilityNul)
+            || self.categories.contains(Category::ReadabilityStrings)
+            || self.categories.contains(Category::ReadabilityTodo)
+            || self.categories.contains(Category::ReadabilityUtf8)
     }
 
-    pub fn needs_cleansed_lines(self, phase: RulePhase) -> bool {
-        match phase {
-            RulePhase::RawSource => false,
-            RulePhase::FileStructure => self.has_headers(),
-            RulePhase::Line => self.has_line_checks(),
-            RulePhase::Finalize => self.has_whitespace(),
-        }
+    pub fn has_line_checks(&self) -> bool {
+        self.has_any()
     }
 
-    pub fn needs_global_suppressions(self) -> bool {
-        self.has_headers() || self.has_line_checks() || self.has_whitespace()
+    pub fn needs_cleansed_lines(&self, _phase: RulePhase) -> bool {
+        self.requirements.contains(RuleRequirements::CLEANSED_LINES)
     }
-}
 
-fn family_mask(name: &str) -> u8 {
-    match name {
-        "copyright" => FAMILY_COPYRIGHT,
-        "headers" => FAMILY_HEADERS,
-        "whitespace" => FAMILY_WHITESPACE,
-        "runtime" => FAMILY_RUNTIME,
-        "readability" => FAMILY_READABILITY,
-        _ => 0,
+    pub fn needs_file_facts(&self) -> bool {
+        self.requirements.contains(RuleRequirements::FILE_FACTS)
+    }
+
+    pub fn needs_global_suppressions(&self) -> bool {
+        self.has_any()
     }
 }
 
@@ -226,6 +319,14 @@ pub fn rule_registry() -> &'static RuleRegistry {
     &REGISTRY
 }
 
+impl Default for RuleRegistry {
+    fn default() -> Self {
+        Self {
+            families: RULE_FAMILIES,
+        }
+    }
+}
+
 impl RuleRegistry {
     pub fn families(&self) -> &'static [RuleFamily] {
         self.families
@@ -276,14 +377,9 @@ impl RuleRegistry {
 
     pub fn active_rule_plan(&self, options: &Options, filename: &str) -> ActiveRulePlan {
         let mut plan = ActiveRulePlan::default();
-        for &family in self.families {
-            let family_active = family.categories.iter().any(|category| {
-                category.parse::<Category>().ok().is_some_and(|category| {
-                    options.can_print_error_for_some_line(category, filename)
-                })
-            });
-            if family_active {
-                plan.enable(family);
+        for &category in Category::ALL {
+            if options.can_print_error_for_some_line(category, filename) {
+                plan.enable_category(category);
             }
         }
         plan
@@ -333,13 +429,13 @@ impl RuleRegistry {
         active_rules: ActiveRulePlan,
     ) {
         if active_rules.has_whitespace() {
-            whitespace::check(linter, facts, clean_lines, linenum);
+            whitespace::check(linter, facts, clean_lines, linenum, active_rules);
         }
         if active_rules.has_runtime() {
-            runtime::check(linter, facts, clean_lines, linenum);
+            runtime::check(linter, facts, clean_lines, linenum, active_rules);
         }
         if active_rules.has_readability() {
-            readability::check(linter, facts, clean_lines, linenum);
+            readability::check(linter, facts, clean_lines, linenum, active_rules);
         }
     }
 
