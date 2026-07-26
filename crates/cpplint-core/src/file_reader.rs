@@ -15,12 +15,6 @@ thread_local! {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RawLineScan {
-    pub invalid_utf8_lines: Vec<usize>,
-    pub null_lines: Vec<usize>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadFileResult {
     pub content: String,
     pub line_ranges: Vec<Range<usize>>,
@@ -125,51 +119,6 @@ pub(crate) fn scan_and_decode_bytes<'a>(bytes: &'a [u8]) -> Result<RawScanResult
         decoded,
         invalid_utf8_lines,
         null_lines,
-    })
-}
-
-pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
-    let mut invalid_utf8_lines = Vec::new();
-    let mut null_lines = Vec::new();
-
-    let all_valid_utf8 = std::str::from_utf8(bytes).is_ok();
-    let has_null = bytes.contains(&b'\0');
-
-    if !all_valid_utf8 || has_null {
-        for (linenum, raw_line) in bytes.split(|&byte| byte == b'\n').enumerate() {
-            let line_bytes = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
-            if !all_valid_utf8 && std::str::from_utf8(line_bytes).is_err() {
-                invalid_utf8_lines.push(linenum);
-            }
-            if has_null && line_bytes.contains(&b'\0') {
-                null_lines.push(linenum);
-            }
-        }
-    }
-
-    RawLineScan {
-        invalid_utf8_lines,
-        null_lines,
-    }
-}
-
-pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
-    if !bytes.starts_with(&[0xEF, 0xBB, 0xBF])
-        && let Ok(s) = std::str::from_utf8(bytes)
-    {
-        return Ok(Cow::Borrowed(s));
-    }
-
-    DECODE_BUF.with(|buf_cell| {
-        let mut decoded_bytes = buf_cell.borrow_mut();
-        decoded_bytes.clear();
-        DecodeReaderBytesBuilder::new()
-            .bom_sniffing(true)
-            .build(Cursor::new(bytes))
-            .read_to_end(&mut decoded_bytes)?;
-        Ok(Cow::Owned(
-            String::from_utf8_lossy(&decoded_bytes).into_owned(),
-        ))
     })
 }
 

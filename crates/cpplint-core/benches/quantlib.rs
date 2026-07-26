@@ -22,7 +22,7 @@ fn bench_quantlib(c: &mut Criterion) {
     let file_count = ignore::WalkBuilder::new(&quantlib_path)
         .build()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map_or(false, |ft| ft.is_file()))
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
         .filter(|e| {
             let ext = e.path().extension().and_then(|s| s.to_str()).unwrap_or("");
             matches!(ext, "cc" | "cpp" | "cxx" | "h" | "hpp" | "hxx")
