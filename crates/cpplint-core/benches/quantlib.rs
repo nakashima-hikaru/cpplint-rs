@@ -65,13 +65,7 @@ class SyntheticClass {
         // Cold benchmark (creates new thread pool each iteration)
         group.bench_function(format!("synthetic_cold_{}_threads", threads), |b| {
             b.iter(|| {
-                let _ = run_lint(
-                    &file_paths,
-                    &config,
-                    std::io::sink(),
-                    std::io::sink(),
-                )
-                .unwrap();
+                let _ = run_lint(&file_paths, &config, std::io::sink(), std::io::sink()).unwrap();
             })
         });
 

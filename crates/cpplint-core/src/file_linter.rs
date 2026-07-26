@@ -128,7 +128,8 @@ impl<'a> FileLinter<'a> {
             self.process_decoded_source(decoded, arena, ProcessMode::Full);
             Ok(())
         });
-        self.session.record_processed_file(self.file_id, self.has_error);
+        self.session
+            .record_processed_file(self.file_id, self.has_error);
         res
     }
 
@@ -142,7 +143,8 @@ impl<'a> FileLinter<'a> {
         let arena = Bump::new();
         let decoded = DecodedSource::from_lines(&arena, self.source_file.clone(), lines);
         self.process_decoded_source(decoded, &arena, ProcessMode::Full);
-        self.session.record_processed_file(self.file_id, self.has_error);
+        self.session
+            .record_processed_file(self.file_id, self.has_error);
     }
 
     pub fn process_language_rules_data<I, S>(&mut self, lines: I)

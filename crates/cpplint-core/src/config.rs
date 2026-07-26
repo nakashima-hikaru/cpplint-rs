@@ -381,8 +381,7 @@ fn read_config_file_uncached(path: &Path) -> Option<Arc<ConfigFile>> {
                     "Skipping config file '{}': Can't open for reading\n",
                     path.display()
                 ),
-            }]
-            .into(),
+            }],
             ..Default::default()
         };
         return Some(Arc::new(config));
@@ -459,7 +458,10 @@ fn read_config_file_uncached(path: &Path) -> Option<Arc<ConfigFile>> {
                 Some(line_length) => config.line_length = Some(line_length),
                 None => messages.push(ConfigMessage {
                     kind: ConfigMessageKind::Error,
-                    text: format!("Line length must be a positive integer, not \"{}\"\n", value),
+                    text: format!(
+                        "Line length must be a positive integer, not \"{}\"\n",
+                        value
+                    ),
                 }),
             },
             "root" => config.root = Some(PathBuf::from(value)),
