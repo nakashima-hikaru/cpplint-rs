@@ -15,6 +15,14 @@ pub fn format_diagnostic(
     diagnostic: &Diagnostic,
 ) -> String {
     let filename = file_name_for(file_names, diagnostic.file_id);
+    format_diagnostic_with_name(output_format, filename, diagnostic)
+}
+
+pub fn format_diagnostic_with_name(
+    output_format: OutputFormat,
+    filename: &str,
+    diagnostic: &Diagnostic,
+) -> String {
     match output_format {
         OutputFormat::Vs7 => format!(
             "{}({}): error cpplint: [{}] {} [{}]\n",
@@ -54,12 +62,20 @@ pub fn format_sed_diagnostic(
     file_names: &FileTable,
     diagnostic: &Diagnostic,
 ) -> (bool, String) {
+    let filename = file_name_for(file_names, diagnostic.file_id);
+    format_sed_diagnostic_with_name(output_format, filename, diagnostic)
+}
+
+pub fn format_sed_diagnostic_with_name(
+    output_format: OutputFormat,
+    filename: &str,
+    diagnostic: &Diagnostic,
+) -> (bool, String) {
     let command = match output_format {
         OutputFormat::Sed => "sed",
         OutputFormat::Gsed => "gsed",
         _ => return (false, String::new()),
     };
-    let filename = file_name_for(file_names, diagnostic.file_id);
 
     if let Some(script) = sed_fixup(&diagnostic.message) {
         (

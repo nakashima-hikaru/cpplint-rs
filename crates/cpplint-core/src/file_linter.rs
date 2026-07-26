@@ -120,9 +120,11 @@ impl<'a> FileLinter<'a> {
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn process_file_with_arena(&mut self, arena: &Bump) -> Result<()> {
-        let decoded = self.source_file.read_into(arena)?;
-        self.process_decoded_source(decoded, arena, ProcessMode::Full);
-        Ok(())
+        let source_file = self.source_file.clone();
+        source_file.with_decoded_source(arena, |decoded| {
+            self.process_decoded_source(decoded, arena, ProcessMode::Full);
+            Ok(())
+        })
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -463,6 +465,44 @@ impl<'a> FileLinter<'a> {
     }
 }
 
+use rustc_hash::FxHashMap;
+use std::cell::RefCell;
+
+thread_local! {
+    static VCS_ROOT_CACHE: RefCell<FxHashMap<PathBuf, PathBuf>> = RefCell::new(FxHashMap::default());
+}
+
+fn find_vcs_root(dir: &Path) -> PathBuf {
+    VCS_ROOT_CACHE.with(|cache_cell| {
+        let mut cache = cache_cell.borrow_mut();
+        if let Some(root) = cache.get(dir) {
+            return root.clone();
+        }
+
+        let mut current = dir;
+        let mut project_root = current.to_path_buf();
+        loop {
+            if current.join(".git").exists()
+                || current.join(".hg").exists()
+                || current.join(".svn").exists()
+            {
+                project_root = current.to_path_buf();
+                break;
+            }
+            let Some(parent) = current.parent() else {
+                break;
+            };
+            if parent == current {
+                break;
+            }
+            current = parent;
+        }
+
+        cache.insert(dir.to_path_buf(), project_root.clone());
+        project_root
+    })
+}
+
 fn relative_from_repository(file: &Path, repository: &Path) -> PathBuf {
     if file == Path::new("-") {
         return PathBuf::from("-");
@@ -482,24 +522,8 @@ fn relative_from_repository(file: &Path, repository: &Path) -> PathBuf {
         return file.to_path_buf();
     };
 
-    let mut current = file_abs.parent().unwrap_or(file_abs.as_path());
-    let mut project_root = current.to_path_buf();
-    loop {
-        if current.join(".git").exists()
-            || current.join(".hg").exists()
-            || current.join(".svn").exists()
-        {
-            project_root = current.to_path_buf();
-            break;
-        }
-        let Some(parent) = current.parent() else {
-            break;
-        };
-        if parent == current {
-            break;
-        }
-        current = parent;
-    }
+    let parent_dir = file_abs.parent().unwrap_or(&file_abs);
+    let project_root = find_vcs_root(parent_dir);
 
     file_abs
         .strip_prefix(project_root)

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::{self, Cursor, Read};
@@ -27,6 +28,7 @@ pub struct ReadFileResult {
     pub lf_lines_count: usize,
     pub invalid_utf8_lines: Vec<usize>,
     pub null_lines: Vec<usize>,
+    pub had_utf8_bom: bool,
 }
 
 impl ReadFileResult {
@@ -44,44 +46,6 @@ impl ReadFileResult {
     }
 }
 
-pub(crate) enum FileBytes {
-    Mmap(memmap2::Mmap),
-    Heap(Vec<u8>),
-}
-
-impl std::ops::Deref for FileBytes {
-    type Target = [u8];
-    #[inline]
-    fn deref(&self) -> &[u8] {
-        match self {
-            FileBytes::Mmap(mmap) => mmap,
-            FileBytes::Heap(vec) => vec,
-        }
-    }
-}
-
-pub(crate) fn read_raw_bytes(path: &Path) -> Result<FileBytes> {
-    if path == Path::new("-") {
-        let mut bytes = Vec::new();
-        io::stdin().read_to_end(&mut bytes)?;
-        return Ok(FileBytes::Heap(bytes));
-    }
-
-    let file = File::open(path)?;
-    let metadata = file.metadata()?;
-    let len = metadata.len();
-
-    if len >= 16384
-        && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) }
-    {
-        return Ok(FileBytes::Mmap(mmap));
-    }
-
-    let mut bytes = Vec::with_capacity(len as usize);
-    file.take(len).read_to_end(&mut bytes)?;
-    Ok(FileBytes::Heap(bytes))
-}
-
 pub(crate) fn read_raw_bytes_with_buffer<F, R>(path: &Path, f: F) -> Result<R>
 where
     F: FnOnce(&[u8]) -> Result<R>,
@@ -96,7 +60,7 @@ where
     let metadata = file.metadata()?;
     let len = metadata.len();
 
-    if len >= 16384
+    if len >= 65536
         && let Ok(mmap) = unsafe { memmap2::MmapOptions::new().map(&file) }
     {
         return f(&mmap);
@@ -114,13 +78,60 @@ where
     })
 }
 
+pub(crate) struct RawScanResult<'a> {
+    pub decoded: Cow<'a, str>,
+    pub invalid_utf8_lines: Vec<usize>,
+    pub null_lines: Vec<usize>,
+}
+
+pub(crate) fn scan_and_decode_bytes<'a>(bytes: &'a [u8]) -> Result<RawScanResult<'a>> {
+    let has_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+    let utf8_res = std::str::from_utf8(bytes);
+    let all_valid_utf8 = utf8_res.is_ok();
+    let has_null = bytes.contains(&b'\0');
+
+    let mut invalid_utf8_lines = Vec::new();
+    let mut null_lines = Vec::new();
+
+    if !all_valid_utf8 || has_null {
+        for (linenum, raw_line) in bytes.split(|&byte| byte == b'\n').enumerate() {
+            let line_bytes = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
+            if !all_valid_utf8 && std::str::from_utf8(line_bytes).is_err() {
+                invalid_utf8_lines.push(linenum);
+            }
+            if has_null && line_bytes.contains(&b'\0') {
+                null_lines.push(linenum);
+            }
+        }
+    }
+
+    let decoded = if !has_bom && let Ok(s) = utf8_res {
+        Cow::Borrowed(s)
+    } else {
+        DECODE_BUF.with(|buf_cell| {
+            let mut decoded_bytes = buf_cell.borrow_mut();
+            decoded_bytes.clear();
+            DecodeReaderBytesBuilder::new()
+                .bom_sniffing(true)
+                .build(Cursor::new(bytes))
+                .read_to_end(&mut decoded_bytes)?;
+            Ok::<_, crate::errors::CppLintError>(Cow::Owned(
+                String::from_utf8_lossy(&decoded_bytes).into_owned(),
+            ))
+        })?
+    };
+
+    Ok(RawScanResult {
+        decoded,
+        invalid_utf8_lines,
+        null_lines,
+    })
+}
+
 pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     let mut invalid_utf8_lines = Vec::new();
     let mut null_lines = Vec::new();
 
-    // ⚡ Bolt: Fast path for files that are fully valid UTF-8 and contain no null bytes.
-    // The standard library `from_utf8` and slice `contains` are highly optimized and
-    // process the entire buffer much faster than checking line-by-line.
     let all_valid_utf8 = std::str::from_utf8(bytes).is_ok();
     let has_null = bytes.contains(&b'\0');
 
@@ -142,10 +153,7 @@ pub(crate) fn scan_raw_lines(bytes: &[u8]) -> RawLineScan {
     }
 }
 
-use std::borrow::Cow;
-
 pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
-    // Fast path: Pure UTF-8 without BOM
     if !bytes.starts_with(&[0xEF, 0xBB, 0xBF])
         && let Ok(s) = std::str::from_utf8(bytes)
     {
@@ -167,13 +175,14 @@ pub(crate) fn decode_bytes<'a>(bytes: &'a [u8]) -> Result<Cow<'a, str>> {
 
 pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
     read_raw_bytes_with_buffer(path, |bytes| {
-        let RawLineScan {
+        let had_utf8_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+        let RawScanResult {
+            decoded,
             invalid_utf8_lines,
             null_lines,
-        } = scan_raw_lines(bytes);
-        let decoded = decode_bytes(bytes)?;
+        } = scan_and_decode_bytes(bytes)?;
 
-        let est_lines = decoded.bytes().filter(|&b| b == b'\n').count() + 1;
+        let est_lines = (bytes.len() / 30).max(1);
         let mut line_ranges = Vec::with_capacity(est_lines);
         let mut crlf_lines = Vec::new();
         let mut lf_lines_count = 0usize;
@@ -209,6 +218,8 @@ pub fn read_lines(path: &Path) -> Result<ReadFileResult> {
             lf_lines_count,
             invalid_utf8_lines,
             null_lines,
+            had_utf8_bom,
         })
     })
 }
+

@@ -13,12 +13,28 @@ fn bench_quantlib(c: &mut Criterion) {
     quantlib_path.push("QuantLib");
 
     if !quantlib_path.exists() {
-        eprintln!(
-            "Warning: QuantLib directory not found at {:?}. Skipping benchmark.",
+        panic!(
+            "QuantLib benchmark directory not found at {:?}. Run `just setup-bench-data` or clone QuantLib to run benchmarks.",
             quantlib_path
         );
-        return;
     }
+
+    let file_count = ignore::WalkBuilder::new(&quantlib_path)
+        .build()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map_or(false, |ft| ft.is_file()))
+        .filter(|e| {
+            let ext = e.path().extension().and_then(|s| s.to_str()).unwrap_or("");
+            matches!(ext, "cc" | "cpp" | "cxx" | "h" | "hpp" | "hxx")
+        })
+        .count();
+
+    assert!(
+        file_count >= 100,
+        "QuantLib benchmark corpus is missing or incomplete at {:?}. Found only {} C++ source files (expected >= 100).",
+        quantlib_path,
+        file_count
+    );
 
     let config = RunnerConfig {
         recursive: true,

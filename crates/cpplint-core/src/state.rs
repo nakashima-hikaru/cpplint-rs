@@ -407,6 +407,16 @@ impl LintSession {
         });
     }
 
+    pub fn record_diagnostic_object(&self, diagnostic: Diagnostic) {
+        let mut inner = self.inner.lock();
+        inner.error_count += 1;
+        *inner
+            .errors_by_category
+            .entry(diagnostic.category.to_string())
+            .or_insert(0) += 1;
+        inner.diagnostics.push(diagnostic);
+    }
+
     pub fn record_diagnostic_display_line(
         &self,
         file_id: FileId,

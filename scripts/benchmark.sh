@@ -132,10 +132,12 @@ run_bench() {
     # Note: we do not add inner quotes around variables here because cmd.exe handles quotes poorly.
     # GitHub Action paths (/d/a/...) generally do not contain spaces.
     local bench_cmds=()
-    # if command -v cpplint &> /dev/null; then
-    #     bench_cmds+=("-n" "cpplint-py" "cpplint --recursive $run_path")
-    # fi
-    # bench_cmds+=("-n" "cpplint-cpp" "$cpp_bin --recursive $run_path")
+    if command -v cpplint &> /dev/null; then
+        bench_cmds+=("-n" "cpplint-py" "cpplint --recursive $run_path")
+    fi
+    if [ -x "$cpp_bin" ]; then
+        bench_cmds+=("-n" "cpplint-cpp" "$cpp_bin --recursive $run_path")
+    fi
     bench_cmds+=("-n" "cpplint-rs" "$rs_bin --recursive $run_path")
 
     hyperfine --warmup 3 \

@@ -38,6 +38,14 @@ impl FileTable {
             .unwrap_or_else(|| panic!("missing file name for file_id={index}"))
     }
 
+    pub fn get_arc(&self, file_id: FileId) -> Arc<str> {
+        let index = file_id.index();
+        self.names
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| panic!("missing file name for file_id={index}"))
+    }
+
     pub fn merge_from(&mut self, other: &Self) {
         for (index, name) in other.names.iter().enumerate() {
             if let Some(existing) = self.names.get(index) {
@@ -66,6 +74,18 @@ impl ThreadSafeFileTable {
 
     pub fn intern(&self, filename: &str) -> FileId {
         self.inner.write().intern(filename)
+    }
+
+    pub fn get_arc(&self, file_id: FileId) -> Arc<str> {
+        self.inner.read().get_arc(file_id)
+    }
+
+    pub fn get_name<F, R>(&self, file_id: FileId, f: F) -> R
+    where
+        F: FnOnce(&str) -> R,
+    {
+        let guard = self.inner.read();
+        f(guard.get(file_id))
     }
 
     pub fn snapshot(&self) -> FileTable {

@@ -120,18 +120,50 @@ enum NewlineStyle {
     CrLf,
 }
 
-pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<bool> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixResult {
+    pub changed: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl std::ops::Deref for FixResult {
+    type Target = bool;
+    fn deref(&self) -> &Self::Target {
+        &self.changed
+    }
+}
+
+impl std::ops::Not for FixResult {
+    type Output = bool;
+    fn not(self) -> Self::Output {
+        !self.changed
+    }
+}
+
+impl std::ops::Not for &FixResult {
+    type Output = bool;
+    fn not(self) -> Self::Output {
+        !self.changed
+    }
+}
+
+pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<FixResult> {
     if path == Path::new("-") {
-        return Ok(false);
+        return Ok(FixResult {
+            changed: false,
+            diagnostics: Vec::new(),
+        });
     }
 
-    let raw_bytes = std::fs::read(path)?;
-    let had_utf8_bom = raw_bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
     let read_result = file_reader::read_lines(path)?;
     if !read_result.invalid_utf8_lines.is_empty() {
-        return Ok(false);
+        return Ok(FixResult {
+            changed: false,
+            diagnostics: Vec::new(),
+        });
     }
 
+    let had_utf8_bom = read_result.had_utf8_bom;
     let lines_vec = read_result.to_lines_vec();
     let mixed_line_endings = has_mixed_line_endings(
         &lines_vec,
@@ -139,41 +171,53 @@ pub fn fix_file_in_place(path: &Path, options: &Options) -> Result<bool> {
         &read_result.crlf_lines,
     );
     let mut lines = lines_vec;
-    let original_lines = lines.clone();
     let newline_style = if mixed_line_endings || read_result.crlf_lines.is_empty() {
         NewlineStyle::Lf
     } else {
         NewlineStyle::CrLf
     };
 
+    let mut last_diagnostics = Vec::new();
+    let mut any_changed = false;
+
     for _ in 0..MAX_FIX_PASSES {
         let diagnostics = lint_lines(path, options, &lines);
+        last_diagnostics = diagnostics.clone();
         if diagnostics.is_empty() {
             break;
         }
 
-        let mut changed = false;
-        changed |= fix_header_guard(path, options, &diagnostics, &mut lines);
-        changed |= fix_include_block(path, options, &diagnostics, &mut lines);
-        changed |= fix_namespace_comments(&diagnostics, &mut lines);
-        changed |= fix_brace_placement(&diagnostics, &mut lines);
-        if changed {
+        let mut pass_changed = false;
+        pass_changed |= fix_header_guard(path, options, &diagnostics, &mut lines);
+        pass_changed |= fix_include_block(path, options, &diagnostics, &mut lines);
+        pass_changed |= fix_namespace_comments(&diagnostics, &mut lines);
+        pass_changed |= fix_brace_placement(&diagnostics, &mut lines);
+        if pass_changed {
+            any_changed = true;
             continue;
         }
 
-        changed |= apply_line_fixes(path, options, &diagnostics, &mut lines);
-        if !changed {
+        pass_changed |= apply_line_fixes(path, options, &diagnostics, &mut lines);
+        if pass_changed {
+            any_changed = true;
+        } else {
             break;
         }
     }
 
-    let should_write = mixed_line_endings || lines != original_lines;
-    if !should_write {
-        return Ok(false);
+    if !any_changed && !mixed_line_endings {
+        return Ok(FixResult {
+            changed: false,
+            diagnostics: last_diagnostics,
+        });
     }
 
     write_lines(path, &lines, newline_style, had_utf8_bom)?;
-    Ok(true)
+    let final_diagnostics = lint_lines(path, options, &lines);
+    Ok(FixResult {
+        changed: true,
+        diagnostics: final_diagnostics,
+    })
 }
 
 fn lint_lines(path: &Path, options: &Options, lines: &[String]) -> Vec<Diagnostic> {

@@ -7,7 +7,8 @@ use crate::fixer::fix_file_in_place;
 use crate::glob::GlobPattern;
 use crate::options::Options;
 use crate::output::{
-    DiagnosticCounter, format_diagnostic, format_note, format_sed_diagnostic, render_owned,
+    DiagnosticCounter, format_diagnostic, format_diagnostic_with_name, format_note,
+    format_sed_diagnostic, format_sed_diagnostic_with_name, render_owned,
 };
 use crate::state::{CountingStyle, CppLintState, OutputFormat, SessionSettings, SessionSnapshot};
 use crate::string_utils::set_to_str;
@@ -424,9 +425,12 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
     let cwd = std::env::current_dir()?;
     let excludes = compile_excludes(&cwd, &config.excludes)?;
 
-    let num_threads = config.num_threads.get();
-    let pool = if num_threads > 1 {
-        Some(ThreadPoolBuilder::new().num_threads(num_threads).build()?)
+    let total_threads = config.num_threads.get();
+    let walker_threads = if total_threads >= 8 { 2 } else { 1 };
+    let lint_threads = total_threads.saturating_sub(walker_threads).max(1);
+
+    let pool = if lint_threads > 1 {
+        Some(ThreadPoolBuilder::new().num_threads(lint_threads).build()?)
     } else {
         None
     };
@@ -442,7 +446,7 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
         s.spawn(move || {
             let (path_tx, path_rx) = std::sync::mpsc::channel::<(Option<Note>, Option<PathBuf>)>();
 
-            let prod_thread_count = if num_threads > 1 { num_threads / 2 } else { 1 };
+            let prod_thread_count = walker_threads;
             let path_tx_clone = path_tx.clone();
             let file_table_prod_inner = Arc::clone(&file_table_prod);
             std::thread::spawn(move || {
@@ -546,7 +550,6 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
 
         // 3. Main Renderer Loop: 受信した結果を逐次画面に出力
         for batch in report_rx {
-            let current_table = thread_safe_file_table.snapshot();
             for report in batch {
                 for note in &report.notes {
                     match note.stream {
@@ -560,24 +563,26 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                 }
 
                 for diag in &report.diagnostics {
-                    match config.output_format {
-                        OutputFormat::Sed | OutputFormat::Gsed => {
-                            let (is_fixable, text) =
-                                format_sed_diagnostic(config.output_format, &current_table, diag);
-                            if is_fixable {
-                                let _ = write!(stdout, "{}", text);
-                            } else {
-                                let _ = write!(stderr, "{}", text);
+                    thread_safe_file_table.get_name(diag.file_id, |filename| {
+                        match config.output_format {
+                            OutputFormat::Sed | OutputFormat::Gsed => {
+                                let (is_fixable, text) =
+                                    format_sed_diagnostic_with_name(config.output_format, filename, diag);
+                                if is_fixable {
+                                    let _ = write!(stdout, "{}", text);
+                                } else {
+                                    let _ = write!(stderr, "{}", text);
+                                }
+                            }
+                            _ => {
+                                let _ = write!(
+                                    stderr,
+                                    "{}",
+                                    format_diagnostic_with_name(config.output_format, filename, diag)
+                                );
                             }
                         }
-                        _ => {
-                            let _ = write!(
-                                stderr,
-                                "{}",
-                                format_diagnostic(config.output_format, &current_table, diag)
-                            );
-                        }
-                    }
+                    });
                 }
 
                 for diag in &report.diagnostics {
@@ -962,21 +967,36 @@ fn process_file_with_arena(
     }
 
     let has_error = {
-        if fix && let Err(error) = fix_file_in_place(&file, options.as_ref()) {
-            state.record_raw_error(
-                file_id,
-                failure_note_order,
-                format!(
-                    "Skipping input '{}': Can't apply fixes ({})\n",
-                    display_name, error
-                ),
-            );
-            return state.into_snapshot().into();
-        }
-        let mut linter = FileLinter::with_file_id(file, &state, options, file_id);
-        match linter.process_file_with_arena(arena) {
-            Ok(()) => Some(linter.has_error()),
-            Err(_) => None,
+        if fix {
+            match fix_file_in_place(&file, options.as_ref()) {
+                Ok(fix_res) => {
+                    let mut has_err = false;
+                    for diag in fix_res.diagnostics {
+                        if diag.confidence >= 1 {
+                            has_err = true;
+                        }
+                        state.record_diagnostic_object(diag);
+                    }
+                    Some(has_err)
+                }
+                Err(error) => {
+                    state.record_raw_error(
+                        file_id,
+                        failure_note_order,
+                        format!(
+                            "Skipping input '{}': Can't apply fixes ({})\n",
+                            display_name, error
+                        ),
+                    );
+                    return state.into_snapshot().into();
+                }
+            }
+        } else {
+            let mut linter = FileLinter::with_file_id(file, &state, options, file_id);
+            match linter.process_file_with_arena(arena) {
+                Ok(()) => Some(linter.has_error()),
+                Err(_) => None,
+            }
         }
     };
 

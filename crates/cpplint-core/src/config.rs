@@ -112,7 +112,7 @@ pub(crate) struct DirectoryConfigCache {
 }
 
 thread_local! {
-    static CONFIG_FILE_CACHE: RefCell<FxHashMap<PathBuf, Arc<ConfigFile>>> =
+    static CONFIG_FILE_CACHE: RefCell<FxHashMap<PathBuf, Option<Arc<ConfigFile>>>> =
         RefCell::new(FxHashMap::default());
 }
 
@@ -211,8 +211,7 @@ fn build_directory_plan(
     let mut local_messages = Vec::new();
     let mut local_excludes = Vec::new();
     let local_cfg_path = directory.join(config_filename);
-    if local_cfg_path.is_file() {
-        let config = read_config_file(&local_cfg_path);
+    if let Some(config) = read_config_file(&local_cfg_path) {
         apply_config_layer(
             &mut options,
             &mut local_messages,
@@ -247,8 +246,7 @@ fn build_directory_plan(
         }
 
         let cfg_path = parent.join(config_filename);
-        if cfg_path.is_file() {
-            let config = read_config_file(&cfg_path);
+        if let Some(config) = read_config_file(&cfg_path) {
             let component = path
                 .file_name()
                 .and_then(|value| value.to_str())
@@ -376,10 +374,15 @@ fn first_matching_exclude_raw(config: &ConfigFile, component: &str) -> Option<St
     })
 }
 
-fn read_config_file(path: &Path) -> Arc<ConfigFile> {
+fn read_config_file(path: &Path) -> Option<Arc<ConfigFile>> {
     CONFIG_FILE_CACHE.with(|cache_cell| {
-        if let Some(config) = cache_cell.borrow().get(path).cloned() {
-            return config;
+        if let Some(opt) = cache_cell.borrow().get(path) {
+            return opt.clone();
+        }
+
+        if !path.is_file() {
+            cache_cell.borrow_mut().insert(path.to_path_buf(), None);
+            return None;
         }
 
         let Ok(contents) = std::fs::read_to_string(path) else {
@@ -397,8 +400,8 @@ fn read_config_file(path: &Path) -> Arc<ConfigFile> {
             let config = Arc::new(config);
             cache_cell
                 .borrow_mut()
-                .insert(path.to_path_buf(), Arc::clone(&config));
-            return config;
+                .insert(path.to_path_buf(), Some(Arc::clone(&config)));
+            return Some(config);
         };
 
         let mut config = ConfigFile::default();
@@ -510,8 +513,8 @@ fn read_config_file(path: &Path) -> Arc<ConfigFile> {
         let config = Arc::new(config);
         cache_cell
             .borrow_mut()
-            .insert(path.to_path_buf(), Arc::clone(&config));
-        config
+            .insert(path.to_path_buf(), Some(Arc::clone(&config)));
+        Some(config)
     })
 }
 
@@ -666,7 +669,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = read_config_file(&cfg);
+        let config = read_config_file(&cfg).unwrap();
         assert!(
             config
                 .messages

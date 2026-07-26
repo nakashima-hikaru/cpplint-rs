@@ -1,5 +1,5 @@
 use crate::errors::Result;
-use crate::file_reader::{self, RawLineScan, ReadFileResult};
+use crate::file_reader::{self, ReadFileResult};
 use bumpalo::Bump;
 use bumpalo::collections::Vec as BumpVec;
 use std::iter::ExactSizeIterator;
@@ -28,34 +28,35 @@ impl SourceFile {
         &self.display_name
     }
 
-    pub fn read_into<'a>(&self, arena: &'a Bump) -> Result<DecodedSource<'a>> {
-        let bytes = file_reader::read_raw_bytes(&self.path)?;
-        let owned_bytes = arena.alloc(bytes);
+    pub fn with_decoded_source<'a, F, R>(&self, arena: &'a Bump, f: F) -> Result<R>
+    where
+        F: FnOnce(DecodedSource<'a>) -> Result<R>,
+    {
+        file_reader::read_raw_bytes_with_buffer(&self.path, |bytes| {
+            let file_reader::RawScanResult {
+                decoded,
+                invalid_utf8_lines,
+                null_lines,
+            } = file_reader::scan_and_decode_bytes(bytes)?;
 
-        let RawLineScan {
-            invalid_utf8_lines,
-            null_lines,
-        } = file_reader::scan_raw_lines(owned_bytes);
-        let decoded = file_reader::decode_bytes(owned_bytes)?;
+            let allocated: &'a str = arena.alloc_str(&decoded);
 
-        let allocated: &'a str = match decoded {
-            std::borrow::Cow::Borrowed(s) => s,
-            std::borrow::Cow::Owned(s) => arena.alloc_str(&s),
-        };
+            let mut invalid_utf8_vec = BumpVec::with_capacity_in(invalid_utf8_lines.len(), arena);
+            invalid_utf8_vec.extend_from_slice(&invalid_utf8_lines);
 
-        let mut invalid_utf8_vec = BumpVec::with_capacity_in(invalid_utf8_lines.len(), arena);
-        invalid_utf8_vec.extend_from_slice(&invalid_utf8_lines);
+            let mut null_vec = BumpVec::with_capacity_in(null_lines.len(), arena);
+            null_vec.extend_from_slice(&null_lines);
 
-        let mut null_vec = BumpVec::with_capacity_in(null_lines.len(), arena);
-        null_vec.extend_from_slice(&null_lines);
+            let decoded_source = DecodedSource::from_allocated_str(
+                arena,
+                self.clone(),
+                allocated,
+                invalid_utf8_vec,
+                null_vec,
+            );
 
-        Ok(DecodedSource::from_allocated_str(
-            arena,
-            self.clone(),
-            allocated,
-            invalid_utf8_vec,
-            null_vec,
-        ))
+            f(decoded_source)
+        })
     }
 }
 
@@ -77,7 +78,7 @@ impl<'a> DecodedSource<'a> {
         invalid_utf8_lines: BumpVec<'a, usize>,
         null_lines: BumpVec<'a, usize>,
     ) -> Self {
-        let est_lines = allocated_decoded.bytes().filter(|&b| b == b'\n').count() + 1;
+        let est_lines = (allocated_decoded.len() / 30).max(1);
         let mut lines = BumpVec::with_capacity_in(est_lines, arena);
         let mut crlf_lines = BumpVec::new_in(arena);
         let mut lf_lines_count = 0usize;
@@ -247,6 +248,7 @@ mod tests {
                 lf_lines_count: 2,
                 invalid_utf8_lines: vec![2],
                 null_lines: vec![1],
+                had_utf8_bom: false,
             },
         );
 
