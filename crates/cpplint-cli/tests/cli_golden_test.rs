@@ -24,13 +24,6 @@ fn run_cli(repo_root: &Path, args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
-#[allow(dead_code)]
-fn read_golden(name: &str, repo_root: &Path) -> String {
-    std::fs::read_to_string(repo_root.join("cpplint-rs/tests/golden").join(name))
-        .unwrap()
-        .replace("{{REPO_ROOT}}", &repo_root.to_string_lossy())
-}
-
 fn temp_dir() -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -39,35 +32,6 @@ fn temp_dir() -> PathBuf {
     let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!("cpplint-rs-cli-{}-{}", unique, counter))
 }
-
-// #[test]
-// fn matches_golden_outputs_for_repository_samples() {
-//     let root = repo_root();
-
-//     let clean_source = run_cli(&root, &["src/string_utils.cpp"]);
-//     assert!(clean_source.status.success());
-//     assert_eq!(
-//         String::from_utf8_lossy(&clean_source.stdout),
-//         read_golden("string_utils.txt", &root)
-//     );
-//     assert!(clean_source.stderr.is_empty());
-
-//     let clean_header = run_cli(&root, &["include/string_utils.h"]);
-//     assert!(clean_header.status.success());
-//     assert_eq!(
-//         String::from_utf8_lossy(&clean_header.stdout),
-//         read_golden("string_utils_h.txt", &root)
-//     );
-//     assert!(clean_header.stderr.is_empty());
-
-//     let excluded = run_cli(&root, &["tests/test_files/invalid_utf.c"]);
-//     assert!(excluded.status.success());
-//     assert_eq!(
-//         String::from_utf8_lossy(&excluded.stdout),
-//         read_golden("invalid_utf.txt", &root)
-//     );
-//     assert!(excluded.stderr.is_empty());
-// }
 
 #[test]
 fn supports_alternate_output_formats() {

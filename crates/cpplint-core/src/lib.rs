@@ -27,7 +27,6 @@ pub mod line_utils;
 pub mod messages;
 pub mod options;
 pub mod output;
-pub(crate) mod regex_utils;
 pub mod registry;
 pub mod runner;
 pub mod source;
