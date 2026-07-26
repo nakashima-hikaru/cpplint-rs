@@ -240,7 +240,11 @@ impl<'a> DecodedSource<'a> {
 
     #[inline]
     pub fn into_parts(self) -> (BumpVec<'a, &'a str>, BumpVec<'a, usize>, bool) {
-        (self.lines, self.crlf_lines, self.has_global_suppression_hints)
+        (
+            self.lines,
+            self.crlf_lines,
+            self.has_global_suppression_hints,
+        )
     }
 }
 

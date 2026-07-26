@@ -549,10 +549,8 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
                     let file_id = file_table_prod.intern(&file.to_string_lossy());
                     work_batch.push((file_id, file));
                     if work_batch.len() >= 64 {
-                        let _ = work_tx.send(std::mem::replace(
-                            &mut work_batch,
-                            Vec::with_capacity(64),
-                        ));
+                        let _ = work_tx
+                            .send(std::mem::replace(&mut work_batch, Vec::with_capacity(64)));
                     }
                 }
             }

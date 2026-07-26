@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use regex::Regex;
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;

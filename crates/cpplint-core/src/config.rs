@@ -87,12 +87,15 @@ struct PreparedDirectoryPlan {
     outcome: PreparedDirectoryOutcome,
 }
 
+type CachedPlan = Arc<OnceLock<Arc<PreparedDirectoryPlan>>>;
+type CachedConfigFile = Arc<OnceLock<Option<Arc<ConfigFile>>>>;
+
 #[derive(Debug)]
 pub(crate) struct DirectoryConfigCache {
     base_options: Arc<Options>,
     config_filename: String,
-    plans: RwLock<FxHashMap<PathBuf, Arc<OnceLock<Arc<PreparedDirectoryPlan>>>>>,
-    file_cache: RwLock<FxHashMap<PathBuf, Arc<OnceLock<Option<Arc<ConfigFile>>>>>>,
+    plans: RwLock<FxHashMap<PathBuf, CachedPlan>>,
+    file_cache: RwLock<FxHashMap<PathBuf, CachedConfigFile>>,
 }
 
 impl DirectoryConfigCache {

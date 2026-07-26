@@ -1249,25 +1249,25 @@ fn matches_namespace_end_comment(raw_line: &str, name: &str) -> bool {
         let abs_idx = search_from + idx;
         search_from = abs_idx + "namespace".len();
 
-        if abs_idx > 0 {
-            if let Some(prev_char) = after_semis[..abs_idx].chars().next_back() {
-                if prev_char.is_ascii_alphanumeric() || prev_char == '_' {
-                    continue;
-                }
-            }
+        if abs_idx > 0
+            && after_semis[..abs_idx]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            continue;
         }
         let rest = &after_semis[abs_idx + "namespace".len()..];
         let rest_trimmed = rest.trim_start();
         if rest.len() == rest_trimmed.len() {
             continue;
         }
-        if let Some(after_name) = rest_trimmed.strip_prefix(name) {
-            if after_name
+        if rest_trimmed.strip_prefix(name).is_some_and(|after_name| {
+            after_name
                 .bytes()
                 .all(|b| matches!(b, b'*' | b'/' | b'.' | b'\\' | b' ' | b'\t' | b'\r' | b'\n'))
-            {
-                return true;
-            }
+        }) {
+            return true;
         }
     }
     false
