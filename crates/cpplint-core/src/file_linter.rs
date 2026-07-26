@@ -60,17 +60,6 @@ impl<'a> FileLinter<'a> {
         Self::with_source_file(source_file, state, options, file_id)
     }
 
-    pub(crate) fn with_file_id(
-        file_path: PathBuf,
-        state: &'a CppLintState,
-        options: impl Into<Arc<Options>>,
-        file_id: FileId,
-    ) -> Self {
-        let options = options.into();
-        let source_file = SourceFile::with_options(file_path, options.as_ref());
-        Self::with_source_file(source_file, state, options, file_id)
-    }
-
     pub(crate) fn with_source_file(
         source_file: SourceFile,
         state: &'a CppLintState,
@@ -505,91 +494,6 @@ impl<'a> FileLinter<'a> {
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
         self.session.diagnostics()
     }
-}
-
-use rustc_hash::FxHashMap;
-use std::cell::RefCell;
-
-thread_local! {
-    static VCS_ROOT_CACHE: RefCell<FxHashMap<PathBuf, PathBuf>> = RefCell::new(FxHashMap::default());
-}
-
-fn find_vcs_root(dir: &Path) -> PathBuf {
-    VCS_ROOT_CACHE.with(|cache_cell| {
-        let mut cache = cache_cell.borrow_mut();
-        if let Some(root) = cache.get(dir) {
-            return root.clone();
-        }
-
-        let mut current = dir;
-        let mut project_root = current.to_path_buf();
-        loop {
-            if current.join(".git").exists()
-                || current.join(".hg").exists()
-                || current.join(".svn").exists()
-            {
-                project_root = current.to_path_buf();
-                break;
-            }
-            let Some(parent) = current.parent() else {
-                break;
-            };
-            if parent == current {
-                break;
-            }
-            current = parent;
-        }
-
-        cache.insert(dir.to_path_buf(), project_root.clone());
-        project_root
-    })
-}
-
-fn relative_from_repository(file: &Path, repository: &Path) -> PathBuf {
-    if file == Path::new("-") {
-        return PathBuf::from("-");
-    }
-
-    if !repository.as_os_str().is_empty()
-        && let (Ok(file_abs), Ok(repo_abs)) = (
-            std::fs::canonicalize(file),
-            std::fs::canonicalize(repository),
-        )
-        && let Ok(relative) = file_abs.strip_prefix(repo_abs)
-    {
-        return relative.to_path_buf();
-    }
-
-    let Ok(file_abs) = std::fs::canonicalize(file) else {
-        return file.to_path_buf();
-    };
-
-    let parent_dir = file_abs.parent().unwrap_or(&file_abs);
-    let project_root = find_vcs_root(parent_dir);
-
-    file_abs
-        .strip_prefix(project_root)
-        .map(Path::to_path_buf)
-        .unwrap_or(file_abs)
-}
-
-fn relative_from_subdir(file: &Path, subdir: &Path) -> PathBuf {
-    if subdir.as_os_str().is_empty() {
-        return file.to_path_buf();
-    }
-
-    if let Ok(relative) = file.strip_prefix(subdir) {
-        return relative.to_path_buf();
-    }
-
-    if let (Ok(file_abs), Ok(subdir_abs)) =
-        (std::fs::canonicalize(file), std::fs::canonicalize(subdir))
-        && let Ok(relative) = file_abs.strip_prefix(subdir_abs)
-    {
-        return relative.to_path_buf();
-    }
-
-    file.to_path_buf()
 }
 
 #[cfg(test)]

@@ -38,7 +38,7 @@ pub struct ClassRange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ClassFact<'a> {
+pub struct ClassFact<'a> {
     range: ClassRange,
     name: &'a str,
     kind: ClassKind,
