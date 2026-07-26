@@ -139,7 +139,7 @@ impl IncludeState {
     }
 
     pub fn check_next_include_order(&mut self, kind: IncludeKind) -> Option<String> {
-        let type_name = match kind {
+        let type_name = || match kind {
             IncludeKind::CSystem => "C system header",
             IncludeKind::CppSystem => "C++ system header",
             IncludeKind::OtherSystem => "other system header",
@@ -147,7 +147,7 @@ impl IncludeState {
             IncludeKind::PossibleMyHeader => "header this file may implement",
             IncludeKind::OtherHeader => "other header",
         };
-        let section_name = match self.section {
+        let section_name = || match self.section {
             IncludeSection::Initial => "... nothing. (This can't be an error.)",
             IncludeSection::MyHeader => "a header this file implements",
             IncludeSection::CSystem => "C system header",
@@ -156,7 +156,6 @@ impl IncludeState {
             IncludeSection::OtherHeader => "other header",
         };
 
-        let error_message = format!("Found {} after {}", type_name, section_name);
         let last_section = self.section;
         self.section = match kind {
             IncludeKind::CSystem => {
@@ -164,7 +163,7 @@ impl IncludeState {
                     IncludeSection::CSystem
                 } else {
                     self.last_header.clear();
-                    return Some(error_message);
+                    return Some(format!("Found {} after {}", type_name(), section_name()));
                 }
             }
             IncludeKind::CppSystem => {
@@ -172,7 +171,7 @@ impl IncludeState {
                     IncludeSection::CppSystem
                 } else {
                     self.last_header.clear();
-                    return Some(error_message);
+                    return Some(format!("Found {} after {}", type_name(), section_name()));
                 }
             }
             IncludeKind::OtherSystem => {
@@ -180,7 +179,7 @@ impl IncludeState {
                     IncludeSection::OtherSystem
                 } else {
                     self.last_header.clear();
-                    return Some(error_message);
+                    return Some(format!("Found {} after {}", type_name(), section_name()));
                 }
             }
             IncludeKind::LikelyMyHeader => {

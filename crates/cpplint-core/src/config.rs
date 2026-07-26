@@ -340,6 +340,7 @@ fn apply_config_layer(
     if let Some(include_order) = config.include_order {
         options.include_order = include_order;
     }
+    options.recompute_derived_extensions();
 }
 
 fn prepare_local_excludes(cfg_path: &Path, config: &ConfigFile) -> Vec<PreparedExcludePattern> {

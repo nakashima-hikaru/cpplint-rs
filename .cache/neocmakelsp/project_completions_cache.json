@@ -1,0 +1,619 @@
+{
+  "date": "2026-07-26T17:38:04.576941+09:00",
+  "data": {
+    "/Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt": [
+      {
+        "label": "QUANTLIB_VERSION_MAJOR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nVersion info"
+      },
+      {
+        "label": "QUANTLIB_VERSION_MINOR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QUANTLIB_VERSION_PATCH",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QUANTLIB_VERSION",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "PACKAGE_NAME",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nProject Info"
+      },
+      {
+        "label": "PACKAGE_VERSION",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "PACKAGE_VERSION_HEX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "PACKAGE_STRING",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "PACKAGE_TARNAME",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "PACKAGE_BUGREPORT",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_BUILD_TYPE",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_MODULE_PATH",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nPath for package-local cmake modules"
+      },
+      {
+        "label": "QL_INSTALL_BINDIR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nInstallation directories"
+      },
+      {
+        "label": "QL_INSTALL_LIBDIR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_INSTALL_INCLUDEDIR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_INSTALL_EXAMPLESDIR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_INSTALL_CMAKEDIR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_BUILD_EXAMPLES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nOptions"
+      },
+      {
+        "label": "QL_BUILD_TEST_SUITE",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_BUILD_FUZZ_TEST_SUITE",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ENABLE_OPENMP",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ENABLE_SESSIONS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ENABLE_THREAD_SAFE_OBSERVER_PATTERN",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ENABLE_TRACING",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ENABLE_DEFAULT_WARNING_LEVEL",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_COMPILE_WARNING_AS_ERROR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ERROR_FUNCTIONS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_ERROR_LINES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_EXTRA_SAFETY_CHECKS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_HIGH_RESOLUTION_DATE",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_THROW_IN_CYCLES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_FASTER_LAZY_OBJECTS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_NULL_AS_FUNCTIONS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_INSTALL_BENCHMARK",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_INSTALL_EXAMPLES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_INSTALL_TEST_SUITE",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_TAGGED_LAYOUT",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_CLANG_TIDY",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_INDEXED_COUPON",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_ANY",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_CLASSES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_OPTIONAL",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_SHARED_PTR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_EXTERNAL_SUBDIRECTORIES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_EXTRA_LINK_LIBRARIES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nset -lpapi here"
+      },
+      {
+        "label": "CMAKE_CXX_STANDARD",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_CXX_STANDARD_REQUIRED",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_CXX_EXTENSIONS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_ANY",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_OPTIONAL",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_USE_STD_SHARED_PTR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_COMPILE_WARNING_AS_ERROR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nsince v3.24 cmake can set all compiler warnings as errors itself"
+      },
+      {
+        "label": "QL_CLANG_TIDY",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_CLANG_TIDY_OPTIONS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_CXX_CLANG_TIDY",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_CXX_CLANG_TIDY",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "BUILD_SHARED_LIBS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "Boost_USE_STATIC_LIBS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "Boost_USE_STATIC_RUNTIME",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_BOOST_VERSION",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_BOOST_VERSION",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "IntelDPCPP_LIBRARIES",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: IntelDPCPP"
+      },
+      {
+        "label": "IntelDPCPP_INCLUDE_DIRS",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: IntelDPCPP"
+      },
+      {
+        "label": "Boost_LIBRARIES",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: Boost"
+      },
+      {
+        "label": "Boost_INCLUDE_DIRS",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: Boost"
+      },
+      {
+        "label": "Boost_NO_WARN_NEW_VERSIONS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nDo not warn about Boost versions higher than 1.58.0"
+      },
+      {
+        "label": "OpenMP_LIBRARIES",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: OpenMP"
+      },
+      {
+        "label": "OpenMP_INCLUDE_DIRS",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: OpenMP"
+      },
+      {
+        "label": "THREADS_PREFER_PTHREAD_FLAG",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "Threads_LIBRARIES",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: Threads"
+      },
+      {
+        "label": "Threads_INCLUDE_DIRS",
+        "kind": 6,
+        "detail": "Variable",
+        "documentation": "package: Threads"
+      },
+      {
+        "label": "QL_THREAD_LIBRARIES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_THREAD_LIBRARIES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_POSITION_INDEPENDENT_CODE",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_HAVE_CONFIG_H",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nConfigure files"
+      },
+      {
+        "label": "QL_VERSION",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "QL_HEX_VERSION",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "prefix",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nDefine the variables to be substituted in the input file"
+      },
+      {
+        "label": "exec_prefix",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "includedir",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "libdir",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "OPENMP_CXXFLAGS",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "DEBUG_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "RELEASE_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "DEBUG_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "RELEASE_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "DEBUG_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "DEBUG_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "RELEASE_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_DEBUG_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_RELEASE_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_RELWITHDEBINFO_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CMAKE_MINSIZEREL_POSTFIX",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_PACKAGE_VERSION_MAJOR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nCPack support (make package, make package_source)"
+      },
+      {
+        "label": "CPACK_PACKAGE_VERSION_MINOR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_PACKAGE_VERSION_PATCH",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_PACKAGE_FILE_NAME",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_GENERATOR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_SOURCE_PACKAGE_FILE_NAME",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_SOURCE_GENERATOR",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      },
+      {
+        "label": "CPACK_SOURCE_IGNORE_FILES",
+        "kind": 12,
+        "detail": "Value",
+        "documentation": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt"
+      }
+    ]
+  }
+}

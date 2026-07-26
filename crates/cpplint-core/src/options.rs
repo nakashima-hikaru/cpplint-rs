@@ -94,6 +94,8 @@ pub struct Options {
     pub timing: bool,
     category_defaults: [bool; crate::categories::Category::COUNT],
     has_specific_filters: bool,
+    all_extensions_cache: FxHashSet<String>,
+    non_header_extensions_cache: Vec<String>,
 }
 
 impl Default for Options {
@@ -119,8 +121,11 @@ impl Default for Options {
             timing: false,
             category_defaults: [true; crate::categories::Category::COUNT],
             has_specific_filters: false,
+            all_extensions_cache: FxHashSet::default(),
+            non_header_extensions_cache: Vec::new(),
         };
         opts.recompute_category_defaults();
+        opts.recompute_derived_extensions();
         opts
     }
 }
@@ -128,6 +133,19 @@ impl Default for Options {
 impl Options {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn recompute_derived_extensions(&mut self) {
+        self.all_extensions_cache = self
+            .valid_extensions
+            .union(&self.hpp_headers)
+            .cloned()
+            .collect();
+        self.non_header_extensions_cache = self
+            .all_extensions_cache
+            .difference(&self.hpp_headers)
+            .cloned()
+            .collect();
     }
 
     pub fn recompute_category_defaults(&mut self) {
@@ -149,15 +167,16 @@ impl Options {
         }
     }
 
-    pub fn all_extensions(&self) -> FxHashSet<String> {
-        self.valid_extensions
-            .union(&self.hpp_headers)
-            .cloned()
-            .collect()
+    pub fn all_extensions(&self) -> &FxHashSet<String> {
+        &self.all_extensions_cache
     }
 
-    pub fn header_extensions(&self) -> FxHashSet<String> {
-        self.hpp_headers.clone()
+    pub fn header_extensions(&self) -> &FxHashSet<String> {
+        &self.hpp_headers
+    }
+
+    pub fn non_header_extensions(&self) -> &[String] {
+        &self.non_header_extensions_cache
     }
 
     #[inline]
@@ -167,7 +186,7 @@ impl Options {
 
     #[inline]
     pub fn is_valid_extension(&self, ext: &str) -> bool {
-        self.valid_extensions.contains(ext) || self.hpp_headers.contains(ext)
+        self.all_extensions_cache.contains(ext)
     }
 
     pub fn is_valid_file(&self, path: &Path) -> bool {
@@ -179,6 +198,7 @@ impl Options {
 
     pub fn set_extensions_from_csv(&mut self, value: &str) {
         self.valid_extensions = parse_comma_separated_list(value);
+        self.recompute_derived_extensions();
     }
 
     pub fn set_headers_from_csv(&mut self, value: &str) {
@@ -186,6 +206,7 @@ impl Options {
         for header in self.hpp_headers.clone() {
             self.valid_extensions.insert(header);
         }
+        self.recompute_derived_extensions();
     }
 
     pub fn set_include_order_from_str(&mut self, value: &str) -> bool {

@@ -4,6 +4,7 @@ use crate::cleanse::CleansedLines;
 use crate::file_linter::FileLinter;
 use crate::iwyu::IwyuHeader;
 use crate::options::IncludeOrder;
+use crate::registry::ActiveRulePlan;
 use crate::state::{IncludeKind, IncludeState};
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
@@ -868,14 +869,15 @@ pub fn check_header_guard(linter: &mut FileLinter, clean_lines: &CleansedLines<'
     );
 }
 
-pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) {
+pub fn check_includes(
+    linter: &mut FileLinter,
+    clean_lines: &CleansedLines<'_>,
+    active_rules: ActiveRulePlan,
+) {
     let mut include_state = IncludeState::new();
-    let all_extensions = linter.options().all_extensions();
-    let header_extensions = linter.options().header_extensions();
-    let non_header_extensions: Vec<String> = all_extensions
-        .difference(&header_extensions)
-        .cloned()
-        .collect();
+    let options = linter.options_arc();
+    let header_extensions = options.header_extensions();
+    let non_header_extensions = options.non_header_extensions();
     let file_from_repo = linter.relative_from_repository();
     let file_from_repo_dir = file_from_repo.parent().unwrap_or_else(|| Path::new(""));
     let file_from_repo_str = file_from_repo.to_string_lossy().replace('\\', "/");
@@ -889,6 +891,13 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
         ))
         .unwrap_or(&file_from_repo_str)
         .to_string();
+
+    let check_subdir = active_rules.is_enabled(Category::BuildIncludeSubdir);
+    let check_cpp11 = active_rules.is_enabled(Category::BuildCpp11);
+    let check_cpp17 = active_rules.is_enabled(Category::BuildCpp17);
+    let check_include = active_rules.is_enabled(Category::BuildInclude);
+    let check_order = active_rules.is_enabled(Category::BuildIncludeOrder);
+    let check_alpha = active_rules.is_enabled(Category::BuildIncludeAlpha);
 
     for (linenum, line) in clean_lines.lines_without_raw_strings.iter().enumerate() {
         let trimmed = line.trim();
@@ -919,7 +928,8 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             used_angle_brackets,
             linter.options().include_order,
         );
-        if delim == "\""
+        if check_subdir
+            && delim == "\""
             && !include.contains('/')
             && header_extensions.contains(
                 Path::new(include)
@@ -941,7 +951,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             );
         }
 
-        if matches!(include, "cfenv" | "fenv.h" | "ratio") {
+        if check_cpp11 && matches!(include, "cfenv" | "fenv.h" | "ratio") {
             linter.error(
                 linenum,
                 Category::BuildCpp11,
@@ -950,7 +960,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             );
         }
 
-        if include == "filesystem" {
+        if check_cpp17 && include == "filesystem" {
             linter.error(
                 linenum,
                 Category::BuildCpp17,
@@ -968,16 +978,18 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                     .push((include.to_string(), linenum));
                 continue;
             }
-            linter.error(
-                linenum,
-                Category::BuildInclude,
-                4,
-                crate::messages::LintMessage::AlreadyIncluded(
-                    include.to_string().into(),
-                    linter.filename().to_string().into(),
-                    first_line + 1,
-                ),
-            );
+            if check_include {
+                linter.error(
+                    linenum,
+                    Category::BuildInclude,
+                    4,
+                    crate::messages::LintMessage::AlreadyIncluded(
+                        include.to_string().into(),
+                        linter.filename().to_string().into(),
+                        first_line + 1,
+                    ),
+                );
+            }
             continue;
         }
 
@@ -991,14 +1003,16 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                         != Path::new(include).parent().unwrap_or_else(|| Path::new(""))
             });
         if let Some(extension) = includes_non_header_from_other_package {
-            linter.error(
-                linenum,
-                Category::BuildInclude,
-                4,
-                crate::messages::LintMessage::DoNotIncludeExtensionFromOtherPackages(
-                    extension.to_string().into(),
-                ),
-            );
+            if check_include {
+                linter.error(
+                    linenum,
+                    Category::BuildInclude,
+                    4,
+                    crate::messages::LintMessage::DoNotIncludeExtensionFromOtherPackages(
+                        extension.to_string().into(),
+                    ),
+                );
+            }
             continue;
         }
 
@@ -1020,19 +1034,21 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
         if third_src_header || !is_special_include_name(include) {
             include_state.push_include(include, linenum);
             if let Some(message) = include_state.check_next_include_order(kind) {
-                let basename = Path::new(linter.filename())
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("");
-                linter.error(
-                    linenum,
-                    Category::BuildIncludeOrder,
-                    4,
-                    crate::messages::LintMessage::IncludeOrder(
-                        message.to_string().into(),
-                        basename.to_string().into(),
-                    ),
-                );
+                if check_order {
+                    let basename = Path::new(linter.filename())
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("");
+                    linter.error(
+                        linenum,
+                        Category::BuildIncludeOrder,
+                        4,
+                        crate::messages::LintMessage::IncludeOrder(
+                            message.to_string().into(),
+                            basename.to_string().into(),
+                        ),
+                    );
+                }
             }
 
             let canonical_include = include_state.canonicalize_alphabetical_order(include);
@@ -1045,7 +1061,8 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
                 && prev_elided.starts_with('#')
                 && prev_elided.contains("include")
                 && string_utils::parse_include_directive(prev_elided).is_some();
-            if !include_state.is_in_alphabetical_order(previous_line_is_include, &canonical_include)
+            if check_alpha
+                && !include_state.is_in_alphabetical_order(previous_line_is_include, &canonical_include)
             {
                 linter.error(
                     linenum,
@@ -1058,8 +1075,12 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
         }
     }
 
-    check_include_what_you_use(linter, clean_lines, &include_state);
-    check_header_file_included(linter, &include_state);
+    if active_rules.is_enabled(Category::BuildIncludeWhatYouUse) {
+        check_include_what_you_use(linter, clean_lines, &include_state);
+    }
+    if active_rules.is_enabled(Category::BuildInclude) {
+        check_header_file_included(linter, &include_state);
+    }
 }
 
 fn classify_include(
@@ -1493,7 +1514,8 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
         }
     }
 
-    for header_ext in linter.options().header_extensions() {
+    let options = linter.options_arc();
+    for header_ext in options.header_extensions() {
         let header_path = directory.join(format!("{}.{}", stem, header_ext));
         if !header_path.is_file() {
             continue;

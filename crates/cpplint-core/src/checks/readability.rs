@@ -76,7 +76,7 @@ pub fn check(
     facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
-    _active_rules: ActiveRulePlan,
+    active_rules: ActiveRulePlan,
 ) {
     let elided_line = &clean_lines.elided[linenum];
     let line_features = clean_lines.line_features[linenum];
@@ -86,41 +86,53 @@ pub fn check(
     let has_slash = line_features.contains(LineFeatures::RAW_HAS_SLASH);
     let keywords = clean_lines.keywords(linenum);
 
-    if keywords.has_alt_token() {
+    if keywords.has_alt_token() && active_rules.is_enabled(Category::ReadabilityAltTokens) {
         check_alt_tokens(linter, clean_lines, linenum);
     }
 
     if keywords.has_using() || keywords.has_namespace() {
-        check_namespace_using(linter, elided_line, linenum);
-        check_unnamed_namespace_in_header(linter, elided_line, linenum);
+        if active_rules.is_enabled(Category::BuildNamespaces) {
+            check_namespace_using(linter, elided_line, linenum);
+        }
+        if active_rules.is_enabled(Category::BuildNamespacesHeaders) {
+            check_unnamed_namespace_in_header(linter, elided_line, linenum);
+        }
     }
 
     // Fast-path: only lines starting with whitespace can violate namespace indentation
-    if !elided_line.is_empty() && elided_line.as_bytes()[0].is_ascii_whitespace() {
+    if !elided_line.is_empty()
+        && elided_line.as_bytes()[0].is_ascii_whitespace()
+        && active_rules.is_enabled(Category::WhitespaceIndentNamespace)
+    {
         check_namespace_indentation(linter, facts, clean_lines, elided_line, linenum);
     }
 
-    if has_brace || has_slash || has_semicolon {
+    if (has_brace || has_slash || has_semicolon)
+        && active_rules.is_enabled(Category::ReadabilityNamespace)
+    {
         check_namespace_termination_comment(linter, facts, clean_lines, linenum);
     }
-    if has_brace {
+    if has_brace && active_rules.is_enabled(Category::ReadabilityConstructors) {
         check_disallow_macros_at_end(linter, facts, clean_lines, linenum);
     }
 
-    if elided_line.contains("CHECK")
+    if (elided_line.contains("CHECK")
         || elided_line.contains("ASSERT_")
-        || elided_line.contains("EXPECT_")
+        || elided_line.contains("EXPECT_"))
+        && active_rules.is_enabled(Category::ReadabilityCheck)
     {
         check_check_macro(linter, clean_lines, elided_line, linenum);
     }
 
-    if has_slash {
+    if has_slash && active_rules.is_enabled(Category::ReadabilityMultilineComment) {
         check_multiline_comments(linter, clean_lines, linenum);
     }
-    if line_features.contains(LineFeatures::RAW_HAS_QUOTE) {
+    if line_features.contains(LineFeatures::RAW_HAS_QUOTE)
+        && active_rules.is_enabled(Category::ReadabilityMultilineString)
+    {
         check_multiline_strings(linter, clean_lines, linenum);
     }
-    if keywords.has_string() {
+    if keywords.has_string() && active_rules.is_enabled(Category::ReadabilityStrings) {
         check_redundant_string_ctor(linter, clean_lines.raw_lines[linenum], linenum);
     }
 
@@ -131,25 +143,40 @@ pub fn check(
             | MatchedKeywords::WHILE
             | MatchedKeywords::DO,
     );
-    if has_brace
+    if (has_brace
         || has_control
         || keywords.has_virtual()
         || keywords.has_override()
-        || keywords.has_final()
+        || keywords.has_final())
+        && active_rules.is_enabled(Category::ReadabilityInheritance)
     {
         check_redundant_virtuals(linter, clean_lines, elided_line, linenum);
     }
 
     if has_brace || has_control {
-        check_braces(linter, clean_lines, elided_line, linenum);
-        check_single_line_control_bodies(linter, elided_line, linenum);
-        check_multiline_if_else_bodies(linter, clean_lines, elided_line, linenum);
-        check_function_size(linter, facts, clean_lines, elided_line, linenum);
+        if active_rules.is_enabled(Category::ReadabilityBraces) {
+            check_braces(linter, clean_lines, elided_line, linenum);
+            check_single_line_control_bodies(linter, elided_line, linenum);
+            check_multiline_if_else_bodies(linter, clean_lines, elided_line, linenum);
+        }
+        if active_rules.is_enabled(Category::ReadabilityFnSize) {
+            check_function_size(linter, facts, clean_lines, elided_line, linenum);
+        }
     }
 
     if has_brace || has_semicolon || has_control {
-        check_empty_bodies(linter, clean_lines, elided_line, linenum);
-        check_trailing_semicolon(linter, clean_lines, elided_line, linenum);
+        if active_rules.is_enabled(Category::WhitespaceEmptyLoopBody)
+            || active_rules.is_enabled(Category::WhitespaceEmptyIfBody)
+            || active_rules.is_enabled(Category::WhitespaceEmptyConditionalBody)
+            || active_rules.is_enabled(Category::ReadabilityBraces)
+        {
+            check_empty_bodies(linter, clean_lines, elided_line, linenum);
+        }
+        if active_rules.is_enabled(Category::WhitespaceSemicolon)
+            || active_rules.is_enabled(Category::ReadabilityBraces)
+        {
+            check_trailing_semicolon(linter, clean_lines, elided_line, linenum);
+        }
     }
 
     if line_features.contains(LineFeatures::PAREN)
@@ -163,6 +190,7 @@ pub fn check(
                 | MatchedKeywords::CATCH
                 | MatchedKeywords::ELSE,
         )
+        && active_rules.is_enabled(Category::ReadabilityFnSize)
     {
         check_missing_function_body(linter, clean_lines, linenum, &keywords);
     }
@@ -1570,12 +1598,13 @@ mod tests {
         let clean_lines = CleansedLines::new(&arena, &lines);
         let facts = crate::facts::FileFacts::new(&clean_lines, &arena);
 
+        let active_rules = linter.active_rules();
         check(
             &mut linter,
             &facts,
             &clean_lines,
             1,
-            ActiveRulePlan::default(),
+            active_rules,
         );
 
         assert!(state.has_error(Category::BuildNamespacesHeaders));

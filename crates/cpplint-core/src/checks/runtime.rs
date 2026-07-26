@@ -223,7 +223,7 @@ pub fn check(
     facts: &FileFacts<'_>,
     clean_lines: &CleansedLines<'_>,
     linenum: usize,
-    _active_rules: ActiveRulePlan,
+    active_rules: ActiveRulePlan,
 ) {
     let line = &clean_lines.lines[linenum];
     let elided_line = &clean_lines.elided[linenum];
@@ -236,74 +236,111 @@ pub fn check(
     let has_bracket = line_features.contains(LineFeatures::BRACKET);
     let keywords = clean_lines.keywords(linenum);
 
-    if has_paren || has_ampersand {
+    if (has_paren || has_ampersand)
+        && (active_rules.is_enabled(Category::RuntimeCasting)
+            || active_rules.is_enabled(Category::ReadabilityCasting))
+    {
         check_casts(linter, clean_lines, elided_line, linenum);
     }
-    if has_paren {
+    if has_paren
+        && (active_rules.is_enabled(Category::RuntimeExplicit)
+            || active_rules.is_enabled(Category::ReadabilityConstructors))
+    {
         check_explicit_constructors(linter, facts, elided_line, linenum);
     }
-    if has_plus_minus {
+    if has_plus_minus && active_rules.is_enabled(Category::RuntimeInvalidIncrement) {
         check_invalid_increment(linter, elided_line, linenum);
     }
-    if has_angle_question {
+    if has_angle_question && active_rules.is_enabled(Category::RuntimeOperator) {
         check_deprecated_min_max_operators(linter, elided_line, linenum);
     }
-    if keywords.intersects(STORAGE_CLASS_CANDIDATE) {
+    if keywords.intersects(STORAGE_CLASS_CANDIDATE)
+        && (active_rules.is_enabled(Category::BuildStorageClass)
+            || active_rules.is_enabled(Category::RuntimeInit))
+    {
         check_storage_class_specifier(linter, elided_line, linenum);
     }
-    if keywords.contains(MatchedKeywords::CLASS) {
+    if keywords.contains(MatchedKeywords::CLASS)
+        && active_rules.is_enabled(Category::BuildForwardDecl)
+    {
         check_forward_decl(linter, elided_line, linenum);
     }
-    if has_hash && keywords.contains(MatchedKeywords::ENDIF) {
+    if has_hash
+        && keywords.contains(MatchedKeywords::ENDIF)
+        && active_rules.is_enabled(Category::BuildEndifComment)
+    {
         check_endif_comment(linter, elided_line, linenum);
     }
 
-    if has_ampersand && keywords.contains(MatchedKeywords::STRING) {
+    if has_ampersand
+        && keywords.contains(MatchedKeywords::STRING)
+        && active_rules.is_enabled(Category::RuntimeMemberStringReferences)
+    {
         check_const_string_member(linter, elided_line, linenum);
     }
 
-    if keywords.contains(MatchedKeywords::MEMSET) {
+    if keywords.contains(MatchedKeywords::MEMSET)
+        && active_rules.is_enabled(Category::RuntimeMemset)
+    {
         check_memset(linter, elided_line, linenum);
     }
-    if keywords.contains(MatchedKeywords::THREADSAFE_FN) {
+    if keywords.contains(MatchedKeywords::THREADSAFE_FN)
+        && active_rules.is_enabled(Category::RuntimeThreadsafeFn)
+    {
         check_threadsafe_functions(linter, elided_line, linenum);
     }
-    if keywords.contains(MatchedKeywords::VLOG) {
+    if keywords.contains(MatchedKeywords::VLOG)
+        && active_rules.is_enabled(Category::RuntimeVlog)
+    {
         check_vlog_arguments(linter, elided_line, linenum);
     }
-    if keywords.contains(MatchedKeywords::MAKE_PAIR) {
+    if keywords.contains(MatchedKeywords::MAKE_PAIR)
+        && active_rules.is_enabled(Category::BuildExplicitMakePair)
+    {
         check_make_pair_uses_deduction(linter, elided_line, linenum);
     }
-    if keywords.contains(MatchedKeywords::STRING) {
+    if keywords.contains(MatchedKeywords::STRING)
+        && active_rules.is_enabled(Category::RuntimeString)
+    {
         check_global_strings(linter, elided_line, linenum);
     }
 
-    if has_paren {
+    if has_paren && active_rules.is_enabled(Category::RuntimeInit) {
         check_init_with_self(linter, clean_lines, linenum);
     }
 
-    if keywords.intersects(MatchedKeywords::PRINTF | MatchedKeywords::STRCPY_STRCAT) {
+    if keywords.intersects(MatchedKeywords::PRINTF | MatchedKeywords::STRCPY_STRCAT)
+        && active_rules.is_enabled(Category::RuntimePrintf)
+    {
         check_printf(linter, elided_line, linenum);
     }
-    if has_paren && (line.contains("printf") || line.contains("StringPrintf")) {
+    if has_paren
+        && (line.contains("printf") || line.contains("StringPrintf"))
+        && active_rules.is_enabled(Category::RuntimePrintfFormat)
+    {
         check_potential_format_string_bug(linter, line, linenum);
     }
-    if keywords.intersects(PRINTF_FORMAT_CANDIDATE) {
+    if keywords.intersects(PRINTF_FORMAT_CANDIDATE)
+        && (active_rules.is_enabled(Category::RuntimePrintfFormat)
+            || active_rules.is_enabled(Category::BuildPrintfFormat))
+    {
         check_printf_format(linter, line, linenum);
     }
 
-    if has_ampersand {
+    if has_ampersand && active_rules.is_enabled(Category::RuntimeOperator) {
         check_unary_operator_ampersand(linter, elided_line, linenum);
     }
 
-    if keywords.contains(MatchedKeywords::C_INTEGER_TYPE) {
+    if keywords.contains(MatchedKeywords::C_INTEGER_TYPE)
+        && active_rules.is_enabled(Category::RuntimeInt)
+    {
         check_c_integer_types(linter, elided_line, clean_lines.raw_lines[linenum], linenum);
     }
 
-    if has_ampersand {
+    if has_ampersand && active_rules.is_enabled(Category::RuntimeReferences) {
         check_non_const_references(linter, elided_line, linenum);
     }
-    if has_bracket {
+    if has_bracket && active_rules.is_enabled(Category::RuntimeArrays) {
         check_variable_length_arrays(linter, elided_line, linenum);
     }
 }

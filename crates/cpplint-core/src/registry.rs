@@ -248,7 +248,21 @@ impl ActiveRulePlan {
     }
 
     pub fn has_line_checks(&self) -> bool {
-        self.has_any()
+        self.has_whitespace() || self.has_runtime() || self.has_readability()
+    }
+
+    pub fn needs_header_guard(&self) -> bool {
+        self.is_enabled(Category::BuildHeaderGuard)
+    }
+
+    pub fn needs_include_scan(&self) -> bool {
+        self.is_enabled(Category::BuildInclude)
+            || self.is_enabled(Category::BuildIncludeSubdir)
+            || self.is_enabled(Category::BuildIncludeAlpha)
+            || self.is_enabled(Category::BuildIncludeOrder)
+            || self.is_enabled(Category::BuildIncludeWhatYouUse)
+            || self.is_enabled(Category::BuildCpp11)
+            || self.is_enabled(Category::BuildCpp17)
     }
 
     pub fn needs_cleansed_lines(&self, _phase: RulePhase) -> bool {
@@ -464,8 +478,12 @@ impl RuleRegistry {
         if !active_rules.has_headers() {
             return;
         }
-        headers::check_header_guard(linter, clean_lines);
-        headers::check_includes(linter, clean_lines);
+        if active_rules.needs_header_guard() {
+            headers::check_header_guard(linter, clean_lines);
+        }
+        if active_rules.needs_include_scan() {
+            headers::check_includes(linter, clean_lines, active_rules);
+        }
     }
 
     pub fn run_language_rules(
@@ -474,8 +492,8 @@ impl RuleRegistry {
         clean_lines: &CleansedLines<'_>,
         active_rules: ActiveRulePlan,
     ) {
-        if active_rules.has_headers() {
-            headers::check_includes(linter, clean_lines);
+        if active_rules.needs_include_scan() {
+            headers::check_includes(linter, clean_lines, active_rules);
         }
     }
 
@@ -568,5 +586,18 @@ mod tests {
         let other_file_plan = registry.active_rule_plan(&options, "other.cc");
         assert!(other_file_plan.has_whitespace());
         assert!(!other_file_plan.has_runtime());
+    }
+
+    #[test]
+    fn active_rule_plan_pruning_flags() {
+        let registry = rule_registry();
+        let mut options = Options::new();
+        options.add_filter("-");
+        options.add_filter("+build/header_guard");
+
+        let plan = registry.active_rule_plan(&options, "test.h");
+        assert!(!plan.has_line_checks());
+        assert!(plan.needs_header_guard());
+        assert!(!plan.needs_include_scan());
     }
 }

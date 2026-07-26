@@ -1,0 +1,1416 @@
+{
+  "date": "2026-07-26T17:38:04.577651+09:00",
+  "data": {
+    "QL_USE_STD_CLASSES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 65,
+            "character": 7
+          },
+          "end": {
+            "line": 65,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_CLANG_TIDY_OPTIONS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 126,
+            "character": 12
+          },
+          "end": {
+            "line": 126,
+            "character": 33
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_PACKAGE_VERSION_PATCH": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 270,
+            "character": 4
+          },
+          "end": {
+            "line": 270,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_EXTRA_SAFETY_CHECKS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 53,
+            "character": 7
+          },
+          "end": {
+            "line": 53,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_CLANG_TIDY": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 123,
+            "character": 12
+          },
+          "end": {
+            "line": 123,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ERROR_LINES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 52,
+            "character": 7
+          },
+          "end": {
+            "line": 52,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "Boost_NO_WARN_NEW_VERSIONS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 166,
+            "character": 4
+          },
+          "end": {
+            "line": 166,
+            "character": 30
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nDo not warn about Boost versions higher than 1.58.0",
+      "is_function": false
+    },
+    "CMAKE_RELEASE_POSTFIX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 241,
+            "character": 8
+          },
+          "end": {
+            "line": 241,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QUANTLIB_VERSION_MINOR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 7,
+            "character": 4
+          },
+          "end": {
+            "line": 7,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QUANTLIB_VERSION_PATCH": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 4
+          },
+          "end": {
+            "line": 8,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "prefix": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 212,
+            "character": 4
+          },
+          "end": {
+            "line": 212,
+            "character": 10
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nDefine the variables to be substituted in the input file",
+      "is_function": false
+    },
+    "QL_BOOST_VERSION": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 155,
+            "character": 12
+          },
+          "end": {
+            "line": 155,
+            "character": 28
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_BUILD_TEST_SUITE": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 42,
+            "character": 7
+          },
+          "end": {
+            "line": 42,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_EXAMPLES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 59,
+            "character": 7
+          },
+          "end": {
+            "line": 59,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_BUILD_EXAMPLES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 41,
+            "character": 7
+          },
+          "end": {
+            "line": 41,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nOptions",
+      "is_function": false
+    },
+    "QL_THROW_IN_CYCLES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 55,
+            "character": 7
+          },
+          "end": {
+            "line": 55,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "PACKAGE_NAME": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 12,
+            "character": 4
+          },
+          "end": {
+            "line": 12,
+            "character": 16
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nProject Info",
+      "is_function": false
+    },
+    "QL_HIGH_RESOLUTION_DATE": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 54,
+            "character": 7
+          },
+          "end": {
+            "line": 54,
+            "character": 30
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "DEBUG_POSTFIX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 237,
+            "character": 12
+          },
+          "end": {
+            "line": 237,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "PACKAGE_VERSION_HEX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 14,
+            "character": 4
+          },
+          "end": {
+            "line": 14,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_DEBUG_POSTFIX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 240,
+            "character": 8
+          },
+          "end": {
+            "line": 240,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_RELWITHDEBINFO_POSTFIX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 242,
+            "character": 8
+          },
+          "end": {
+            "line": 242,
+            "character": 36
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_USE_STD_ANY": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 88,
+            "character": 8
+          },
+          "end": {
+            "line": 88,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_EXAMPLESDIR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 35,
+            "character": 4
+          },
+          "end": {
+            "line": 35,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_USE_STD_SHARED_PTR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 90,
+            "character": 8
+          },
+          "end": {
+            "line": 90,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "exec_prefix": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 213,
+            "character": 4
+          },
+          "end": {
+            "line": 213,
+            "character": 15
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ENABLE_DEFAULT_WARNING_LEVEL": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 49,
+            "character": 7
+          },
+          "end": {
+            "line": 49,
+            "character": 38
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_THREAD_LIBRARIES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 188,
+            "character": 12
+          },
+          "end": {
+            "line": 188,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_CMAKEDIR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 37,
+            "character": 4
+          },
+          "end": {
+            "line": 37,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_EXTRA_LINK_LIBRARIES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 70,
+            "character": 4
+          },
+          "end": {
+            "line": 70,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nset -lpapi here",
+      "is_function": false
+    },
+    "QL_INSTALL_LIBDIR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 33,
+            "character": 4
+          },
+          "end": {
+            "line": 33,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_EXTERNAL_SUBDIRECTORIES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 68,
+            "character": 4
+          },
+          "end": {
+            "line": 68,
+            "character": 30
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "PACKAGE_VERSION": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 13,
+            "character": 4
+          },
+          "end": {
+            "line": 13,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ENABLE_SESSIONS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 46,
+            "character": 7
+          },
+          "end": {
+            "line": 46,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_INCLUDEDIR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 34,
+            "character": 4
+          },
+          "end": {
+            "line": 34,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_NULL_AS_FUNCTIONS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 57,
+            "character": 7
+          },
+          "end": {
+            "line": 57,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_TAGGED_LAYOUT": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 61,
+            "character": 7
+          },
+          "end": {
+            "line": 61,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_USE_INDEXED_COUPON": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 63,
+            "character": 7
+          },
+          "end": {
+            "line": 63,
+            "character": 28
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "Boost_USE_STATIC_RUNTIME": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 147,
+            "character": 8
+          },
+          "end": {
+            "line": 147,
+            "character": 32
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_HAVE_CONFIG_H": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 203,
+            "character": 4
+          },
+          "end": {
+            "line": 203,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nConfigure files",
+      "is_function": false
+    },
+    "QL_VERSION": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 204,
+            "character": 4
+          },
+          "end": {
+            "line": 204,
+            "character": 14
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "Boost_USE_STATIC_LIBS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 142,
+            "character": 8
+          },
+          "end": {
+            "line": 142,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "RELEASE_POSTFIX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 238,
+            "character": 12
+          },
+          "end": {
+            "line": 238,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_CXX_CLANG_TIDY": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 131,
+            "character": 12
+          },
+          "end": {
+            "line": 131,
+            "character": 32
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_MINSIZEREL_POSTFIX": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 243,
+            "character": 8
+          },
+          "end": {
+            "line": 243,
+            "character": 32
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_PACKAGE_VERSION_MINOR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 269,
+            "character": 4
+          },
+          "end": {
+            "line": 269,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_BENCHMARK": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 58,
+            "character": 7
+          },
+          "end": {
+            "line": 58,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_USE_CLANG_TIDY": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 62,
+            "character": 7
+          },
+          "end": {
+            "line": 62,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_SOURCE_GENERATOR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 274,
+            "character": 4
+          },
+          "end": {
+            "line": 274,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_SOURCE_IGNORE_FILES": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 275,
+            "character": 4
+          },
+          "end": {
+            "line": 275,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_FASTER_LAZY_OBJECTS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 56,
+            "character": 7
+          },
+          "end": {
+            "line": 56,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_CXX_EXTENSIONS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 83,
+            "character": 8
+          },
+          "end": {
+            "line": 83,
+            "character": 28
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "PACKAGE_TARNAME": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 16,
+            "character": 4
+          },
+          "end": {
+            "line": 16,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QUANTLIB_VERSION": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 4
+          },
+          "end": {
+            "line": 9,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_HEX_VERSION": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 205,
+            "character": 4
+          },
+          "end": {
+            "line": 205,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_GENERATOR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 272,
+            "character": 4
+          },
+          "end": {
+            "line": 272,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_BINDIR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 32,
+            "character": 4
+          },
+          "end": {
+            "line": 32,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nInstallation directories",
+      "is_function": false
+    },
+    "QL_ENABLE_THREAD_SAFE_OBSERVER_PATTERN": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 47,
+            "character": 7
+          },
+          "end": {
+            "line": 47,
+            "character": 45
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_USE_STD_OPTIONAL": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 89,
+            "character": 8
+          },
+          "end": {
+            "line": 89,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ENABLE_OPENMP": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 44,
+            "character": 7
+          },
+          "end": {
+            "line": 44,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_SOURCE_PACKAGE_FILE_NAME": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 273,
+            "character": 4
+          },
+          "end": {
+            "line": 273,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "PACKAGE_STRING": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 4
+          },
+          "end": {
+            "line": 15,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QUANTLIB_VERSION_MAJOR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 4
+          },
+          "end": {
+            "line": 6,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nVersion info",
+      "is_function": false
+    },
+    "QL_BUILD_FUZZ_TEST_SUITE": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 43,
+            "character": 7
+          },
+          "end": {
+            "line": 43,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ENABLE_PARALLEL_UNIT_TEST_RUNNER": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 45,
+            "character": 7
+          },
+          "end": {
+            "line": 45,
+            "character": 42
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ENABLE_TRACING": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 48,
+            "character": 7
+          },
+          "end": {
+            "line": 48,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_MODULE_PATH": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 29,
+            "character": 4
+          },
+          "end": {
+            "line": 29,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nPath for package-local cmake modules",
+      "is_function": false
+    },
+    "CMAKE_BUILD_TYPE": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 22,
+            "character": 8
+          },
+          "end": {
+            "line": 22,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_COMPILE_WARNING_AS_ERROR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 110,
+            "character": 12
+          },
+          "end": {
+            "line": 110,
+            "character": 42
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nsince v3.24 cmake can set all compiler warnings as errors itself",
+      "is_function": false
+    },
+    "CMAKE_POSITION_INDEPENDENT_CODE": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 194,
+            "character": 8
+          },
+          "end": {
+            "line": 194,
+            "character": 39
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "OPENMP_CXXFLAGS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 217,
+            "character": 8
+          },
+          "end": {
+            "line": 217,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_PACKAGE_FILE_NAME": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 271,
+            "character": 4
+          },
+          "end": {
+            "line": 271,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "PACKAGE_BUGREPORT": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 17,
+            "character": 4
+          },
+          "end": {
+            "line": 17,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "BUILD_SHARED_LIBS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 137,
+            "character": 8
+          },
+          "end": {
+            "line": 137,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_INSTALL_TEST_SUITE": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 60,
+            "character": 7
+          },
+          "end": {
+            "line": 60,
+            "character": 28
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "libdir": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 215,
+            "character": 4
+          },
+          "end": {
+            "line": 215,
+            "character": 10
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_ERROR_FUNCTIONS": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 51,
+            "character": 7
+          },
+          "end": {
+            "line": 51,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CMAKE_CXX_STANDARD_REQUIRED": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 79,
+            "character": 8
+          },
+          "end": {
+            "line": 79,
+            "character": 35
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "includedir": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 214,
+            "character": 4
+          },
+          "end": {
+            "line": 214,
+            "character": 14
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "THREADS_PREFER_PTHREAD_FLAG": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 177,
+            "character": 8
+          },
+          "end": {
+            "line": 177,
+            "character": 35
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "CPACK_PACKAGE_VERSION_MAJOR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 268,
+            "character": 4
+          },
+          "end": {
+            "line": 268,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt\n\nCPack support (make package, make package_source)",
+      "is_function": false
+    },
+    "CMAKE_CXX_STANDARD": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 74,
+            "character": 8
+          },
+          "end": {
+            "line": 74,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    },
+    "QL_COMPILE_WARNING_AS_ERROR": {
+      "location": {
+        "uri": "file:///Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 50,
+            "character": 7
+          },
+          "end": {
+            "line": 50,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: /Users/nakashimahikaru/forge/repo/cpplint-rs/bench_data/QuantLib/CMakeLists.txt",
+      "is_function": false
+    }
+  }
+}

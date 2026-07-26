@@ -96,6 +96,11 @@ impl<'a> FileLinter<'a> {
     }
 
     #[inline]
+    pub fn options_arc(&self) -> Arc<Options> {
+        Arc::clone(&self.options)
+    }
+
+    #[inline]
     pub fn filename(&self) -> &str {
         self.source_file.display_name()
     }
@@ -103,6 +108,11 @@ impl<'a> FileLinter<'a> {
     #[inline]
     pub fn file_path(&self) -> &Path {
         self.source_file.path()
+    }
+
+    #[inline]
+    pub fn active_rules(&self) -> ActiveRulePlan {
+        self.active_rules
     }
 
     #[inline]
@@ -124,13 +134,10 @@ impl<'a> FileLinter<'a> {
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn process_file_with_arena(&mut self, arena: &Bump) -> Result<()> {
         let source_file = self.source_file.clone();
-        let res = source_file.with_decoded_source(arena, |decoded| {
+        source_file.with_decoded_source(arena, |decoded| {
             self.process_decoded_source(decoded, arena, ProcessMode::Full);
             Ok(())
-        });
-        self.session
-            .record_processed_file(self.file_id, self.has_error);
-        res
+        })
     }
 
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
@@ -143,8 +150,6 @@ impl<'a> FileLinter<'a> {
         let arena = Bump::new();
         let decoded = DecodedSource::from_lines(&arena, self.source_file.clone(), lines);
         self.process_decoded_source(decoded, &arena, ProcessMode::Full);
-        self.session
-            .record_processed_file(self.file_id, self.has_error);
     }
 
     pub fn process_language_rules_data<I, S>(&mut self, lines: I)
