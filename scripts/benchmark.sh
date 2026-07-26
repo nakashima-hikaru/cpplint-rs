@@ -109,21 +109,16 @@ run_bench() {
 
     # If running under MSYS/Cygwin, convert target_path and binaries to Windows format.
     local run_path="$target_path"
-    local cpp_bin="$CPPLINT_CPP"
     local rs_bin="$CPPLINT_RS"
 
     if command -v cygpath &> /dev/null; then
         run_path=$(cygpath -w "$target_path")
-        if [ -n "$CPPLINT_CPP" ]; then
-            cpp_bin=$(cygpath -w "$CPPLINT_CPP")
-        fi
         if [ -n "$CPPLINT_RS" ]; then
             rs_bin=$(cygpath -w "$CPPLINT_RS")
         fi
     fi
 
     echo "Debugging paths before hyperfine:"
-    echo "cpp_bin = $cpp_bin"
     echo "rs_bin  = $rs_bin"
     echo "run_path = $run_path"
 
@@ -131,19 +126,10 @@ run_bench() {
     # and return non-zero exit codes, which hyperfine would otherwise treat as an error.
     # Note: we do not add inner quotes around variables here because cmd.exe handles quotes poorly.
     # GitHub Action paths (/d/a/...) generally do not contain spaces.
-    local bench_cmds=()
-    if command -v cpplint &> /dev/null; then
-        bench_cmds+=("-n" "cpplint-py" "cpplint --recursive $run_path")
-    fi
-    if [ -x "$cpp_bin" ]; then
-        bench_cmds+=("-n" "cpplint-cpp" "$cpp_bin --recursive $run_path")
-    fi
-    bench_cmds+=("-n" "cpplint-rs" "$rs_bin --recursive $run_path")
-
     hyperfine --warmup 3 \
         --ignore-failure \
         --export-markdown "$BENCH_DIR/results_${target_name}.md" \
-        "${bench_cmds[@]}"
+        -n "cpplint-rs" "$rs_bin --recursive $run_path"
 
     echo ""
     cat "$BENCH_DIR/results_${target_name}.md"
