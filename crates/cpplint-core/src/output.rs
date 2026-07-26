@@ -18,22 +18,25 @@ pub fn format_diagnostic(
     format_diagnostic_with_name(output_format, filename, diagnostic)
 }
 
-pub fn format_diagnostic_with_name(
+pub fn write_diagnostic_with_name<W: std::io::Write>(
+    writer: &mut W,
     output_format: OutputFormat,
     filename: &str,
     diagnostic: &Diagnostic,
-) -> String {
+) -> std::io::Result<()> {
     match output_format {
-        OutputFormat::Vs7 => format!(
-            "{}({}): error cpplint: [{}] {} [{}]\n",
+        OutputFormat::Vs7 => writeln!(
+            writer,
+            "{}({}): error cpplint: [{}] {} [{}]",
             filename,
             diagnostic.linenum,
             diagnostic.category,
             diagnostic.message,
             diagnostic.confidence
         ),
-        OutputFormat::Eclipse => format!(
-            "{}:{}: warning: {}  [{}] [{}]\n",
+        OutputFormat::Eclipse => writeln!(
+            writer,
+            "{}:{}: warning: {}  [{}] [{}]",
             filename,
             diagnostic.linenum,
             diagnostic.message,
@@ -41,8 +44,9 @@ pub fn format_diagnostic_with_name(
             diagnostic.confidence
         ),
         OutputFormat::Emacs | OutputFormat::JUnit | OutputFormat::Sed | OutputFormat::Gsed => {
-            format!(
-                "{}:{}:  {}  [{}] [{}]\n",
+            writeln!(
+                writer,
+                "{}:{}:  {}  [{}] [{}]",
                 filename,
                 diagnostic.linenum,
                 diagnostic.message,
@@ -53,8 +57,57 @@ pub fn format_diagnostic_with_name(
     }
 }
 
+pub fn format_diagnostic_with_name(
+    output_format: OutputFormat,
+    filename: &str,
+    diagnostic: &Diagnostic,
+) -> String {
+    let mut buf = Vec::new();
+    let _ = write_diagnostic_with_name(&mut buf, output_format, filename, diagnostic);
+    String::from_utf8(buf).unwrap_or_default()
+}
+
 pub fn format_note(note: &Note) -> String {
     note.text.to_string()
+}
+
+pub fn write_sed_diagnostic_with_name<W: std::io::Write>(
+    writer: &mut W,
+    output_format: OutputFormat,
+    filename: &str,
+    diagnostic: &Diagnostic,
+) -> std::io::Result<bool> {
+    let command = match output_format {
+        OutputFormat::Sed => "sed",
+        OutputFormat::Gsed => "gsed",
+        _ => return Ok(false),
+    };
+
+    if let Some(script) = sed_fixup(&diagnostic.message) {
+        writeln!(
+            writer,
+            "{} -i '{}{}' {} # {}  [{}] [{}]",
+            command,
+            diagnostic.linenum,
+            script,
+            filename,
+            diagnostic.message,
+            diagnostic.category,
+            diagnostic.confidence
+        )?;
+        Ok(true)
+    } else {
+        writeln!(
+            writer,
+            "# {}:{}:  \"{}\"  [{}] [{}]",
+            filename,
+            diagnostic.linenum,
+            diagnostic.message,
+            diagnostic.category,
+            diagnostic.confidence
+        )?;
+        Ok(false)
+    }
 }
 
 pub fn format_sed_diagnostic(

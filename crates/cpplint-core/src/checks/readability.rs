@@ -3,7 +3,6 @@ use crate::cleanse::{CleansedLines, LineFeatures, MatchedKeywords, collapse_stri
 use crate::facts::FileFacts;
 use crate::file_linter::FileLinter;
 use crate::line_utils;
-use crate::regex_utils;
 use crate::string_utils;
 use aho_corasick::AhoCorasick;
 use regex::Regex;
@@ -1223,11 +1222,7 @@ fn check_namespace_termination_comment(
         );
         return;
     }
-    let pattern = format!(
-        r#"^\s*}};*\s*(//|/\*).*\bnamespace\s+{}[\*/\.\\\s]*$"#,
-        regex::escape(name)
-    );
-    if regex_utils::regex_search(&pattern, raw_line) {
+    if matches_namespace_end_comment(raw_line, name) {
         return;
     }
     linter.error(
@@ -1236,6 +1231,46 @@ fn check_namespace_termination_comment(
         5,
         crate::messages::LintMessage::NamespaceMissingComment(name.to_string().into()),
     );
+}
+
+fn matches_namespace_end_comment(raw_line: &str, name: &str) -> bool {
+    let trimmed = raw_line.trim_start();
+    let after_brace = match trimmed.strip_prefix('}') {
+        Some(s) => s,
+        None => return false,
+    };
+    let after_semis = after_brace.trim_start_matches(';').trim_start();
+    if !after_semis.starts_with("//") && !after_semis.starts_with("/*") {
+        return false;
+    }
+
+    let mut search_from = 0;
+    while let Some(idx) = after_semis[search_from..].find("namespace") {
+        let abs_idx = search_from + idx;
+        search_from = abs_idx + "namespace".len();
+
+        if abs_idx > 0 {
+            if let Some(prev_char) = after_semis[..abs_idx].chars().next_back() {
+                if prev_char.is_ascii_alphanumeric() || prev_char == '_' {
+                    continue;
+                }
+            }
+        }
+        let rest = &after_semis[abs_idx + "namespace".len()..];
+        let rest_trimmed = rest.trim_start();
+        if rest.len() == rest_trimmed.len() {
+            continue;
+        }
+        if let Some(after_name) = rest_trimmed.strip_prefix(name) {
+            if after_name
+                .bytes()
+                .all(|b| matches!(b, b'*' | b'/' | b'.' | b'\\' | b' ' | b'\t' | b'\r' | b'\n'))
+            {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn check_disallow_macros_at_end(

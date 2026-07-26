@@ -4,11 +4,12 @@ use crate::diagnostics::{
 };
 use crate::file_linter::FileLinter;
 use crate::fixer::fix_file_in_place;
-use crate::glob::GlobPattern;
+use crate::glob::GlobSetMatcher;
 use crate::options::Options;
 use crate::output::{
     DiagnosticCounter, format_diagnostic, format_diagnostic_with_name, format_note,
     format_sed_diagnostic, format_sed_diagnostic_with_name, render_owned,
+    write_diagnostic_with_name, write_sed_diagnostic_with_name,
 };
 use crate::state::{CountingStyle, CppLintState, OutputFormat, SessionSettings, SessionSnapshot};
 use crate::string_utils::set_to_str;
@@ -472,7 +473,7 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
     }
 
     let thread_safe_file_table = Arc::new(ThreadSafeFileTable::new());
-    let (work_tx, work_rx) = std::sync::mpsc::sync_channel::<(FileId, PathBuf)>(256);
+    let (work_tx, work_rx) = std::sync::mpsc::sync_channel::<Vec<(FileId, PathBuf)>>(64);
     let (report_tx, report_rx) = std::sync::mpsc::sync_channel::<Vec<FileRunReport>>(256);
 
     let config_cache = DirectoryConfigCache::new(&config.options);
@@ -534,6 +535,7 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
             drop(path_tx);
 
             let mut seen = rustc_hash::FxHashSet::<PathBuf>::default();
+            let mut work_batch = Vec::with_capacity(64);
             for (note, path) in path_rx {
                 if let Some(note) = note {
                     let mut report = FileRunReport::default();
@@ -545,8 +547,17 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
                     && seen.insert(file.clone())
                 {
                     let file_id = file_table_prod.intern(&file.to_string_lossy());
-                    let _ = work_tx.send((file_id, file));
+                    work_batch.push((file_id, file));
+                    if work_batch.len() >= 64 {
+                        let _ = work_tx.send(std::mem::replace(
+                            &mut work_batch,
+                            Vec::with_capacity(64),
+                        ));
+                    }
                 }
+            }
+            if !work_batch.is_empty() {
+                let _ = work_tx.send(work_batch);
             }
         });
 
@@ -557,41 +568,45 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
         s.spawn(move || {
             if let Some(pool) = &pool {
                 pool.install(|| {
-                    work_rx.into_iter().par_bridge().for_each_init(
-                        || {
-                            (
-                                BatchSender::new(report_tx.clone(), 32),
-                                bumpalo::Bump::new(),
-                            )
-                        },
-                        |(sender, arena), (file_id, file)| {
-                            let report = plan_and_process_file_with_arena(
-                                config_cache_ref,
-                                config_ref,
-                                session_settings,
-                                file_id,
-                                file,
-                                arena,
-                            );
-                            sender.push(report);
-                            arena.reset();
-                        },
-                    );
+                    work_rx.into_iter().par_bridge().for_each(|batch| {
+                        batch.into_par_iter().for_each_init(
+                            || {
+                                (
+                                    BatchSender::new(report_tx.clone(), 32),
+                                    bumpalo::Bump::new(),
+                                )
+                            },
+                            |(sender, arena), (file_id, file)| {
+                                let report = plan_and_process_file_with_arena(
+                                    config_cache_ref,
+                                    config_ref,
+                                    session_settings,
+                                    file_id,
+                                    file,
+                                    arena,
+                                );
+                                sender.push(report);
+                                arena.reset();
+                            },
+                        );
+                    });
                 });
             } else {
                 let mut sender = BatchSender::new(report_tx.clone(), 32);
                 let mut arena = bumpalo::Bump::new();
-                for (file_id, file) in work_rx {
-                    let report = plan_and_process_file_with_arena(
-                        config_cache_ref,
-                        config_ref,
-                        session_settings,
-                        file_id,
-                        file,
-                        &arena,
-                    );
-                    sender.push(report);
-                    arena.reset();
+                for batch in work_rx {
+                    for (file_id, file) in batch {
+                        let report = plan_and_process_file_with_arena(
+                            config_cache_ref,
+                            config_ref,
+                            session_settings,
+                            file_id,
+                            file,
+                            &arena,
+                        );
+                        sender.push(report);
+                        arena.reset();
+                    }
                 }
             }
             drop(report_tx);
@@ -603,46 +618,39 @@ fn stream_pipeline_lint_with_pool<W1: Write + Send, W2: Write + Send>(
                 for note in &report.notes {
                     match note.stream {
                         NoteStream::Stdout => {
-                            let _ = write!(stdout, "{}", format_note(note));
+                            let _ = stdout.write_all(note.text.as_bytes());
                         }
                         NoteStream::Stderr => {
-                            let _ = write!(stderr, "{}", format_note(note));
+                            let _ = stderr.write_all(note.text.as_bytes());
                         }
                     }
                 }
 
-                for diag in &report.diagnostics {
-                    thread_safe_file_table.get_name(diag.file_id, |filename| {
-                        match config.output_format {
-                            OutputFormat::Sed | OutputFormat::Gsed => {
-                                let (is_fixable, text) = format_sed_diagnostic_with_name(
-                                    config.output_format,
-                                    filename,
-                                    diag,
-                                );
-                                if is_fixable {
-                                    let _ = write!(stdout, "{}", text);
-                                } else {
-                                    let _ = write!(stderr, "{}", text);
-                                }
-                            }
-                            _ => {
-                                let _ = write!(
-                                    stderr,
-                                    "{}",
-                                    format_diagnostic_with_name(
+                if !report.diagnostics.is_empty() {
+                    let file_id = report.diagnostics[0].file_id;
+                    thread_safe_file_table.get_name(file_id, |filename| {
+                        for diag in &report.diagnostics {
+                            match config.output_format {
+                                OutputFormat::Sed | OutputFormat::Gsed => {
+                                    let _ = write_sed_diagnostic_with_name(
+                                        &mut stdout,
                                         config.output_format,
                                         filename,
-                                        diag
-                                    )
-                                );
+                                        diag,
+                                    );
+                                }
+                                _ => {
+                                    let _ = write_diagnostic_with_name(
+                                        &mut stderr,
+                                        config.output_format,
+                                        filename,
+                                        diag,
+                                    );
+                                }
                             }
+                            counter.add(diag);
                         }
                     });
-                }
-
-                for diag in &report.diagnostics {
-                    counter.add(diag);
                 }
             }
         }
@@ -1019,8 +1027,8 @@ fn note_from_config_message(file_id: FileId, order: usize, message: &ConfigMessa
     }
 }
 
-fn compile_excludes(cwd: &Path, excludes: &[String]) -> Result<Vec<GlobPattern>> {
-    excludes
+fn compile_excludes(cwd: &Path, excludes: &[String]) -> Result<GlobSetMatcher> {
+    let patterns: Vec<String> = excludes
         .iter()
         .filter(|pattern| !pattern.is_empty())
         .map(|pattern| {
@@ -1029,14 +1037,14 @@ fn compile_excludes(cwd: &Path, excludes: &[String]) -> Result<Vec<GlobPattern>>
             } else {
                 cwd.join(pattern)
             };
-            GlobPattern::new(&absolute.to_string_lossy(), true)
+            absolute.to_string_lossy().to_string()
         })
-        .collect()
+        .collect();
+    GlobSetMatcher::from_patterns(patterns.iter().map(|s| s.as_str()), true)
 }
 
-fn should_exclude(file: &Path, excludes: &[GlobPattern]) -> bool {
-    let normalized = file.to_string_lossy();
-    excludes.iter().any(|pattern| pattern.is_match(&normalized))
+fn should_exclude(file: &Path, excludes: &GlobSetMatcher) -> bool {
+    excludes.is_match(file)
 }
 
 fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<PathBuf> {

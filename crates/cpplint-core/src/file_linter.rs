@@ -186,13 +186,8 @@ impl<'a> FileLinter<'a> {
 
         let report_mixed_line_endings = self.active_rules.has_whitespace();
         let mixed_line_endings = report_mixed_line_endings && decoded.has_mixed_line_endings();
-        let crlf_lines = if report_mixed_line_endings {
-            decoded.crlf_lines().to_vec()
-        } else {
-            Vec::new()
-        };
-        let has_suppression_hints = decoded.has_global_suppression_hints();
-        self.process_source_lines(decoded.into_lines(), arena, mode, has_suppression_hints);
+        let (lines, crlf_lines, has_suppression_hints) = decoded.into_parts();
+        self.process_source_lines(lines, arena, mode, has_suppression_hints);
 
         if mixed_line_endings {
             for linenum in crlf_lines {

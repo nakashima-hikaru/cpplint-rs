@@ -1,5 +1,6 @@
 use crate::errors::Result;
 use globset::{GlobBuilder, GlobMatcher};
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct GlobPattern {
@@ -31,10 +32,65 @@ impl GlobPattern {
         })
     }
 
+    pub fn is_match_str(&self, normalized_path: &str) -> bool {
+        self.matcher.is_match(normalized_path)
+    }
+
     pub fn is_match(&self, path: &str) -> bool {
-        // Normalize path for matching (C++ version handled both separators)
-        let normalized_path = path.replace('\\', "/");
-        self.matcher.is_match(&normalized_path)
+        let normalized = if path.contains('\\') {
+            std::borrow::Cow::Owned(path.replace('\\', "/"))
+        } else {
+            std::borrow::Cow::Borrowed(path)
+        };
+        self.is_match_str(normalized.as_ref())
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct GlobSetMatcher {
+    set: globset::GlobSet,
+}
+
+impl GlobSetMatcher {
+    pub fn from_patterns<'a>(
+        patterns: impl IntoIterator<Item = &'a str>,
+        match_with_parent: bool,
+    ) -> Result<Self> {
+        let mut builder = globset::GlobSetBuilder::new();
+        for pattern in patterns {
+            let mut final_pattern = pattern.to_string();
+            final_pattern = final_pattern.replace('\\', "/");
+
+            if match_with_parent {
+                if final_pattern.ends_with('/') {
+                    final_pattern.push_str("**");
+                } else if !final_pattern.ends_with("**") {
+                    final_pattern = format!("{{{},{}/**}}", final_pattern, final_pattern);
+                }
+            }
+
+            let glob = GlobBuilder::new(&final_pattern)
+                .literal_separator(true)
+                .backslash_escape(true)
+                .build()?;
+            builder.add(glob);
+        }
+        Ok(Self {
+            set: builder.build()?,
+        })
+    }
+
+    pub fn is_match(&self, path: &Path) -> bool {
+        if self.set.is_empty() {
+            return false;
+        }
+        let path_str = path.to_string_lossy();
+        let normalized = if path_str.contains('\\') {
+            std::borrow::Cow::Owned(path_str.replace('\\', "/"))
+        } else {
+            std::borrow::Cow::Borrowed(path_str.as_ref())
+        };
+        self.set.is_match(normalized.as_ref())
     }
 }
 

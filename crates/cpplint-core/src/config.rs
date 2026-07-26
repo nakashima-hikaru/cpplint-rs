@@ -106,9 +106,11 @@ impl DirectoryConfigCache {
     }
 
     fn read_config_file(&self, path: &Path) -> Option<Arc<ConfigFile>> {
-        let lock = {
-            let mut cache = self.file_cache.write();
-            cache
+        let lock = if let Some(lock) = self.file_cache.read().get(path).cloned() {
+            lock
+        } else {
+            self.file_cache
+                .write()
                 .entry(path.to_path_buf())
                 .or_insert_with(|| Arc::new(OnceLock::new()))
                 .clone()
@@ -127,9 +129,11 @@ impl DirectoryConfigCache {
         }
 
         let directory = filename.parent().unwrap_or_else(|| Path::new(""));
-        let plan_lock = {
-            let mut plans = self.plans.write();
-            plans
+        let plan_lock = if let Some(lock) = self.plans.read().get(directory).cloned() {
+            lock
+        } else {
+            self.plans
+                .write()
                 .entry(directory.to_path_buf())
                 .or_insert_with(|| Arc::new(OnceLock::new()))
                 .clone()

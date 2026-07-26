@@ -94,16 +94,45 @@ fn category_requirements(cat: Category) -> RuleRequirements {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct RuleFamilies: u8 {
+        const WHITESPACE  = 1 << 0;
+        const RUNTIME     = 1 << 1;
+        const READABILITY = 1 << 2;
+        const HEADERS     = 1 << 3;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ActiveRulePlan {
     pub categories: categories::CategorySet,
     pub requirements: RuleRequirements,
+    pub families: RuleFamilies,
 }
 
 impl ActiveRulePlan {
     pub fn enable_category(&mut self, cat: Category) {
         self.categories.insert(cat);
         self.requirements |= category_requirements(cat);
+        self.recompute_families();
+    }
+
+    pub fn recompute_families(&mut self) {
+        let mut fam = RuleFamilies::empty();
+        if self.has_headers_category() {
+            fam |= RuleFamilies::HEADERS;
+        }
+        if self.has_whitespace_category() {
+            fam |= RuleFamilies::WHITESPACE;
+        }
+        if self.has_runtime_category() {
+            fam |= RuleFamilies::RUNTIME;
+        }
+        if self.has_readability_category() {
+            fam |= RuleFamilies::READABILITY;
+        }
+        self.families = fam;
     }
 
     #[inline]
@@ -121,7 +150,27 @@ impl ActiveRulePlan {
         self.is_enabled(Category::LegalCopyright)
     }
 
+    #[inline]
     pub fn has_headers(&self) -> bool {
+        self.families.contains(RuleFamilies::HEADERS)
+    }
+
+    #[inline]
+    pub fn has_whitespace(&self) -> bool {
+        self.families.contains(RuleFamilies::WHITESPACE)
+    }
+
+    #[inline]
+    pub fn has_runtime(&self) -> bool {
+        self.families.contains(RuleFamilies::RUNTIME)
+    }
+
+    #[inline]
+    pub fn has_readability(&self) -> bool {
+        self.families.contains(RuleFamilies::READABILITY)
+    }
+
+    fn has_headers_category(&self) -> bool {
         self.is_enabled(Category::BuildHeaderGuard)
             || self.is_enabled(Category::BuildInclude)
             || self.is_enabled(Category::BuildIncludeSubdir)
@@ -130,7 +179,7 @@ impl ActiveRulePlan {
             || self.is_enabled(Category::BuildIncludeWhatYouUse)
     }
 
-    pub fn has_whitespace(&self) -> bool {
+    fn has_whitespace_category(&self) -> bool {
         self.categories.contains(Category::WhitespaceBlankLine)
             || self.categories.contains(Category::WhitespaceBraces)
             || self.categories.contains(Category::WhitespaceComma)
@@ -156,7 +205,7 @@ impl ActiveRulePlan {
             || self.categories.contains(Category::WhitespaceTodo)
     }
 
-    pub fn has_runtime(&self) -> bool {
+    fn has_runtime_category(&self) -> bool {
         self.categories.contains(Category::RuntimeArrays)
             || self.categories.contains(Category::RuntimeCasting)
             || self.categories.contains(Category::RuntimeExplicit)
@@ -176,7 +225,7 @@ impl ActiveRulePlan {
             || self.categories.contains(Category::RuntimeVlog)
     }
 
-    pub fn has_readability(&self) -> bool {
+    fn has_readability_category(&self) -> bool {
         self.categories.contains(Category::ReadabilityAltTokens)
             || self.categories.contains(Category::ReadabilityBraces)
             || self.categories.contains(Category::ReadabilityCasting)

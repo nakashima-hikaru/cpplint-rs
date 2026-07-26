@@ -1018,9 +1018,7 @@ pub fn check_includes(linter: &mut FileLinter, clean_lines: &CleansedLines<'_>) 
             })
         };
         if third_src_header || !is_special_include_name(include) {
-            include_state
-                .last_include_list_mut()
-                .push((include.to_string(), linenum));
+            include_state.push_include(include, linenum);
             if let Some(message) = include_state.check_next_include_order(kind) {
                 let basename = Path::new(linter.filename())
                     .file_stem()

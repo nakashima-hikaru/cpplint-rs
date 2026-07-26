@@ -41,11 +41,14 @@ enum IncludeSection {
     OtherHeader,
 }
 
+use rustc_hash::FxHashMap;
+
 #[derive(Debug)]
 pub struct IncludeState {
     section: IncludeSection,
     last_header: String,
     include_list: Vec<Vec<(String, usize)>>,
+    first_line_by_header: FxHashMap<String, usize>,
 }
 
 impl Default for IncludeState {
@@ -60,17 +63,20 @@ impl IncludeState {
             section: IncludeSection::Initial,
             last_header: String::new(),
             include_list: vec![Vec::new()],
+            first_line_by_header: FxHashMap::default(),
         };
         state.reset_section("");
         state
     }
 
     pub fn find_header(&self, header: &str) -> Option<usize> {
-        self.include_list.iter().find_map(|section_list| {
-            section_list
-                .iter()
-                .find_map(|(include, line)| (include == header).then_some(*line))
-        })
+        self.first_line_by_header.get(header).copied()
+    }
+
+    pub fn push_include(&mut self, header: impl Into<String>, line: usize) {
+        let h = header.into();
+        self.first_line_by_header.entry(h.clone()).or_insert(line);
+        self.last_include_list_mut().push((h, line));
     }
 
     pub fn reset_section(&mut self, directive: &str) {
@@ -83,8 +89,20 @@ impl IncludeState {
                 if let Some(section_list) = self.include_list.last_mut() {
                     section_list.clear();
                 }
+                self.rebuild_header_map();
             }
             _ => {}
+        }
+    }
+
+    fn rebuild_header_map(&mut self) {
+        self.first_line_by_header.clear();
+        for section in &self.include_list {
+            for (header, line) in section {
+                self.first_line_by_header
+                    .entry(header.clone())
+                    .or_insert(*line);
+            }
         }
     }
 
@@ -547,12 +565,8 @@ mod tests {
     #[test]
     fn test_include_state_tracks_duplicates_and_order() {
         let mut include_state = IncludeState::new();
-        include_state
-            .last_include_list_mut()
-            .push(("vector".to_string(), 2));
-        include_state
-            .last_include_list_mut()
-            .push(("vector".to_string(), 5));
+        include_state.push_include("vector", 2);
+        include_state.push_include("vector", 5);
         assert_eq!(include_state.find_header("vector"), Some(2));
 
         assert_eq!(
