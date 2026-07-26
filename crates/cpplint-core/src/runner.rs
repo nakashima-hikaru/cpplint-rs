@@ -996,8 +996,6 @@ fn expand_directory(directory: &Path, options: &Options, threads: usize) -> Vec<
     }
 }
 
-
-
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn process_file(
     job: PlannedLintJob,
