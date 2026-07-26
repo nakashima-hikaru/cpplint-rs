@@ -416,7 +416,14 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
     }
 
     if config.num_threads.get() == 1 {
-        return stream_single_threaded_lint(files, config, session_settings, started_at, stdout, stderr);
+        return stream_single_threaded_lint(
+            files,
+            config,
+            session_settings,
+            started_at,
+            stdout,
+            stderr,
+        );
     }
 
     let thread_safe_file_table = Arc::new(ThreadSafeFileTable::new());
@@ -571,8 +578,11 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                     thread_safe_file_table.get_name(diag.file_id, |filename| {
                         match config.output_format {
                             OutputFormat::Sed | OutputFormat::Gsed => {
-                                let (is_fixable, text) =
-                                    format_sed_diagnostic_with_name(config.output_format, filename, diag);
+                                let (is_fixable, text) = format_sed_diagnostic_with_name(
+                                    config.output_format,
+                                    filename,
+                                    diag,
+                                );
                                 if is_fixable {
                                     let _ = write!(stdout, "{}", text);
                                 } else {
@@ -583,7 +593,11 @@ fn stream_pipeline_lint<W1: Write + Send, W2: Write + Send>(
                                 let _ = write!(
                                     stderr,
                                     "{}",
-                                    format_diagnostic_with_name(config.output_format, filename, diag)
+                                    format_diagnostic_with_name(
+                                        config.output_format,
+                                        filename,
+                                        diag
+                                    )
                                 );
                             }
                         }
@@ -651,24 +665,22 @@ fn stream_single_threaded_lint<W1: Write, W2: Write>(
         }
 
         for diag in &report.diagnostics {
-            file_table.get_name(diag.file_id, |filename| {
-                match config.output_format {
-                    OutputFormat::Sed | OutputFormat::Gsed => {
-                        let (is_fixable, text) =
-                            format_sed_diagnostic_with_name(config.output_format, filename, diag);
-                        if is_fixable {
-                            let _ = write!(stdout, "{}", text);
-                        } else {
-                            let _ = write!(stderr, "{}", text);
-                        }
+            file_table.get_name(diag.file_id, |filename| match config.output_format {
+                OutputFormat::Sed | OutputFormat::Gsed => {
+                    let (is_fixable, text) =
+                        format_sed_diagnostic_with_name(config.output_format, filename, diag);
+                    if is_fixable {
+                        let _ = write!(stdout, "{}", text);
+                    } else {
+                        let _ = write!(stderr, "{}", text);
                     }
-                    _ => {
-                        let _ = write!(
-                            stderr,
-                            "{}",
-                            format_diagnostic_with_name(config.output_format, filename, diag)
-                        );
-                    }
+                }
+                _ => {
+                    let _ = write!(
+                        stderr,
+                        "{}",
+                        format_diagnostic_with_name(config.output_format, filename, diag)
+                    );
                 }
             });
             counter.add(diag);

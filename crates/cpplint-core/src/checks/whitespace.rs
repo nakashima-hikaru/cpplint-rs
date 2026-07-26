@@ -1739,9 +1739,7 @@ pub fn check(
         check_section_spacing(linter, facts, clean_lines, linenum, &keywords);
     }
 
-    if (has_colon || keywords.has_access())
-        && active_rules.is_enabled(Category::WhitespaceIndent)
-    {
+    if (has_colon || keywords.has_access()) && active_rules.is_enabled(Category::WhitespaceIndent) {
         check_access_specifier_indentation(linter, facts, clean_lines, linenum, &keywords);
     }
 

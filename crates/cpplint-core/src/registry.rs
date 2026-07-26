@@ -135,14 +135,18 @@ impl ActiveRulePlan {
             || self.categories.contains(Category::WhitespaceBraces)
             || self.categories.contains(Category::WhitespaceComma)
             || self.categories.contains(Category::WhitespaceComments)
-            || self.categories.contains(Category::WhitespaceEmptyConditionalBody)
+            || self
+                .categories
+                .contains(Category::WhitespaceEmptyConditionalBody)
             || self.categories.contains(Category::WhitespaceEmptyIfBody)
             || self.categories.contains(Category::WhitespaceEmptyLoopBody)
             || self.categories.contains(Category::WhitespaceEndOfLine)
             || self.categories.contains(Category::WhitespaceEndingNewline)
             || self.categories.contains(Category::WhitespaceForcolon)
             || self.categories.contains(Category::WhitespaceIndent)
-            || self.categories.contains(Category::WhitespaceIndentNamespace)
+            || self
+                .categories
+                .contains(Category::WhitespaceIndentNamespace)
             || self.categories.contains(Category::WhitespaceLineLength)
             || self.categories.contains(Category::WhitespaceNewline)
             || self.categories.contains(Category::WhitespaceOperators)
@@ -159,7 +163,9 @@ impl ActiveRulePlan {
             || self.categories.contains(Category::RuntimeInt)
             || self.categories.contains(Category::RuntimeInit)
             || self.categories.contains(Category::RuntimeInvalidIncrement)
-            || self.categories.contains(Category::RuntimeMemberStringReferences)
+            || self
+                .categories
+                .contains(Category::RuntimeMemberStringReferences)
             || self.categories.contains(Category::RuntimeMemset)
             || self.categories.contains(Category::RuntimeOperator)
             || self.categories.contains(Category::RuntimePrintf)
@@ -178,8 +184,12 @@ impl ActiveRulePlan {
             || self.categories.contains(Category::ReadabilityConstructors)
             || self.categories.contains(Category::ReadabilityFnSize)
             || self.categories.contains(Category::ReadabilityInheritance)
-            || self.categories.contains(Category::ReadabilityMultilineComment)
-            || self.categories.contains(Category::ReadabilityMultilineString)
+            || self
+                .categories
+                .contains(Category::ReadabilityMultilineComment)
+            || self
+                .categories
+                .contains(Category::ReadabilityMultilineString)
             || self.categories.contains(Category::ReadabilityNamespace)
             || self.categories.contains(Category::ReadabilityNolint)
             || self.categories.contains(Category::ReadabilityNul)

@@ -1833,8 +1833,6 @@ impl<'a> FactsCache<'a> {
     }
 }
 
-
-
 #[cfg(test)]
 fn fix_access_specifier_indentation(
     path: &Path,

@@ -116,7 +116,6 @@ impl CategorySet {
 }
 
 impl Category {
-
     pub const ALL: &'static [Category] = &[
         Self::BuildCpp11,
         Self::BuildCpp17,
