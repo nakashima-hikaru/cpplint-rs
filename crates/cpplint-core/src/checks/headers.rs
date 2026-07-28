@@ -1097,10 +1097,8 @@ fn classify_include(
     let include_ext = include
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| format!(".{}", ext))
-        .unwrap_or_default();
-    let is_system =
-        used_angle_brackets && !matches!(include_ext.as_str(), ".hh" | ".hpp" | ".hxx" | ".h++");
+        .unwrap_or("");
+    let is_system = used_angle_brackets && !matches!(include_ext, "hh" | "hpp" | "hxx" | "h++");
     let is_std_c_header = include_order == IncludeOrder::Default
         || c_headers::C_HEADERS
             .binary_search(&include_str.as_str())
@@ -1183,14 +1181,14 @@ fn files_belong_to_same_module(filename_cc: &Path, filename_h: &Path) -> (bool, 
     let cc_ext = filename_cc
         .extension()
         .and_then(|ext| ext.to_str())
-        .unwrap_or_default();
+        .unwrap_or("");
     if !is_non_header_extension(cc_ext) {
         return (false, String::new());
     }
     let h_ext = filename_h
         .extension()
         .and_then(|ext| ext.to_str())
-        .unwrap_or_default();
+        .unwrap_or("");
     if !is_header_extension(h_ext) {
         return (false, String::new());
     }

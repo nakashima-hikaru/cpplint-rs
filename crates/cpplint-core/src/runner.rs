@@ -162,7 +162,6 @@ impl<T, S: ChannelSender<Vec<T>>> Drop for BatchSender<T, S> {
     }
 }
 
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 #[derive(Debug)]
 pub struct Runner {
     pool: Option<rayon::ThreadPool>,
