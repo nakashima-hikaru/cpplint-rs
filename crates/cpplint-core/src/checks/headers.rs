@@ -1516,20 +1516,32 @@ fn check_header_file_included(linter: &mut FileLinter, include_state: &IncludeSt
     }
 
     let options = linter.options_arc();
+    let mut header_path = directory.to_path_buf();
+    let mut header_name_path = file_from_repo.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+    let mut stem_ext = String::with_capacity(stem.len() + 8); // pre-allocate
+
     for header_ext in options.header_extensions() {
-        let header_path = directory.join(format!("{}.{}", stem, header_ext));
-        if !header_path.is_file() {
+        // ⚡ Bolt: Avoid format!() allocation in hot loops when checking for file paths
+        stem_ext.clear();
+        stem_ext.push_str(stem);
+        stem_ext.push('.');
+        stem_ext.push_str(header_ext);
+
+        header_path.push(&stem_ext);
+        let is_file = header_path.is_file();
+        header_path.pop(); // Reset for next iteration
+
+        if !is_file {
             continue;
         }
 
-        let mut header_name = file_from_repo
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(format!("{}.{}", stem, header_ext))
-            .to_string_lossy()
-            .replace('\\', "/");
+        header_name_path.push(&stem_ext);
+
+        let mut header_name = header_name_path.to_string_lossy().replace('\\', "/");
+        header_name_path.pop(); // Reset for next iteration
+
         if header_name.is_empty() {
-            header_name = format!("{}.{}", stem, header_ext);
+            header_name = stem_ext.clone();
         }
 
         let found = include_state.include_lists().iter().any(|section_list| {
