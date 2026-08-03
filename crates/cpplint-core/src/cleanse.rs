@@ -480,65 +480,11 @@ fn scan_line_features(
         mask |= LineFeatures::LINE_WITHOUT_RAW_STRINGS_BLANK.bits();
     }
 
-    let line = elided_line;
-    let bytes = line.as_bytes();
-    let mut i = 0;
-    while i + 32 <= bytes.len() {
-        let chunk = u8x32::from_slice(&bytes[i..i + 32]);
-        if chunk.simd_eq(u8x32::splat(b':')).any() {
-            mask |= LineFeatures::COLON.bits();
-        }
-        if (chunk.simd_eq(u8x32::splat(b'(')) | chunk.simd_eq(u8x32::splat(b')'))).any() {
-            mask |= LineFeatures::PAREN.bits();
-        }
-        if chunk.simd_eq(u8x32::splat(b',')).any() {
-            mask |= LineFeatures::COMMA.bits();
-        }
-        if chunk.simd_eq(u8x32::splat(b';')).any() {
-            mask |= LineFeatures::SEMI.bits();
-        }
-        if (chunk.simd_eq(u8x32::splat(b'{')) | chunk.simd_eq(u8x32::splat(b'}'))).any() {
-            mask |= LineFeatures::BRACE.bits();
-        }
-        if (chunk.simd_eq(u8x32::splat(b'[')) | chunk.simd_eq(u8x32::splat(b']'))).any() {
-            mask |= LineFeatures::BRACKET.bits();
-        }
-        if (chunk.simd_eq(u8x32::splat(b'='))
-            | chunk.simd_eq(u8x32::splat(b'<'))
-            | chunk.simd_eq(u8x32::splat(b'>'))
-            | chunk.simd_eq(u8x32::splat(b'!'))
-            | chunk.simd_eq(u8x32::splat(b'~'))
-            | chunk.simd_eq(u8x32::splat(b'+'))
-            | chunk.simd_eq(u8x32::splat(b'-'))
-            | chunk.simd_eq(u8x32::splat(b'*'))
-            | chunk.simd_eq(u8x32::splat(b'/'))
-            | chunk.simd_eq(u8x32::splat(b'%'))
-            | chunk.simd_eq(u8x32::splat(b'&'))
-            | chunk.simd_eq(u8x32::splat(b'|'))
-            | chunk.simd_eq(u8x32::splat(b'^')))
-        .any()
-        {
-            mask |= LineFeatures::OP.bits();
-        }
-        if chunk.simd_eq(u8x32::splat(b'&')).any() {
-            mask |= LineFeatures::AMP.bits();
-        }
-        if (chunk.simd_eq(u8x32::splat(b'+')) | chunk.simd_eq(u8x32::splat(b'-'))).any() {
-            mask |= LineFeatures::PLUS_MINUS.bits();
-        }
-        if (chunk.simd_eq(u8x32::splat(b'<'))
-            | chunk.simd_eq(u8x32::splat(b'>'))
-            | chunk.simd_eq(u8x32::splat(b'?')))
-        .any()
-        {
-            mask |= LineFeatures::ANGLE_QUESTION.bits();
-        }
-        if chunk.simd_eq(u8x32::splat(b'#')).any() {
-            mask |= LineFeatures::HASH.bits();
-        }
-        i += 32;
-    }
-    for &b in &bytes[i..] {
+    // ⚡ Bolt: Fast lookup table optimization
+    // A single byte-by-byte loop over a pre-computed lookup table (LUT)
+    // outperforms manual SIMD chunking due to the short average
+    // length of typical C++ lines and avoidance of loop initialization overhead.
+    for &b in elided_line.as_bytes() {
         mask |= LINE_FEATURE_LUT[b as usize];
     }
     LineFeatures::from_bits_retain(mask)
